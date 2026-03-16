@@ -2,8 +2,8 @@
 
 | 항목 | 내용 |
 |------|------|
-| 프로젝트명 | 퀀트 전략 상태 모니터링 및 이상 징후 탐지 시스템 |
-| 서비스명(브랜드) | |
+| 프로젝트명 | 다중 퀀트 전략 실시간 상태 모니터링 및 이상 징후 탐지 시스템 |
+| 서비스명(브랜드) | Canary |
 | 트랙 | 산학 |
 | 팀명 | Cloud9 |
 | 팀구성 | 박나림, 임도경, 최은우 |
@@ -15,4 +15,4 @@
 | 기대 효과 | 손실 최소화 |
 | GitHub Repo | [https://github.com/Cloud9-capstone-2026](https://github.com/Cloud9-capstone-2026) |
 | Team Ground Rule | [Team Ground Rule](https://github.com/Cloud9-capstone-2026/cloud9/blob/main/Team_Ground_Rule.md) |
-| 최종수정일 | 2026.03.12 |
+| 최종수정일 | 2026.03.16 |
