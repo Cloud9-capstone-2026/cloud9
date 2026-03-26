@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h2>Calculator</h2>
+  <input type="number" id="num1"> + <input type="number" id="num2">
+  <button onclick="calculate()">submit</button>
+  <p id="result">결과가 여기에 표시됩니다.</p>
+
+  <script>
+    async function calculate() {
+      const a = document.getElementById('num1').value;
+      const b = document.getElementById('num2').value;
+      
+      // Vercel의 Serverless Function(/api/add.js)으로 요청 보냄
+      const res = await fetch(`/api/add?a=${a}&b=${b}`);
+      const data = await res.json();
+      
+      document.getElementById('result').innerText = "result: " + data.result;
+    }
+  </script>
+</body>
+</html>
