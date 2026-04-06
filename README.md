@@ -1,18 +1,74 @@
-## Team 9 Cloud9
+# 📈 다중 퀀트 전략 실시간 상태 모니터링 및 AI 기반 이상 징후 탐지 시스템
+> **Real-time Multi-Quant Strategy Monitoring & AI-based Anomaly Detection System**
 
-| 항목 | 내용 |
-|------|------|
-| 프로젝트명 | 다중 퀀트 전략 실시간 상태 모니터링 및 AI 기반 이상 징후 탐지 시스템 |
-| 서비스명(브랜드) | Canary |
-| 트랙 | 산학 |
-| 팀명 | Cloud9 |
-| 팀구성 | 박나림, 임도경, 최은우 |
-| 팀지도교수 | 이민수 |
-| 무엇을 만들고자 하는가 | 다중 퀀트 전략 실시간 상태 모니터링 및 AI 기반 이상 징후 탐지 시스템 |
-| 고객 (누구를 위해) | 개인 자동매매 투자자 |
-| Pain Point (해결할 문제) | 여러 퀀트 전략을 동시에 운용할 경우, 이상 상황이 발생했을 때 어떤 전략에서 문제가 생겼는지 빠르게 확인하기 어렵다는 문제가 있다. 본 프로젝트는 전략별 상태를 실시간으로 모니터링하고 이상 징후를 탐지하여, 이를 대시보드로 시각화해 효율적인 대응을 가능하게 한다. |
-| 사용 기술 | Front(React, Recharts, WebSocket client), Back(Python, FastAPI, SQLAlchemy, WebSocket), AI(Pandas, NumPy)  |
-| 기대 효과 | 손실 최소화 |
-| GitHub Repo | [https://github.com/Cloud9-capstone-2026](https://github.com/Cloud9-capstone-2026) |
-| Team Ground Rule | [Team Ground Rule](https://github.com/Cloud9-capstone-2026/cloud9/blob/main/Team_Ground_Rule.md) |
-| 최종수정일 | 2026.03.30 |
+---
+
+## 1. 서비스 소개: Canary (카나리아) 🐤
+### **"금융 시장의 위험을 가장 먼저 알리는 조기 경보 시스템"**
+
+* **서비스명 선정 이유**: 과거 광부들이 탄광의 유해 가스를 감지하기 위해 카나리아를 곁에 두었던 것에서 착안했습니다. **Canary**는 금융 시장에서 발생하는 미세한 이상 징후를 조기에 탐지하고, 투자 전략의 위험 신호를 사용자에게 가장 빠르게 전달하는 것을 목표로 합니다.
+* **프로젝트 목표**: 실시간 KRX 시장 데이터를 기반으로 복수의 퀀트 전략을 동시에 실행하고, PnL·MDD·Sharpe 등 성과 지표를 실시간 산출하여 전략의 이상 징후를 자동 탐지하는 시스템을 구축합니다[cite: 12, 44].
+
+---
+
+## 2. 프로젝트 제안 배경 (Problem Definition)
+* **판단 지연**: 전략 성과가 비정상적으로 변화하더라도, 원인이 시장 변화 때문인지 전략 자체의 문제인지 즉각 판단하기 어렵습니다.
+* **모니터링 한계**: 여러 전략을 동시에 운용할 경우 전략 간 성과를 비교하고 이상 여부를 실시간으로 감지하는 체계가 부족합니다.
+* **자동화 필요성**: 기존의 수동 모니터링 방식에서 벗어나, 이상의 원인을 시장 전체 문제와 특정 전략 문제로 자동 구분하는 실시간 시스템이 필요합니다.
+
+---
+
+## 3. 시스템 구조 (System Architecture)
+Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **엔드투엔드 파이프라인**을 제공합니다.
+
+<img width="2096" height="204" alt="KakaoTalk_Photo_2026-04-06-17-57-54" src="https://github.com/user-attachments/assets/53382df8-8db6-4fc4-94b1-d39425c4a796" />
+
+
+1.  **실시간 시장 데이터**: 실시간 KRX 데이터를 초 단위로 수집 및 처리하는 파이프라인을 구축합니다.
+2.  **전략 실행 엔진**: 이동평균(MA), RSI, 모멘텀 등 복수 전략을 독립된 환경에서 동시 실행합니다.
+3.  **메트릭 계산**: 각 전략별 일일 수익률(PnL), 최대 낙폭(MDD), 샤프 비율(Sharpe) 등 성과 지표를 실시간으로 연산합니다.
+4.  **3계층 앙상블 이상 탐지 (Core)**: 
+    * **1계층 (Rule-based)**: 설정된 리스크 파라미터(손절선 등) 이탈 감지.
+    * **2계층 (Statistical)**: Z-score 기반의 통계적 변동성 분석.
+    * **3계층 (Machine Learning)**: ML 모델을 통한 비정상 패턴 식별.
+5.  **결과 판단**: 탐지 모델의 분석을 통해 현재 전략의 상태를 정상 또는 이상으로 최종 구분하고 이상의 원인을 추정합니다.
+6.  **알림 및 시각화**: React 기반 대시보드 시각화 및 WebSocket 기반 실시간 푸시 알림을 제공합니다.
+
+---
+
+## 4. 주요 기능 (Main Features)
+
+* **전략 등록 및 시뮬레이션**: 사용자가 시그널 모듈을 AND/OR 방식으로 조합하고 리스크 파라미터를 직접 설정할 수 있습니다.
+* **실시간 성과 지표 연산**: 일일 수익률, MDD, 샤프 비율 등 전략별 성과 메트릭을 실시간으로 계산합니다.
+* **이상 원인 자동 구분**: 이상 전략 비율 및 보조 지표를 활용해 원인이 시장에 있는지 특정 전략에 있는지 추정합니다.
+* **실시간 시각화 대시보드**: 전략별 성과 차트와 이상 이력을 한눈에 볼 수 있도록 제공합니다.
+
+---
+
+## 5. 적용 기술 (Technical Stack)
+| 구분 | 상세 기술 |
+| :--- | :--- |
+| **Frontend** | React, Recharts (성과 시각화), WebSocket client |
+| **Backend** | Python, FastAPI, SQLAlchemy (DB), WebSocket |
+| **AI/Data** | Pandas, NumPy, Scikit-learn (3계층 앙상블 탐지 모델) |
+| **Infrastructure** | Cloud Hosting, 고성능 GPU 워크스테이션 |
+| **Collaboration** | GitHub, Notion (프로젝트 문서화)  |
+
+---
+
+## 6. 기대효과 및 실익 (Value Proposition)
+* **리스크 대응 속도 향상**: 수동 모니터링 자동화를 통해 이상 징후를 조기에 포착하고 신속하게 대응합니다.
+* **운용 안정성 확보**: 시장과 전략의 문제를 즉각 구분하여 불필요한 전략 수정을 방지합니다.
+* **높은 탐지 신뢰도**: 3계층 앙상블 방식을 통해 단일 방식 대비 오분류율을 낮추고 탐지 성공률 95% 이상을 목표로 합니다.
+
+---
+
+## 7. 팀 정보
+* **팀명**: Cloud9
+* **지도교수**: 이민수 교수님
+* **팀원**: 박나림, 임도경, 최은우
+* **Repo**: [https://github.com/Cloud9-capstone-2026](https://github.com/Cloud9-capstone-2026)
+* **Ground Rule**: [Team Ground Rule](https://github.com/Cloud9-capstone-2026/cloud9/blob/main/Team_Ground_Rule.md)
+
+---
+ 최종수정일 : 2026.04.06 
