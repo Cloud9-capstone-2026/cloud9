@@ -19,7 +19,7 @@
 ---
 
 ## 3. 시스템 구조 (System Architecture)
-Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **엔드투엔드 파이프라인**을 제공합니다.
+Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **End-to-End 파이프라인**을 제공합니다.
 
 <img width="2096" height="204" alt="KakaoTalk_Photo_2026-04-06-17-57-54" src="https://github.com/user-attachments/assets/53382df8-8db6-4fc4-94b1-d39425c4a796" />
 
