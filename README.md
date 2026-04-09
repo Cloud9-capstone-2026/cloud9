@@ -26,6 +26,7 @@ Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **End-
 
 <img width="2096" height="204" alt="KakaoTalk_Photo_2026-04-06-17-57-54" src="https://github.com/user-attachments/assets/53382df8-8db6-4fc4-94b1-d39425c4a796" />
 
+<br>
 
 1.  **실시간 시장 데이터**: 실시간 KRX 데이터를 초 단위로 수집 및 처리하는 파이프라인을 구축합.
 2.  **전략 실행 엔진**: 이동평균(MA), RSI, 모멘텀 등 복수 전략을 독립된 환경에서 동시 실행.
@@ -45,7 +46,7 @@ Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **End-
 * **Hybrid Detection**: Rule-based, Statistical(Z-score), Machine Learning(Isolation Forest 등)을 결합한 3계층 앙상블 탐지.
 * **Automatic Root Cause Analysis**: 이상 발생 시 시장 요인과 전략 요인을 분리 분석하여 원인 추정.
 * **Interactive Dashboard**: 전략별 성과 차트와 이상 이력을 한눈에 볼 수 있도록 시각화, WebSocket 기반의 실시간 차트 업데이트 및 긴급 리스크 푸시 알림.
-* 
+  
 <br>
 
 ## 5. 적용 기술 (Technical Stack)
@@ -56,6 +57,34 @@ Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **End-
 | **AI/Data** | Pandas, NumPy, Scikit-learn (3계층 앙상블 탐지 모델) |
 | **Infrastructure** | Cloud Hosting, 고성능 GPU 워크스테이션 |
 | **Collaboration** | GitHub, Notion (프로젝트 문서화)  |
+
+<br>
+
+## 📂 프로젝트 구조 (Project Structure)
+
+본 프로젝트는 모듈화된 아키텍처로 전략 수립, 데이터 수집, 이상 탐지 로직을 분리해서 관리한다.
+
+```text
+cloud9/
+├── main.py                # 시스템 통합 실행 엔트리 포인트
+├── token.dat              # API 인증 토큰 관리 파일
+│
+├── broker/                # 데이터 수집 및 거래 인터페이스
+│   └── korea_investment.py # 한국투자증권 API 연동 및 실시간 시세 수집
+│
+├── strategy/              # 퀀트 매매 전략 모듈
+│   ├── base.py            # 전략 추상화를 위한 기본 클래스
+│   ├── ma_crossover.py    # 이동평균 크로스오버 전략 로직
+│   └── rsi.py             # RSI 지표 기반 매매 전략 로직
+│
+├── portfolio/             # 자산 및 성과 관리 모듈
+│   └── portfolio.py       # 실시간 PnL, MDD 계산 및 포지션 관리
+│
+└── detector/              # 3계층 하이브리드 이상 탐지 엔진
+    ├── rule.py            # 1계층: 사전 정의된 임계치 기반 Rule 탐지
+    ├── zscore.py          # 2계층: 통계적 변동성 기반 Z-score 탐지
+    └── lstm.py            # 3계층: AI(LSTM) 기반 비정상 패턴 탐지
+```
 
 <br>
 
