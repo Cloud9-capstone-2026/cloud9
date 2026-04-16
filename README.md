@@ -43,7 +43,7 @@ Canary는 데이터 수집부터 이상 탐지, 알림까지 이어지는 **End-
 ## 4. 주요 기능 (Main Features)
 
 * **Real-time Engine**: 초 단위 KRX 시장 데이터 스트리밍 및 성과 지표(PnL, MDD, Sharpe) 산출.
-* **Hybrid Detection**: Rule-based, Statistical(Z-score), Machine Learning(Isolation Forest 등)을 결합한 3계층 앙상블 탐지.
+* **Hybrid Detection**: Rule-based, Statistical(Z-score), Machine Learning(LSTM AutoEncoder)을 결합한 3계층 앙상블 탐지.
 * **Automatic Root Cause Analysis**: 이상 발생 시 시장 요인과 전략 요인을 분리 분석하여 원인 추정.
 * **Interactive Dashboard**: 전략별 성과 차트와 이상 이력을 한눈에 볼 수 있도록 시각화, WebSocket 기반의 실시간 차트 업데이트 및 긴급 리스크 푸시 알림.
   
