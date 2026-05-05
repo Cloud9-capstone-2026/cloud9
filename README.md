@@ -61,7 +61,7 @@ Canary는 수익 창출이 아닌, '손실을 유발하는 행동'을 줄이는 
 ## 프로젝트 구조
 
 ```
-canary/
+cloud9/
 ├── data/
 │   ├── raw/              # 원본 거래 로그 CSV
 │   ├── processed/        # 피처 추출 결과
