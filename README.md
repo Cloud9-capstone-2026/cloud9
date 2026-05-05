@@ -96,19 +96,6 @@ cloud9/
     └── settings.yaml     # 임계값 및 하이퍼파라미터
 ```
 
-### 핵심 선행 연구
-
-| 논문 | 연결 컴포넌트 |
-|------|-------------|
-| Odean (1998) — 처분 효과 | `feature_eng.py` PGR/PLR 산출 |
-| Barber & Odean (2001) — 과잉확신·회전율 | `feature_eng.py` Turnover |
-| Grinblatt et al. (1995) — 모멘텀 추격 | `rule_based.py` 1계층 규칙 |
-| Kahneman & Tversky (1979) — 전망이론 | `xai.py` 손실 회피 매핑 |
-| Jing et al. (2021) — LSTM 하이브리드 | `lstm_ae.py` 아키텍처 |
-| Ozbayoglu et al. (2020) — 딥러닝 금융 이상탐지 | `lstm_ae.py` 학습 전략 |
-| Shantha (2019) — 페르소나 분류 | `persona.py` 클러스터링 |
-| Şeker et al. (2025) — AI 행동재무학 리뷰 | 전체 시스템 이론적 근거 |
-
 <br>
 
 ## 기대 효과 및 학술적 의의
