@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Trade
+from models import Trade, CsvUpload
 import pandas as pd
 import io
 
