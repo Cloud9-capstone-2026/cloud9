@@ -1,0 +1,28 @@
+{
+  "user_id": "user_001",
+  "new_trades_count": 1,
+  "detection_result": {
+    "rule": {
+      "is_anomaly": true,
+      "score": 1.0,
+      "detections": [
+        {
+          "rule": "일중_반복매매",
+          "날짜": "2025-12-31",
+          "종목명": "삼성전자",
+          "횟수": 1,
+          "evidence": "2025-12-31 삼성전자 1회 매매"
+        }
+      ]
+    },
+    "stat": {
+      "stat_score": 0.766,
+      "is_anomaly": false,
+      "z_vector": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}

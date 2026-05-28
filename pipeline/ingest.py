@@ -26,8 +26,13 @@ def read_csv(filepath: str) -> tuple[pd.DataFrame, list[str]]:
 
 def _is_two_row_header(raw: pd.DataFrame) -> bool:
     try:
+        pd.to_datetime(str(raw.iloc[1, 0]))
+        return False  # row 1이 날짜 → 단일 헤더
+    except Exception:
+        pass
+    try:
         pd.to_datetime(str(raw.iloc[2, 0]))
-        return True
+        return True   # row 1은 헤더, row 2가 날짜 → 2행 헤더
     except Exception:
         return False
 

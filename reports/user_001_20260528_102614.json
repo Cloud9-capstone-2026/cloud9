@@ -1,0 +1,20 @@
+{
+  "user_id": "user_001",
+  "new_trades_count": 0,
+  "detection_result": {
+    "rule": {
+      "is_anomaly": false,
+      "score": 0.0,
+      "detections": []
+    },
+    "stat": {
+      "stat_score": NaN,
+      "is_anomaly": false,
+      "z_vector": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  }
+}
