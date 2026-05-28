@@ -1,0 +1,102 @@
+{
+  "user_id": "user_001",
+  "new_trades_count": 3,
+  "detection_result": {
+    "rule": {
+      "is_anomaly": false,
+      "trade_results": [
+        {
+          "날짜": "2025-12-31",
+          "종목명": "삼성전자",
+          "rule_score": 0,
+          "triggered_rules": []
+        },
+        {
+          "날짜": "2025-12-31",
+          "종목명": "카카오",
+          "rule_score": 0,
+          "triggered_rules": []
+        },
+        {
+          "날짜": "2025-12-31",
+          "종목명": "LG에너지솔루션",
+          "rule_score": 0,
+          "triggered_rules": []
+        }
+      ]
+    },
+    "stat": {
+      "is_anomaly": true,
+      "trade_results": [
+        {
+          "날짜": "2025-12-31",
+          "종목명": "삼성전자",
+          "z_vector": [
+            -0.9469900704296451,
+            1.2256638870898613,
+            -0.7228336011036884
+          ],
+          "mahalanobis": 1.7484,
+          "stat_score": 0.6993,
+          "is_anomaly": false
+        },
+        {
+          "날짜": "2025-12-31",
+          "종목명": "카카오",
+          "z_vector": [
+            -0.964179202916158,
+            -1.580928781898516,
+            -0.9800367376086493
+          ],
+          "mahalanobis": 2.5534,
+          "stat_score": 1.0,
+          "is_anomaly": true
+        },
+        {
+          "날짜": "2025-12-31",
+          "종목명": "LG에너지솔루션",
+          "z_vector": [
+            1.8644993180675393,
+            -0.8792806146514217,
+            0.957260373901059
+          ],
+          "mahalanobis": 2.7481,
+          "stat_score": 1.0,
+          "is_anomaly": true
+        }
+      ]
+    },
+    "ensemble": [
+      {
+        "날짜": "2025-12-31",
+        "종목명": "삼성전자",
+        "rule_score": 0,
+        "stat_score": 0.6993,
+        "final_score": 0.4895,
+        "is_anomaly": false,
+        "triggered_rules": [],
+        "mahalanobis": 1.7484
+      },
+      {
+        "날짜": "2025-12-31",
+        "종목명": "카카오",
+        "rule_score": 0,
+        "stat_score": 1.0,
+        "final_score": 0.7,
+        "is_anomaly": true,
+        "triggered_rules": [],
+        "mahalanobis": 2.5534
+      },
+      {
+        "날짜": "2025-12-31",
+        "종목명": "LG에너지솔루션",
+        "rule_score": 0,
+        "stat_score": 1.0,
+        "final_score": 0.7,
+        "is_anomaly": true,
+        "triggered_rules": [],
+        "mahalanobis": 2.7481
+      }
+    ]
+  }
+}

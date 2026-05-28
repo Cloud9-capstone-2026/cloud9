@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
@@ -5,18 +6,38 @@ from models import AnalysisResult
 
 router = APIRouter()
 
-# POST /analysis — C파트 분석 결과 받아서 저장
+
+def _parse_user_id(raw) -> int | None:
+    if raw is None:
+        return None
+    match = re.search(r"(\d+)$", str(raw))
+    return int(match.group(1)) if match else None
+
+
+# POST /analysis — C파트 분석 결과 받아서 거래별 1행씩 저장
 @router.post("/")
 def save_analysis(data: dict, db: Session = Depends(get_db)):
-    result = AnalysisResult(
-        user_id     = data.get("user_id"),
-        rule_score  = data.get("rule_score"),
-        is_anomaly  = data.get("is_anomaly"),
-        xai_result  = data.get("xai_result"),
-    )
-    db.add(result)
+    user_id = _parse_user_id(data.get("user_id"))
+    ensemble = data.get("detection_result", {}).get("ensemble", [])
+
+    for e in ensemble:
+        row = AnalysisResult(
+            user_id     = user_id,
+            rule_score  = e.get("rule_score"),
+            stat_score  = e.get("stat_score"),
+            lstm_score  = None,  # LSTM 미구현 — 추가 시 ensemble에서 채움
+            final_score = e.get("final_score"),
+            is_anomaly  = e.get("is_anomaly"),
+            xai_result  = {
+                "날짜": e.get("날짜"),
+                "종목명": e.get("종목명"),
+                "triggered_rules": e.get("triggered_rules"),
+                "mahalanobis": e.get("mahalanobis"),
+            },
+        )
+        db.add(row)
     db.commit()
-    return {"message": "분석 결과 저장 완료"}
+    return {"message": "분석 결과 저장 완료", "saved_count": len(ensemble)}
 
 # GET /analysis — A파트에 분석 결과 전달
 @router.get("/")
