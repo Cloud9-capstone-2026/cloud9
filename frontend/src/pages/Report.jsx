@@ -31,6 +31,26 @@ const TYPE_STYLE   = {
 };
 const PAGE_SIZE = 15;
 
+const TRIGGERED_RULES = ['손절회피', '고점추격', '과도한 매매빈도'];
+
+function GaugeChart({ score }) {
+  const r = 36, cx = 50, cy = 50;
+  const circ = 2 * Math.PI * r;
+  const fillArc = circ * Math.min(score, 1);
+  const color = score >= 0.6 ? '#FF8A00' : '#6EE7B7';
+  const label = score >= 0.6 ? '위험' : '양호';
+  return (
+    <svg width="90" height="90" viewBox="0 0 100 100">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#2D3748" strokeWidth="8" />
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={color} strokeWidth="8"
+        strokeDasharray={`${fillArc} ${circ}`} strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cy})`} />
+      <text x={cx} y={cy - 2} textAnchor="middle" fill={color} fontSize="14" fontWeight="600">{score.toFixed(2)}</text>
+      <text x={cx} y={cy + 14} textAnchor="middle" fill={color} fontSize="11">{label}</text>
+    </svg>
+  );
+}
+
 export default function Report() {
   const [sortAsc, setSortAsc]             = useState(false);
   const [typeFilter, setTypeFilter]       = useState('전체');
@@ -179,24 +199,120 @@ export default function Report() {
         </table>
       </div>
 
-      {/* ── 상세 패널 (전체 콘텐츠 영역 기준 fixed 오버레이) ── */}
+      {/* ── 상세 패널 ── */}
       <div style={{
         ...s.detailPanel,
         transform: selected ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)',
       }}>
         <div style={s.panelHeader}>
-          <span style={s.panelTitle}>
-            {selected?.종목명} | {selected?.거래일자}
-          </span>
-          <button onClick={() => setSelected(null)} style={s.closeBtn}>
-            <X size={16} />
-          </button>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#F8FAFC' }}>{selected?.종목명}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 12, color: '#94A3B8' }}>분석일: 2026-05-28</span>
+            <button onClick={() => setSelected(null)} style={s.closeBtn}><X size={16} /></button>
+          </div>
         </div>
+
         <div style={s.panelBody}>
-          <div style={s.placeholderCard} />
-          <div style={s.placeholderCard} />
-          <div style={s.placeholderCard} />
+          {/* 카드 1 — 거래 상세 */}
+          <div style={s.card}>
+            <p style={s.cardTitle}>거래 상세</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 14 }}>
+              {[
+                { label: '거래구분', badge: true },
+                { label: '거래일자', value: '2025-12-31' },
+                { label: '거래단가', value: '66,800원' },
+                { label: '수량', value: '10주' },
+                { label: '거래금액', value: '668,000원' },
+                { label: '수수료', value: '334원' },
+                { label: '거래세', value: '201원' },
+                { label: '실거래금액', value: '667,465원' },
+              ].map(({ label, value, badge }) => (
+                <div key={label}>
+                  <p style={{ fontSize: 12, color: '#94A3B8', marginBottom: 5 }}>{label}</p>
+                  {badge
+                    ? <span style={{ ...s.badge, color: TYPE_STYLE['매수'].color, background: TYPE_STYLE['매수'].bg }}>매수</span>
+                    : <p style={{ fontSize: 15, fontWeight: 600, color: '#F8FAFC' }}>{value}</p>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 카드 2 — 위험도 분석 */}
+          <div style={s.card}>
+            <p style={s.cardTitle}>위험도 분석</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <GaugeChart score={0.35} />
+              <div style={{ flex: 1 }}>
+                {[
+                  { label: 'Rule', value: 0.00, isNA: false },
+                  { label: 'Statistical', value: 0.50, isNA: false },
+                  { label: 'LSTM', value: 0, isNA: true },
+                ].map(({ label, value, isNA }) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                    <span style={{ width: 72, fontSize: 12, color: '#94A3B8', flexShrink: 0 }}>{label}</span>
+                    <div style={{ flex: 1, height: 4, background: '#0F172A', borderRadius: 2 }}>
+                      {!isNA && value > 0 && (
+                        <div style={{ width: `${value * 100}%`, height: '100%', background: '#F8FAFC', borderRadius: 2 }} />
+                      )}
+                    </div>
+                    <span style={{ width: 28, fontSize: 12, textAlign: 'right', flexShrink: 0, color: isNA ? '#94A3B8' : '#F8FAFC' }}>
+                      {isNA ? '-' : value.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 카드 3 — 행동 이탈 지수 */}
+          {(() => {
+            const dev = 1.75;
+            const devColor = dev < 2.0 ? '#6EE7B7' : dev < 3.0 ? '#FDE047' : '#FF8A00';
+            const devBadge = dev < 2.0
+              ? { label: '양호', color: '#6EE7B7', bg: 'rgba(110,231,183,0.3)' }
+              : dev < 3.0
+              ? { label: '경고', color: '#FDE047', bg: 'rgba(253,224,71,0.3)' }
+              : { label: '위험', color: '#FF8A00', bg: 'rgba(255,138,0,0.3)' };
+            return (
+              <div style={s.card}>
+                <p style={s.cardTitle}>행동 이탈 지수</p>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <div>
+                    <p style={{ fontSize: 22, fontWeight: 700, color: devColor, lineHeight: 1.2 }}>{dev}</p>
+                    <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>평소 매매 패턴 대비 이탈 정도</p>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: devBadge.color, background: devBadge.bg, padding: '4px 12px', borderRadius: 999 }}>{devBadge.label}</span>
+                </div>
+                <div style={{ background: '#2D3748', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(dev / 4.0, 1) * 100}%`, height: '100%', background: devColor, borderRadius: 4 }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                  {['0', '1.0', '2.0', '3.0', '4.0+'].map(t => <span key={t} style={{ fontSize: 11, color: '#94A3B8' }}>{t}</span>)}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* 카드 4 — 탐지된 패턴 */}
+          <div style={s.card}>
+            <p style={s.cardTitle}>탐지된 패턴</p>
+            {TRIGGERED_RULES.length === 0
+              ? <p style={{ fontSize: 13, color: '#94A3B8' }}>탐지된 이상 패턴 없음</p>
+              : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {TRIGGERED_RULES.map(rule => (
+                    <div key={rule} style={{
+                      background: 'linear-gradient(90deg, rgba(148,163,184,0.15), transparent)',
+                      borderLeft: '2px solid #94A3B8',
+                      padding: '7px 10px',
+                      fontSize: 13,
+                      color: '#F8FAFC',
+                    }}>{rule}</div>
+                  ))}
+                </div>
+            }
+          </div>
         </div>
       </div>
 
@@ -396,11 +512,16 @@ const s = {
     flex: 1,
     overflowY: 'auto',
   },
-  placeholderCard: {
+  card: {
     background: '#1E293B',
     borderRadius: 12,
-    flex: 1,
-    minHeight: 130,
+    padding: '18px 20px',
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: 500,
+    color: '#F8FAFC',
+    marginBottom: 14,
   },
   pagination: {
     display: 'flex',
