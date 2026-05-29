@@ -1,81 +1,94 @@
 """
 detect.py
-Rule-based → Z-score(+마할라노비스) 2계층 탐지 후 서버로 결과 전송
+DB(trades) 기반 2계층 앙상블 탐지 — Rule-based + Z-score(+마할라노비스)
+업로드 직후 in-process로 호출되어 reports/*.json 저장 + AnalysisResult INSERT.
 """
 
-import os
+import sys
 import json
-import httpx
-import pandas as pd
+import re
+import logging
+from pathlib import Path
 from datetime import datetime
-from pipeline.ingest import read_csv, extract_new_trades
-from pipeline.feature_eng import map_columns_with_llm, standardize, attach_market_data
+
+import pandas as pd
+from sqlalchemy.orm import Session
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
 
-import logging
 logging.getLogger("pykrx").setLevel(logging.ERROR)
 
-BACKEND_URL = "http://localhost:8000/analysis/"
+# DB(trades) 컬럼 → 모델이 기대하는 표준 컬럼
+DB_TO_STANDARD = {
+    "거래일자": "날짜",
+    "거래구분": "매매구분",
+    "거래수량": "체결수량",
+    "거래단가": "체결단가",
+    "거래금액": "총거래금액",
+}
+
+BASELINE_PATH = PROJECT_ROOT / "backend" / "persona_a_clean.csv"
+REPORTS_DIR = PROJECT_ROOT / "reports"
+
+RULE_W, STAT_W = 0.3, 0.7
+FINAL_THRESHOLD = 0.5
 
 
-def load_baseline_from_db(user_id: str) -> pd.DataFrame:
-    df, cols = read_csv("backend/persona_a_clean.csv")
-    mapping = map_columns_with_llm(cols)
-    return standardize(df, mapping)
+def _standardize(df: pd.DataFrame) -> pd.DataFrame:
+    """DB/CSV 컬럼명을 모델 표준 컬럼명으로 변환 + 타입 정리."""
+    df = df.rename(columns=DB_TO_STANDARD)
+    df["날짜"] = pd.to_datetime(df["날짜"])
+    for col in ["체결수량", "체결단가", "총거래금액"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df.sort_values("날짜").reset_index(drop=True)
+
+
+def _trades_to_df(trades: list) -> pd.DataFrame:
+    """Trade ORM 객체 리스트 → 표준 DataFrame."""
+    rows = [{
+        "거래일자": t.거래일자,
+        "종목명":   t.종목명,
+        "거래구분": t.거래구분,
+        "거래수량": t.거래수량,
+        "거래단가": t.거래단가,
+        "거래금액": t.거래금액,
+    } for t in trades]
+    return _standardize(pd.DataFrame(rows))
+
+
+def _load_baseline() -> pd.DataFrame:
+    df = pd.read_csv(BASELINE_PATH)
+    return _standardize(df)
+
+
+def _extract_new_trades(baseline: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    last_date = baseline["날짜"].max()
+    return new_df[new_df["날짜"] > last_date].copy().reset_index(drop=True)
+
+
+def _parse_user_id(raw) -> int | None:
+    if raw is None:
+        return None
+    match = re.search(r"(\d+)$", str(raw))
+    return int(match.group(1)) if match else None
 
 
 def save_detection_result(user_id: str, result: dict) -> str:
-    os.makedirs("reports", exist_ok=True)
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"reports/{user_id}_{timestamp}.json"
-    with open(filename, "w", encoding="utf-8") as f:
+    path = REPORTS_DIR / f"{user_id}_{timestamp}.json"
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    return filename
+    return str(path)
 
 
-def send_to_server(result: dict):
-    try:
-        response = httpx.post(BACKEND_URL, json=result, timeout=5)
-        response.raise_for_status()
-        print(f"[서버 전송 완료] {result['user_id']} {response.json()}")
-    except Exception as ex:
-        print(f"[서버 전송 실패] {result['user_id']} {ex}")
-
-
-def run_pipeline(user_id: str, filepath: str) -> dict:
-    # 1. CSV 읽기
-    df, cols = read_csv(filepath)
-
-    # 2. LLM 컬럼 매핑
-    mapping = map_columns_with_llm(cols)
-
-    # 3. 표준화
-    std_df = standardize(df, mapping)
-
-    # 4. 시장 데이터 병합
-    std_df = attach_market_data(std_df)
-    print("attach 후:", len(std_df))
-
-    # 5. 기준선 로드
-    baseline = load_baseline_from_db(user_id)
-    print("baseline 마지막 날짜:", baseline["날짜"].max())
-
-    # 6. 새 거래 추출
-    new_trades = extract_new_trades(baseline, std_df)
-    print("new_trades:", len(new_trades))
-    print(new_trades)
-
-    # 7. 1계층: Rule-based (거래별)
-    rule_result = run_rule_based(new_trades)
-
-    # 8. 2계층: Z-score + 마할라노비스 (거래별)
-    stat_result = run_zscore(new_trades, baseline)
-
-    # 9. 앙상블: 거래별 final_score = 0.3*rule + 0.7*stat
-    RULE_W, STAT_W = 0.3, 0.7
-    FINAL_THRESHOLD = 0.5
-
+def _build_ensemble(rule_result: dict, stat_result: dict) -> list[dict]:
     ensemble = []
     for r, s in zip(rule_result["trade_results"], stat_result["trade_results"]):
         final_score = RULE_W * r["rule_score"] + STAT_W * s["stat_score"]
@@ -87,32 +100,82 @@ def run_pipeline(user_id: str, filepath: str) -> dict:
             "final_score": round(final_score, 4),
             "is_anomaly": final_score > FINAL_THRESHOLD,
             "triggered_rules": r["triggered_rules"],
-            "mahalanobis": s["mahalanobis"]
+            "mahalanobis": s["mahalanobis"],
         })
+    return ensemble
+
+
+def run_pipeline_from_db(
+    db: Session,
+    upload_id: int,
+    Trade,
+    AnalysisResult,
+    user_id: str = "user_001",
+) -> dict:
+    """
+    업로드된 trades(upload_id 소속)를 DB에서 읽어 2계층 앙상블 분석.
+    결과: reports/*.json 저장 + analysis_results 테이블 INSERT.
+
+    패턴 [B]: 읽기 → commit → (트랜잭션 없이) 분석 → 쓰기 → commit.
+    분석 중에는 트랜잭션을 잡지 않음.
+    """
+    parsed_uid = _parse_user_id(user_id)
+
+    # ─ Phase 1: 읽기
+    trades = db.query(Trade).filter(Trade.upload_id == upload_id).all()
+    db.commit()  # 읽기 트랜잭션 닫기 — 분석 동안 idle in transaction 회피
+
+    base_payload = {"user_id": user_id, "upload_id": upload_id}
+
+    if not trades:
+        result = {**base_payload, "new_trades_count": 0,
+                  "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
+        result["saved_path"] = save_detection_result(user_id, result)
+        return result
+
+    # ─ Phase 2: 분석 (DB 안 건드림)
+    std_df = _trades_to_df(trades)
+    baseline = _load_baseline()
+    new_trades = _extract_new_trades(baseline, std_df)
+
+    if len(new_trades) == 0:
+        result = {**base_payload, "new_trades_count": 0,
+                  "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
+        result["saved_path"] = save_detection_result(user_id, result)
+        return result
+
+    rule_result = run_rule_based(new_trades)
+    stat_result = run_zscore(new_trades, baseline)
+    ensemble = _build_ensemble(rule_result, stat_result)
 
     result = {
-        "user_id": user_id,
+        **base_payload,
         "new_trades_count": len(new_trades),
         "detection_result": {
             "rule": rule_result,
             "stat": stat_result,
-            "ensemble": ensemble
-        }
+            "ensemble": ensemble,
+        },
     }
+    result["saved_path"] = save_detection_result(user_id, result)
 
-    # 10. 로컬 저장
-    saved_path = save_detection_result(user_id, result)
+    # ─ Phase 3: 쓰기 (새 트랜잭션)
+    for e in ensemble:
+        db.add(AnalysisResult(
+            user_id     = parsed_uid,
+            upload_id   = upload_id,
+            rule_score  = e["rule_score"],
+            stat_score  = e["stat_score"],
+            lstm_score  = None,
+            final_score = e["final_score"],
+            is_anomaly  = e["is_anomaly"],
+            xai_result  = {
+                "날짜": e["날짜"],
+                "종목명": e["종목명"],
+                "triggered_rules": e["triggered_rules"],
+                "mahalanobis": e["mahalanobis"],
+            },
+        ))
+    db.commit()
 
-    # 11. 서버 전송 (저장된 JSON 파일과 동일한 페이로드)
-    send_to_server(result)
-
-    result["saved_path"] = saved_path
     return result
-
-
-if __name__ == "__main__":
-    result = run_pipeline(
-        user_id="user_001",
-        filepath="backend/persona_a_trades.csv"
-    )
-    print(result)
