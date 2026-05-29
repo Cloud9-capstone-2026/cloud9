@@ -7,7 +7,7 @@ const pageInfo = {
   upload:    { title: '매매내역 업로드', icon: Upload },
 };
 
-export default function Topbar({ activePage }) {
+export default function Topbar({ activePage, lastUploadDate }) {
   const { title, icon: PageIcon } = pageInfo[activePage] ?? pageInfo.dashboard;
 
   return (
@@ -20,7 +20,7 @@ export default function Topbar({ activePage }) {
         <div style={styles.dateChip}>
           <Calendar size={14} style={{ marginRight: 6, color: '#94A3B8' }} />
           <span style={styles.dateLabel}>최근 업로드:</span>
-          <span style={styles.dateValue}>2026/05/20</span>
+          <span style={styles.dateValue}>{lastUploadDate ?? '-'}</span>
         </div>
         <div style={styles.iconBtn}>
           <Bell size={18} />
