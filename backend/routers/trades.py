@@ -7,6 +7,12 @@ import io
 
 router = APIRouter()
 
+# GET /trades/uploads — 업로드 히스토리 조회
+@router.get("/uploads")
+def get_uploads(db: Session = Depends(get_db)):
+    uploads = db.query(CsvUpload).order_by(CsvUpload.id.desc()).all()
+    return uploads
+
 # GET /trades — DB에서 전체 거래 내역 조회
 @router.get("/")
 def get_trades(db: Session = Depends(get_db)):

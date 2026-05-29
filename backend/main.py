@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routers import trades, analysis
 import uvicorn
@@ -7,6 +8,13 @@ import os
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Canary API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(trades.router, prefix="/trades", tags=["trades"])
 app.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
