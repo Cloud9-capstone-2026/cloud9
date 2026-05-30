@@ -1,11 +1,18 @@
 from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Trade, CsvUpload
+from orm import Trade, CsvUpload, AnalysisResult
+from pipeline.detect import run_pipeline_from_db
 import pandas as pd
 import io
 
 router = APIRouter()
+
+# GET /trades/uploads — 업로드 히스토리 조회
+@router.get("/uploads")
+def get_uploads(db: Session = Depends(get_db)):
+    uploads = db.query(CsvUpload).order_by(CsvUpload.id.desc()).all()
+    return uploads
 
 # GET /trades — DB에서 전체 거래 내역 조회
 @router.get("/")
@@ -13,25 +20,25 @@ def get_trades(db: Session = Depends(get_db)):
     trades = db.query(Trade).all()
     return trades
 
-# POST /trades/upload — CSV 업로드 → DB 저장
+# POST /trades/upload — CSV 업로드 → DB 저장 → 파이프라인 트리거 (in-process)
 @router.post("/upload")
 async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_db)):
     contents = await file.read()
     df = pd.read_csv(io.StringIO(contents.decode("utf-8-sig")))
 
-    # 1. csv_uploads에 먼저 INSERT
+    # 1. csv_uploads INSERT
     csv_upload = CsvUpload(
         file_name = file.filename,
         row_count = len(df),
-        status    = "pending"
+        status    = "pending",
     )
     db.add(csv_upload)
-    db.flush()  # id 바로 받아오기 위해 flush
+    db.flush()
 
-    # 2. trades 저장 시 upload_id 함께 저장
+    # 2. trades 행별 INSERT (upload_id 연결)
     for _, row in df.iterrows():
         trade = Trade(
-            upload_id = csv_upload.id,  # 연결
+            upload_id = csv_upload.id,
             거래일자  = row["거래일자"],
             종목명    = row["종목명"],
             거래구분  = row["거래구분"],
@@ -44,8 +51,30 @@ async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_
         )
         db.add(trade)
 
-    # 3. 저장 완료 후 status를 done으로 업데이트
     csv_upload.status = "done"
-    db.commit()
+    db.commit()  # 업로드 트랜잭션 종료 — 분석은 다음 단계에서 새 트랜잭션으로
 
-    return {"message": f"{len(df)}건 저장 완료", "upload_id": csv_upload.id}
+    # 3. 파이프라인 트리거 (in-process). 분석 실패해도 업로드는 살아남도록 try/except.
+    analysis_summary = None
+    try:
+        analysis = run_pipeline_from_db(
+            db,
+            upload_id=csv_upload.id,
+            Trade=Trade,
+            AnalysisResult=AnalysisResult,
+            user_id="user_001",
+        )
+        ensemble = analysis["detection_result"]["ensemble"]
+        analysis_summary = {
+            "new_trades_count": analysis["new_trades_count"],
+            "anomalies": sum(1 for e in ensemble if e["is_anomaly"]),
+            "saved_path": analysis.get("saved_path"),
+        }
+    except Exception as ex:
+        analysis_summary = {"error": str(ex)}
+
+    return {
+        "message": f"{len(df)}건 저장 완료",
+        "upload_id": csv_upload.id,
+        "analysis": analysis_summary,
+    }

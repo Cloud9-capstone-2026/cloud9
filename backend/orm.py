@@ -24,7 +24,7 @@ class Trade(Base):
 
     id       = Column(Integer, primary_key=True, index=True)
     user_id  = Column(Integer, nullable=True)
-    upload_id = Column(Integer, ForeignKey("csv_uploads.id"), nullable=True) 
+    upload_id = Column(Integer, ForeignKey("csv_uploads.id"), nullable=True)
     거래일자 = Column(Date, nullable=False)
     종목명   = Column(String(50), nullable=False)
     거래구분 = Column(String(10), nullable=False)
