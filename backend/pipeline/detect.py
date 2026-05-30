@@ -4,7 +4,6 @@ DB(trades) 기반 2계층 앙상블 탐지 — Rule-based + Z-score(+마할라�
 업로드 직후 in-process로 호출되어 reports/*.json 저장 + AnalysisResult INSERT.
 """
 
-import sys
 import json
 import re
 import logging
@@ -14,12 +13,11 @@ from datetime import datetime
 import pandas as pd
 from sqlalchemy.orm import Session
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
+
+# backend/pipeline/detect.py → backend/
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 logging.getLogger("pykrx").setLevel(logging.ERROR)
 
@@ -32,8 +30,8 @@ DB_TO_STANDARD = {
     "거래금액": "총거래금액",
 }
 
-BASELINE_PATH = PROJECT_ROOT / "backend" / "persona_a_clean.csv"
-REPORTS_DIR = PROJECT_ROOT / "reports"
+BASELINE_PATH = BACKEND_DIR / "persona_a_clean.csv"
+REPORTS_DIR = BACKEND_DIR / "reports"
 
 RULE_W, STAT_W = 0.3, 0.7
 FINAL_THRESHOLD = 0.5
