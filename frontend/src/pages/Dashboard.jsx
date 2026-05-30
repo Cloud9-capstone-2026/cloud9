@@ -15,11 +15,6 @@ const tendencies = [
   { label: '분산투자 성향',         level: '보통' },
 ];
 
-const pieData = [
-  { name: '위험', value: 18,  pct: '19.1%', color: '#FF8A00' },
-  { name: '주의', value: 22,  pct: '28.9%', color: '#FDE047' },
-  { name: '양호', value: 210, pct: '52.0%', color: '#6EE7B7' },
-];
 
 const insights = [
   { color: '#FF8A00', text: '손절 회피가 12회로 가장 많이 탐지되었습니다.' },
@@ -87,9 +82,21 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
   const barOpacity  = activeTab === 'trades'    ? 1 : 0.4;
   const lineOpacity = activeTab === 'anomalies' ? 1 : 0.4;
 
+  // ── analysis 룩업 맵 (Report.jsx와 동일: 종목명_날짜 키, 첫 매칭만 사용) ──
+  const analysisMap = useMemo(() => {
+    const map = {};
+    analysis.forEach(a => {
+      const key = `${a.xai_result?.종목명}_${a.xai_result?.날짜}`;
+      if (!map[key]) map[key] = a;
+    });
+    return map;
+  }, [analysis]);
+
+  const tradeIsAnomaly = (t, map) => map[`${t.종목명}_${String(t.거래일자)}`]?.is_anomaly ?? false;
+
   // ── 요약 지표 계산 ────────────────────────────────────────────
   const totalTrades    = trades.length;
-  const totalAnomalies = analysis.filter(a => a.is_anomaly).length;
+  const totalAnomalies = trades.filter(t => tradeIsAnomaly(t, analysisMap)).length;
   const anomalyRate    = totalTrades > 0 ? ((totalAnomalies / totalTrades) * 100).toFixed(1) : '0.0';
   const avgRiskScore   = analysis.length > 0
     ? Math.round(analysis.reduce((sum, a) => sum + (a.final_score || 0), 0) / analysis.length * 100)
@@ -101,8 +108,6 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
     [...new Set(trades.map(t => t.upload_id))].filter(v => v != null).sort((a, b) => b - a),
     [trades]
   );
-  const curTrades  = tradeUploadIds.length > 0 ? trades.filter(t => t.upload_id === tradeUploadIds[0]) : trades;
-  const prevTrades = tradeUploadIds.length > 1 ? trades.filter(t => t.upload_id === tradeUploadIds[1]) : [];
 
   // 분석 결과: upload_id 미저장이므로 analyzed_at 기준 5분 간격으로 배치 구분
   const analysisRuns = useMemo(() => {
@@ -119,9 +124,6 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
     return groups;
   }, [analysis]);
 
-  const curAnalysis  = analysisRuns[0] || [];
-  const prevAnalysis = analysisRuns[1] || [];
-
   const makeDiff = (curVal, prevVal, hasPrevData, unit, decimals = 0) => {
     if (!hasPrevData) return { text: '-', type: null };
     const d = curVal - prevVal;
@@ -129,25 +131,48 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
     return { text: `${d >= 0 ? '+' : '-'}${fmt}${unit}`, type: d >= 0 ? 'up' : 'down' };
   };
 
+  // prev = 최근 업로드 직전까지의 누적 합산
+  const prevTradesAll   = tradeUploadIds.length > 1 ? trades.filter(t => t.upload_id !== tradeUploadIds[0]) : [];
+  const prevAnalysisAll = analysisRuns.length > 1 ? analysisRuns.slice(1).flat() : [];
+
+  // prev analysis 룩업 맵 (동일한 매칭 로직)
+  const prevAnalysisMap = {};
+  prevAnalysisAll.forEach(a => {
+    const key = `${a.xai_result?.종목명}_${a.xai_result?.날짜}`;
+    if (!prevAnalysisMap[key]) prevAnalysisMap[key] = a;
+  });
+  const prevAnomalyCount = prevTradesAll.filter(t => tradeIsAnomaly(t, prevAnalysisMap)).length;
+
+  // cur = 전체 누적 합산 (업로드된 모든 데이터)
   const cur = {
-    trades:    curTrades.length,
-    anomalies: curAnalysis.filter(a => a.is_anomaly).length,
-    rate:      curAnalysis.length > 0 ? curAnalysis.filter(a => a.is_anomaly).length / curAnalysis.length * 100 : 0,
-    risk:      curAnalysis.length > 0 ? Math.round(curAnalysis.reduce((s, a) => s + (a.final_score || 0), 0) / curAnalysis.length * 100) : 0,
+    trades:    totalTrades,
+    anomalies: totalAnomalies,
+    rate:      totalTrades > 0 ? totalAnomalies / totalTrades * 100 : 0,
+    risk:      analysis.length > 0 ? Math.round(analysis.reduce((s, a) => s + (a.final_score || 0), 0) / analysis.length * 100) : 0,
   };
   const prev = {
-    trades:    prevTrades.length,
-    anomalies: prevAnalysis.filter(a => a.is_anomaly).length,
-    rate:      prevAnalysis.length > 0 ? prevAnalysis.filter(a => a.is_anomaly).length / prevAnalysis.length * 100 : 0,
-    risk:      prevAnalysis.length > 0 ? Math.round(prevAnalysis.reduce((s, a) => s + (a.final_score || 0), 0) / prevAnalysis.length * 100) : 0,
+    trades:    prevTradesAll.length,
+    anomalies: prevAnomalyCount,
+    rate:      prevTradesAll.length > 0 ? prevAnomalyCount / prevTradesAll.length * 100 : 0,
+    risk:      prevAnalysisAll.length > 0 ? Math.round(prevAnalysisAll.reduce((s, a) => s + (a.final_score || 0), 0) / prevAnalysisAll.length * 100) : 0,
   };
 
   const diffs = {
-    trades:    makeDiff(cur.trades,    prev.trades,    prevTrades.length > 0,   '회'),
-    anomalies: makeDiff(cur.anomalies, prev.anomalies, prevAnalysis.length > 0, '건'),
-    rate:      makeDiff(cur.rate,      prev.rate,      prevAnalysis.length > 0, '%', 1),
-    risk:      makeDiff(cur.risk,      prev.risk,      prevAnalysis.length > 0, '점'),
+    trades:    makeDiff(cur.trades,    prev.trades,    prevTradesAll.length > 0,   '회'),
+    anomalies: makeDiff(cur.anomalies, prev.anomalies, prevTradesAll.length > 0,   '건'),
+    rate:      makeDiff(cur.rate,      prev.rate,      prevTradesAll.length > 0,   '%', 1),
+    risk:      makeDiff(cur.risk,      prev.risk,      prevAnalysisAll.length > 0, '점'),
   };
+
+  // ── 매매 분석 요약 파이 데이터 ──────────────────────────────────
+  const dangerCount    = totalAnomalies;
+  const goodCount      = totalTrades - dangerCount;
+  const dynamicPieData = [
+    { name: '위험', value: dangerCount, pct: totalTrades > 0 ? `${((dangerCount / totalTrades) * 100).toFixed(1)}%` : '-', color: '#FF8A00' },
+    { name: '주의', value: null,        pct: '-',                                                                           color: '#FDE047' },
+    { name: '양호', value: goodCount,   pct: totalTrades > 0 ? `${((goodCount  / totalTrades) * 100).toFixed(1)}%` : '-', color: '#6EE7B7' },
+  ];
+  const chartPieData = dynamicPieData.filter(d => d.value !== null);
 
   // ── 월별 차트 데이터 ──────────────────────────────────────────
   const monthlyData = useMemo(() => {
@@ -165,7 +190,7 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
     });
     return Object.values(map)
       .sort((a, b) => a.key.localeCompare(b.key))
-      .slice(-6)
+      .slice(-8)
       .map(m => ({ month: MONTH_LABEL[parseInt(m.key.slice(5))] || m.key.slice(5), trades: m.trades, anomalies: m.anomalies }));
   }, [trades, analysis]);
 
@@ -174,25 +199,20 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
   // ── 최근 매매 내역 ────────────────────────────────────────────
   const recentTrades = useMemo(() => {
     if (!trades.length) return [];
-    const aMap = {};
-    analysis.forEach(a => {
-      const key = `${a.xai_result?.종목명}_${a.xai_result?.날짜}`;
-      if (!aMap[key]) aMap[key] = a;
-    });
     return [...trades]
       .sort((a, b) => new Date(b.거래일자) - new Date(a.거래일자))
       .slice(0, 5)
       .map(t => {
         const dateStr = String(t.거래일자 || '');
-        const matched = aMap[`${t.종목명}_${dateStr}`];
+        const matched = analysisMap[`${t.종목명}_${dateStr}`];
         return {
           name:   t.종목명,
           price:  `₩${Number(t.거래단가).toLocaleString()}`,
           status: matched ? (matched.is_anomaly ? '위험' : '양호') : '양호',
-          date:   dateStr.replace(/-/g, '/'),
+          date:   dateStr.slice(0, 10),
         };
       });
-  }, [trades, analysis]);
+  }, [trades, analysisMap]);
 
   return (
     <div style={s.page}>
@@ -279,34 +299,33 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
         <div style={{ ...s.card, width: 340, flexShrink: 0, alignSelf: 'stretch', display: 'flex', flexDirection: 'column' }}>
           <p style={s.sectionTitle}>매매 분석 요약</p>
           <div style={s.pieRow}>
-            <div style={{ position: 'relative', display: 'inline-block', width: 120, height: 120, flexShrink: 0 }}>
-              <PieChart width={120} height={120}>
-                <Pie data={pieData} cx={60} cy={60} innerRadius={36} outerRadius={55} dataKey="value" strokeWidth={0} paddingAngle={5} cornerRadius={5} labelLine={false}>
-                  {pieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
+            <div style={{ position: 'relative', width: 120, height: 120, flexShrink: 0 }}>
+              <PieChart width={120} height={120} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                <Pie data={chartPieData} cx={60} cy={60} innerRadius={38} outerRadius={54} dataKey="value" strokeWidth={0} paddingAngle={5} cornerRadius={5} labelLine={false}>
+                  {chartPieData.map((entry, index) => <Cell key={index} fill={entry.color} />)}
                 </Pie>
               </PieChart>
-              <div style={s.pieCenter}>
-                <p style={s.pieCenterSub}>Total</p>
-                <p style={s.pieCenterVal}>250</p>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, pointerEvents: 'none' }}>
+                <span style={{ fontSize: 10, color: '#94A3B8', lineHeight: 1 }}>Total</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: '#F8FAFC', lineHeight: 1 }}>{totalTrades}</span>
               </div>
             </div>
             <div style={s.legend}>
-              {pieData.map(({ name, value, pct, color }) => (
+              {dynamicPieData.map(({ name, value, pct, color }) => (
                 <div key={name} style={s.legendRow}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
                   <span style={{ color: '#F8FAFC', fontSize: 13 }}>{name}</span>
-                  <span style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{value}</span>
+                  <span style={{ color: '#F8FAFC', fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{value ?? '-'}</span>
                   <span style={{ color: '#64748B', fontSize: 12, textAlign: 'right' }}>{pct}</span>
                 </div>
               ))}
             </div>
           </div>
           <div style={s.insightDivider} />
-          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', flex: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {insights.map(({ color, text }, i) => (
-              <div key={i} style={s.insightRow}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, marginTop: 3 }} />
-                <span style={{ color: '#F8FAFC', fontSize: 12, lineHeight: 1.5 }}>{text}</span>
+              <div key={i} style={{ background: 'linear-gradient(90deg, rgba(148,163,184,0.15), transparent)', borderLeft: '2px solid #94A3B8', padding: '7px 10px', fontSize: 13, color: '#F8FAFC', lineHeight: 1.5 }}>
+                {text}
               </div>
             ))}
           </div>
@@ -350,9 +369,6 @@ const s = {
   td:           { fontSize: 13, color: '#F8FAFC', padding: '12px 0' },
   linkBtn:      { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', marginTop: 14, paddingTop: 14, borderTop: '1px solid #334155', background: 'none', border: 'none', color: '#94A3B8', fontSize: 13, cursor: 'pointer', fontFamily: 'Inter, sans-serif' },
   pieRow:       { display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 24, marginTop: 12 },
-  pieCenter:    { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', whiteSpace: 'nowrap', pointerEvents: 'none' },
-  pieCenterSub: { fontSize: 11, color: '#94A3B8', marginBottom: 2 },
-  pieCenterVal: { fontSize: 22, fontWeight: 700, color: '#F8FAFC' },
   legend:       { display: 'flex', flexDirection: 'column', gap: 10 },
   legendRow:    { display: 'grid', gridTemplateColumns: '16px 40px 30px 44px', alignItems: 'center', gap: 6 },
   insightDivider: { height: 1, background: '#334155', margin: '14px 0' },

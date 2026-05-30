@@ -158,7 +158,7 @@ export default function Report({ trades = [], analysis = [] }) {
                   <td style={s.td}>₩{Number(row.거래금액).toLocaleString()}</td>
                   <td style={s.td}>₩{Number(row.수수료).toLocaleString()}</td>
                   <td style={s.td}>₩{Number(row.거래세).toLocaleString()}</td>
-                  <td style={s.td}>₩{(row.거래구분 === '매수' ? Math.abs(Number(row.정산금액)) : Number(row.정산금액)).toLocaleString()}</td>
+                  <td style={s.td}>₩{Math.abs(Number(row.정산금액)).toLocaleString()}</td>
                   <td style={s.td}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       <span style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLOR[st], flexShrink: 0 }} />
@@ -195,7 +195,7 @@ export default function Report({ trades = [], analysis = [] }) {
                 { label: '거래금액',  value: `${Number(selected.거래금액).toLocaleString()}원` },
                 { label: '수수료',   value: `${Number(selected.수수료).toLocaleString()}원` },
                 { label: '거래세',   value: `${Number(selected.거래세).toLocaleString()}원` },
-                { label: '정산금액',  value: `${Number(selected.정산금액).toLocaleString()}원` },
+                { label: '실거래금액', value: `${Math.abs(Number(selected.정산금액)).toLocaleString()}원` },
               ].map(({ label, value, badge }) => (
                 <div key={label}>
                   <p style={{ fontSize: 11, color: '#94A3B8', marginBottom: 5 }}>{label}</p>
@@ -281,21 +281,28 @@ export default function Report({ trades = [], analysis = [] }) {
 
       {/* ── 페이지네이션 ── */}
       <div style={s.pagination}>
-        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ ...s.pageBtn, opacity: page === 1 ? 0.35 : 1, cursor: page === 1 ? 'default' : 'pointer' }}>
-          <ChevronLeft size={14} />
-        </button>
         {(() => {
-          let start = Math.max(1, Math.min(page - 2, totalPages - 4));
-          let end   = Math.min(totalPages, start + 4);
-          const pages = [];
-          for (let i = start; i <= end; i++) pages.push(i);
-          return pages.map(n => (
-            <button key={n} onClick={() => setPage(n)} style={{ ...s.pageBtn, ...(n === page ? s.pageBtnActive : {}) }}>{n}</button>
-          ));
+          const pageGroup  = Math.floor((page - 1) / 5);
+          const groupStart = pageGroup * 5 + 1;
+          const groupEnd   = Math.min(totalPages, groupStart + 4);
+          const hasPrev    = pageGroup > 0;
+          const hasNext    = groupStart + 5 <= totalPages;
+          const pages      = [];
+          for (let i = groupStart; i <= groupEnd; i++) pages.push(i);
+          return (
+            <>
+              <button onClick={() => setPage((pageGroup - 1) * 5 + 1)} disabled={!hasPrev} style={{ ...s.pageBtn, opacity: hasPrev ? 1 : 0.35, cursor: hasPrev ? 'pointer' : 'default' }}>
+                <ChevronLeft size={14} />
+              </button>
+              {pages.map(n => (
+                <button key={n} onClick={() => setPage(n)} style={{ ...s.pageBtn, ...(n === page ? s.pageBtnActive : {}) }}>{n}</button>
+              ))}
+              <button onClick={() => setPage(groupStart + 5)} disabled={!hasNext} style={{ ...s.pageBtn, opacity: hasNext ? 1 : 0.35, cursor: hasNext ? 'pointer' : 'default' }}>
+                <ChevronRight size={14} />
+              </button>
+            </>
+          );
         })()}
-        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ ...s.pageBtn, opacity: page === totalPages ? 0.35 : 1, cursor: page === totalPages ? 'default' : 'pointer' }}>
-          <ChevronRight size={14} />
-        </button>
       </div>
     </div>
   );
