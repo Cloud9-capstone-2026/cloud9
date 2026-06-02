@@ -24,7 +24,10 @@ def get_trades(db: Session = Depends(get_db)):
 @router.post("/upload")
 async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_db)):
     contents = await file.read()
-    df = pd.read_csv(io.StringIO(contents.decode("utf-8-sig")))
+    if file.filename.lower().endswith(('.xlsx', '.xls')):
+        df = pd.read_excel(io.BytesIO(contents))
+    else:
+        df = pd.read_csv(io.StringIO(contents.decode("utf-8-sig")))
 
     # 1. csv_uploads INSERT
     csv_upload = CsvUpload(
