@@ -139,8 +139,8 @@ export default function Upload({ onNavigate, onComplete, trades = [], uploads = 
           {phase === 'idle' ? (
             <>
               <span style={{ fontSize: 44, lineHeight: 1 }}>📂</span>
-              <p style={s.dzText}>CSV 파일을 드래그하거나 클릭해 업로드</p>
-              <p style={s.dzSub}>지원 형식: .csv / 최대 10MB</p>
+              <p style={s.dzText}>CSV / 엑셀 파일을 드래그하거나 클릭해 업로드</p>
+              <p style={s.dzSub}>지원 형식: .csv, .xlsx, .xls / 최대 10MB</p>
               <button style={s.fileSelBtn} onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>파일 선택</button>
             </>
           ) : (
@@ -285,7 +285,7 @@ export default function Upload({ onNavigate, onComplete, trades = [], uploads = 
   return (
     <div style={{ ...s.page, ...(isCenter ? s.pageCenter : {}) }}>
       <style>{`@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}`}</style>
-      <input type="file" accept=".csv" ref={fileInputRef} style={{ display: 'none' }} onChange={handleInputChange} />
+      <input type="file" accept=".csv,.xlsx,.xls" ref={fileInputRef} style={{ display: 'none' }} onChange={handleInputChange} />
       {renderContent()}
     </div>
   );
