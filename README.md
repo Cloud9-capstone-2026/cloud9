@@ -92,39 +92,81 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 
 ```
 cloud9/
-├── data/
-│   ├── raw/              # 원본 거래 로그 CSV
-│   ├── processed/        # 피처 추출 결과
-│   ├── market/           # 시장 OHLCV 데이터 (yfinance / KRX)
-│   └── synthetic/        # 행동재무학 기반 합성 데이터
+├── frontend/         # React SPA (대시보드·업로드·리포트 UI)
+│   └── src/
+│       ├── api/          # 백엔드 연동
+│       ├── components/   # 공통 UI 컴포넌트
+│       └── pages/        # 화면 (Dashboard·Upload·Profiling·Report)
 │
-├── models/
-│   ├── rule_based.py     # Layer 1 — 규칙 기반 탐지 (고점추격, 과회전율)
-│   ├── zscore.py         # Layer 2 — Z-Score · Mahalanobis 통계 탐지
-│   ├── lstm_ae.py        # Layer 3 — LSTM Autoencoder
-│   ├── xai.py            # Integrated Gradients → 피처 기여도 산출
-│   └── persona.py        # 투자 성향 클러스터링
+├── backend/          # FastAPI 서버 + AI 분석 파이프라인
+│   ├── routers/          # API 엔드포인트
+│   ├── models/           # 이상 탐지 모델 (Rule·Z-score·LSTM·XAI)
+│   ├── pipeline/         # 데이터 처리·분석 파이프라인
+│   └── reset_db.py       # 데모용 DB 초기화 유틸
 │
-├── pipeline/
-│   ├── ingest.py         # 거래 로그 로드 + 시장 데이터 병합
-│   ├── feature_eng.py    # PGR/PLR, Turnover, 모멘텀 추격률 계산
-│   ├── detect.py         # 3계층 앙상블 순차 실행
-│   └── coach.py          # XAI 결과 → 자연어 코칭 리포트 생성
-│
-├── api/
-│   ├── main.py           # FastAPI 앱 진입점
-│   ├── routes.py         # 엔드포인트 정의
-│   └── schemas.py        # Pydantic 입출력 모델
-│
-├── reports/              # 생성된 코칭 리포트 (JSON)
-│
-├── notebooks/
-│   ├── 01_eda.ipynb      # 탐색적 데이터 분석
-│   └── 02_lstm_train.ipynb  # LSTM AE 학습 실험
-│
-└── config/
-    └── settings.yaml     # 임계값 및 하이퍼파라미터
+├── data/             # 데모용 샘플 매매내역 CSV
+├── config/           # 설정 (settings.yaml)
+└── doc/              # 기획 문서
 ```
+
+<br>
+
+## 실행 방법
+
+### 사전 요구사항
+- Python 3.10+ / Node.js 18+
+
+### 환경 변수 (.env)
+프론트엔드가 백엔드 API 주소를 찾도록 `frontend/.env` 파일을 만들고 아래 한 줄을 추가합니다.
+```
+REACT_APP_API_URL=http://localhost:8080
+```
+백엔드는 로컬에서 SQLite를 자동 사용하므로 별도 설정이 필요 없습니다.
+
+### Backend (FastAPI)
+```bash
+cd backend
+pip install -r requirements.txt
+python main.py
+```
+`http://localhost:8080` 에서 API가 동작하며, SQLite DB(`local.db`)가 자동 생성됩니다.
+
+### Frontend (React)
+```bash
+cd frontend
+npm install
+npm start
+```
+`http://localhost:3000` 에서 화면이 열립니다.
+
+### DB 초기화 (선택)
+업로드된 거래·분석 데이터를 비웁니다.
+```bash
+cd backend
+python reset_db.py
+```
+확인 메시지에 yes를 입력하면 실행됩니다.
+
+### 사용 시나리오
+1. (선택) DB 초기화 후 깨끗한 상태에서 시작합니다.
+2. **업로드** — 매매내역 CSV 업로드 → 거래 분석
+4. **대시보드** — 위험 점수 · 투자 성향 프로파일 확인
+5. **리포트** — 등록된 매매 내역과 행동 분석 리포트를 확인
+
+> **업로드 CSV 필수 컬럼** : `거래일자 · 종목명 · 거래구분 · 거래수량 · 거래단가 · 거래금액 · 수수료 · 거래세 · 정산금액`
+> 샘플 데이터 : [`data/persona_a_clean.csv`](data/persona_a_clean.csv) (기존) → [`data/persona_b_clean.csv`](data/persona_b_clean.csv) (신규)
+
+<br>
+
+## 데모 (Live Demo)
+
+**배포 주소 : https://canary-rust.vercel.app/**
+
+설치 없이 배포된 버전에서 주요 기능을 확인할 수 있습니다.
+
+- **업로드 & 분석** — 매매내역 CSV를 업로드할 시 이전에 없던 신규 거래 분석.
+- **대시보드** — 위험 점수와 투자 성향 프로파일을 확인.
+- **리포트** — 등록된 매매 내역과 행동 분석 리포트를 확인.
 
 <br>
 
@@ -145,4 +187,4 @@ cloud9/
 | [임도경](https://github.com/ldkxllux) | 프론트엔드 | React 기반 SPA 구현, 대시보드 및 데이터 시각화 (Recharts), FastAPI 연동 |
 
 ---
-최종수정일 : 2026.05.19
+최종수정일 : 2026.06.02

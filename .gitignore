@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .env
+
+# 생성물 / 로컬 DB
+reports/
+*.db
