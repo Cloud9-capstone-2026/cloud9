@@ -1,9 +1,0 @@
-{
-  "user_id": "user_001",
-  "new_trades_count": 2,
-  "detection_result": {
-    "is_anomaly": false,
-    "score": 0.0,
-    "detections": []
-  }
-}
