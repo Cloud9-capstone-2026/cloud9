@@ -1,4 +1,7 @@
-# 🐤 Canary 
+<p align="left">
+  <img src="./frontend/src/logo3.png" alt="Canary Logo" width="800"/>
+</p>
+
 ### 반복적인 손실을 겪는 개인 주식 투자자를 위한 AI 기반 매매 행동 분석 및 맞춤형 투자 습관 개선 플랫폼
 
 > **"시장을 분석하는 것이 아니라, 나 자신을 분석한다."**
