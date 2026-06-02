@@ -30,7 +30,6 @@ DB_TO_STANDARD = {
     "거래금액": "총거래금액",
 }
 
-BASELINE_PATH = BACKEND_DIR / "persona_a_clean.csv"
 REPORTS_DIR = BACKEND_DIR / "reports"
 
 RULE_W, STAT_W = 0.3, 0.7
@@ -48,7 +47,9 @@ def _standardize(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _trades_to_df(trades: list) -> pd.DataFrame:
-    """Trade ORM 객체 리스트 → 표준 DataFrame."""
+    """Trade ORM 객체 리스트 → 표준 DataFrame. 빈 리스트면 표준 컬럼만 가진 빈 DF."""
+    if not trades:
+        return pd.DataFrame(columns=["날짜", "종목명", "매매구분", "체결수량", "체결단가", "총거래금액"])
     rows = [{
         "거래일자": t.거래일자,
         "종목명":   t.종목명,
@@ -60,14 +61,16 @@ def _trades_to_df(trades: list) -> pd.DataFrame:
     return _standardize(pd.DataFrame(rows))
 
 
-def _load_baseline() -> pd.DataFrame:
-    df = pd.read_csv(BASELINE_PATH)
-    return _standardize(df)
-
-
 def _extract_new_trades(baseline: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
-    last_date = baseline["날짜"].max()
-    return new_df[new_df["날짜"] > last_date].copy().reset_index(drop=True)
+    """이전 데이터(baseline)에 없는 거래만 추출. 첫 업로드(baseline 비어있음)면 전체 분석."""
+    new_df = new_df.reset_index(drop=True)
+    if baseline.empty:
+        return new_df
+    key = ["날짜", "종목명", "매매구분", "체결수량", "체결단가"]
+    base_keys = baseline[key].drop_duplicates()
+    merged = new_df.merge(base_keys, on=key, how="left", indicator=True)
+    keep = merged["_merge"].to_numpy() == "left_only"
+    return new_df[keep].reset_index(drop=True)
 
 
 def _parse_user_id(raw) -> int | None:
@@ -119,8 +122,9 @@ def run_pipeline_from_db(
     """
     parsed_uid = _parse_user_id(user_id)
 
-    # ─ Phase 1: 읽기
+    # ─ Phase 1: 읽기 (이번 업로드 + 이전 업로드 전체를 baseline으로)
     trades = db.query(Trade).filter(Trade.upload_id == upload_id).all()
+    prev_trades = db.query(Trade).filter(Trade.upload_id < upload_id).all()
     db.commit()  # 읽기 트랜잭션 닫기 — 분석 동안 idle in transaction 회피
 
     base_payload = {"user_id": user_id, "upload_id": upload_id}
@@ -133,7 +137,7 @@ def run_pipeline_from_db(
 
     # ─ Phase 2: 분석 (DB 안 건드림)
     std_df = _trades_to_df(trades)
-    baseline = _load_baseline()
+    baseline = _trades_to_df(prev_trades)  # 이전 업로드들 = 비교 기준. 없으면 빈 DF → 전체 분석
     new_trades = _extract_new_trades(baseline, std_df)
 
     if len(new_trades) == 0:
