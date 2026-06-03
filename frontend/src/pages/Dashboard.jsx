@@ -109,19 +109,11 @@ export default function Dashboard({ onNavigate, trades = [], analysis = [] }) {
     [trades]
   );
 
-  // 분석 결과: upload_id 미저장이므로 analyzed_at 기준 5분 간격으로 배치 구분
+  // 분석 결과: upload_id 기준 배치 구분 (높은 upload_id = 최신)
   const analysisRuns = useMemo(() => {
     if (!analysis.length) return [];
-    const sorted = [...analysis].sort((a, b) => new Date(b.analyzed_at) - new Date(a.analyzed_at));
-    const groups = [];
-    let group = [sorted[0]];
-    for (let i = 1; i < sorted.length; i++) {
-      const gap = new Date(sorted[i - 1].analyzed_at) - new Date(sorted[i].analyzed_at);
-      if (gap < 5 * 60 * 1000) group.push(sorted[i]);
-      else { groups.push(group); group = [sorted[i]]; }
-    }
-    groups.push(group);
-    return groups;
+    const uploadIds = [...new Set(analysis.map(a => a.upload_id).filter(v => v != null))].sort((a, b) => b - a);
+    return uploadIds.map(uid => analysis.filter(a => a.upload_id === uid));
   }, [analysis]);
 
   const makeDiff = (curVal, prevVal, hasPrevData, unit, decimals = 0) => {

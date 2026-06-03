@@ -77,7 +77,7 @@ export default function Upload({ onNavigate, onComplete, trades = [], uploads = 
       const res = await client.post('/trades/upload', formData);
       clearInterval(timerRef.current);
       const match = res.data.message?.match(/(\d+)/);
-      setUploadResult({ count: match ? parseInt(match[1]) : 0, upload_id: res.data.upload_id });
+      setUploadResult({ count: match ? parseInt(match[1]) : 0, upload_id: res.data.upload_id, anomalies: res.data.analysis?.anomalies ?? 0 });
       setProgress(100);
       setPhase('upload_success');
     } catch (err) {
@@ -251,7 +251,7 @@ export default function Upload({ onNavigate, onComplete, trades = [], uploads = 
   );
 
   const renderComplete = () => {
-    const anomalyCount = (analysisResult || []).filter(a => a.is_anomaly).length;
+    const anomalyCount = uploadResult?.anomalies ?? 0;
     const totalCount   = uploadResult?.count || 0;
     const rate         = totalCount > 0 ? ((anomalyCount / totalCount) * 100).toFixed(1) : '0.0';
     return (
