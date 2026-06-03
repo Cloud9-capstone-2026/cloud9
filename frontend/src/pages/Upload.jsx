@@ -12,8 +12,7 @@ export default function Upload({ onNavigate, onComplete, trades = [], uploads = 
   const [phase, setPhase]               = useState('idle');
   const [file, setFile]                 = useState(null);
   const [progress, setProgress]         = useState(0);
-  const [uploadResult, setUploadResult] = useState(null);  // { count, upload_id }
-  const [analysisResult, setAnalysisResult] = useState(null); // array
+  const [uploadResult, setUploadResult] = useState(null);  // { count, upload_id, anomalies }
   const [uploadError, setUploadError]   = useState('');
   const [histPage, setHistPage]         = useState(1);
   const fileInputRef = useRef(null);
@@ -91,9 +90,8 @@ export default function Upload({ onNavigate, onComplete, trades = [], uploads = 
   const handleAnalyze = async () => {
     setPhase('analyzing');
     try {
-      const res = await client.get('/analysis/');
+      await client.get('/analysis/');
       clearInterval(timerRef.current);
-      setAnalysisResult(res.data || []);
       setProgress(100);
       await onComplete?.();
       setPhase('complete');
