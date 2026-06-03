@@ -35,8 +35,25 @@ async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_
     db.add(csv_upload)
     db.flush()
 
-    # 2. trades 행별 INSERT (upload_id 연결)
+    # 2. trades 행별 INSERT (중복 체크 추가)
+    new_count = 0
+    skip_count = 0
+
     for _, row in df.iterrows():
+        # 중복 체크: 6개 컬럼 모두 일치하면 스킵
+        exists = db.query(Trade).filter(
+            Trade.거래일자  == row["거래일자"],
+            Trade.종목명    == row["종목명"],
+            Trade.거래구분  == row["거래구분"],
+            Trade.거래수량  == int(row["거래수량"]),
+            Trade.거래단가  == int(row["거래단가"]),
+            Trade.정산금액  == int(row["정산금액"]),
+        ).first()
+
+        if exists:
+            skip_count += 1
+            continue
+
         trade = Trade(
             upload_id = csv_upload.id,
             거래일자  = row["거래일자"],
@@ -50,9 +67,11 @@ async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_
             정산금액  = int(row["정산금액"]),
         )
         db.add(trade)
+        new_count += 1
 
     csv_upload.status = "done"
-    db.commit()  # 업로드 트랜잭션 종료 — 분석은 다음 단계에서 새 트랜잭션으로
+    csv_upload.row_count = new_count
+    db.commit()
 
     # 3. 파이프라인 트리거 (in-process). 분석 실패해도 업로드는 살아남도록 try/except.
     analysis_summary = None
@@ -74,7 +93,7 @@ async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_
         analysis_summary = {"error": str(ex)}
 
     return {
-        "message": f"{len(df)}건 저장 완료",
+        "message": f"{new_count}건 저장 완료 (중복 {skip_count}건 스킵)",
         "upload_id": csv_upload.id,
         "analysis": analysis_summary,
     }
