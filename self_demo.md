@@ -3,6 +3,12 @@
 ### 사전 요구사항
 - Python 3.10+ / Node.js 18+
 
+### 프로젝트 클론
+```bash
+git clone https://github.com/Cloud9-capstone-2026/cloud9.git
+cd cloud9
+```
+
 ### 환경 변수 (.env)
 프론트엔드가 백엔드 API 주소를 찾도록 `frontend/.env` 파일을 만들고 아래 한 줄을 추가합니다.
 ```
@@ -37,8 +43,8 @@ python reset_db.py
 ### 사용 시나리오
 1. (선택) DB 초기화 후 깨끗한 상태에서 시작합니다.
 2. **업로드** — 매매내역 CSV 업로드 → 거래 분석
-4. **대시보드** — 위험 점수 · 투자 성향 프로파일 확인
-5. **리포트** — 등록된 매매 내역과 행동 분석 리포트를 확인
+3. **대시보드** — 위험 점수 · 투자 성향 프로파일 확인
+4. **리포트** — 등록된 매매 내역과 행동 분석 리포트를 확인
 
 > **업로드 CSV 필수 컬럼** : `거래일자 · 종목명 · 거래구분 · 거래수량 · 거래단가 · 거래금액 · 수수료 · 거래세 · 정산금액`
 > 샘플 데이터 : [`data/persona_a_clean.csv`](data/persona_a_clean.csv) (기존) → [`data/persona_b_clean.csv`](data/persona_b_clean.csv) (신규)
