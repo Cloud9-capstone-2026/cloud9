@@ -10,9 +10,9 @@
 
 ## 프로젝트 소개
  
-Canary는 개인 주식 투자자의 매매 로그를 AI로 분석하여 비이성적 행동 패턴을 자동으로 탐지하고, 손실의 원인을 데이터 기반으로 설명하는 매매 행동 분석 플랫폼입니다.
+Canary는 개인 주식 투자자의 매매 로그를 AI로 분석하여 비이성적 행동 패턴을 자동으로 탐지하고, 손실의 원인을 데이터 기반으로 설명하는 매매 행동 분석 및 맞춤형 투자 습관 점검 플랫폼입니다.
  
-투자자의 실패 원인을 '정보 부족'이 아닌 '행동 통제 실패'에서 찾고, 객관적인 데이터 분석을 통해 투자자 스스로 자신의 매매 패턴을 인지할 수 있도록 도움으로써 실질적인 손실 방어와 건강한 투자 습관을 형성을 지원합니다.
+투자자의 실패 원인을 '정보 부족'이 아닌 '행동 통제 실패'에서 찾고, 객관적인 데이터 분석을 통해 투자자 스스로 자신의 매매 패턴을 인지할 수 있도록 도움으로써 실질적인 손실 방어와 건강한 투자 습관 형성을 지원합니다.
 
 <br>
 
@@ -91,6 +91,8 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 | Backend | FastAPI, Python |
 | AI / Data | PyTorch (LSTM), Scikit-learn, Integrated Gradients, Pandas, NumPy |
 | Collaboration | GitHub, Notion |
+| Database | PostgreSQL (Railway)|
+| Deployment | Vercel (Frontend), Railway (Backend)|
 
 <br>
 
@@ -119,6 +121,24 @@ cloud9/
 
 ## 실행 및 데모
 
+### Backend (FastAPI)
+\`\`\`bash
+cd backend
+pip install -r requirements.txt
+
+# .env 파일에 DATABASE_URL 설정 (Railway 배포 시 자동 주입)
+DATABASE_URL=postgresql://...
+
+uvicorn main:app --reload
+\`\`\`
+Swagger UI: http://localhost:8000/docs
+
+### Frontend (React)
+\`\`\`bash
+cd frontend
+npm install
+npm run dev
+\`\`\`
 로컬 실행 방법과 데모 시연 요령은 [self_demo.md](self_demo.md) 를 참고하세요.
 
 **배포 주소 : https://canary-rust.vercel.app/**
@@ -133,13 +153,13 @@ cloud9/
 
 <br>
 
-## 👥 팀 정보
+## 팀 정보
 
 | 이름 | 역할 | 담당 영역 |
 | --- | --- | --- |
 | [최은우](https://github.com/suesu1204) | AI / 데이터 / 백엔드 | 3계층 앙상블 모델, XAI, 피처 엔지니어링, 데이터 파이프라인 |
-| [박나림](https://github.com/nariming) | 백엔드 | FastAPI 서버, API 설계, 데이터 파이프라인, AI 모델 연동 |
+| [박나림](https://github.com/nariming) | 백엔드 | FastAPI 서버, API 설계, DB 스키마 설계, AI 모델 연동 |
 | [임도경](https://github.com/ldkxllux) | 프론트엔드 | React 기반 SPA 구현, 대시보드 및 데이터 시각화 (Recharts), FastAPI 연동 |
 
 ---
-최종수정일 : 2026.06.21
+최종수정일 : 2026.06.22
