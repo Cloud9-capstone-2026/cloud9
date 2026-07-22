@@ -1,0 +1,8 @@
+# Canary 합성 데이터 생성기(synthetic_data/) 의존성.
+# backend/(FastAPI)와는 별개 트랙 — 실행 시점·트리거가 달라 분리 관리.
+mesa==3.5.1
+pandas
+numpy
+pykrx==1.2.8
+pyarrow  # parquet 캐시용
+python-dotenv  # regenerate_universe.py에서 .env(KRX 자격증명) 로드용
