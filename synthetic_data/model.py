@@ -2,6 +2,7 @@
 MarketModel: 전체 시뮬레이션(가격 데이터 + agent 집합 + 일별 step)을 관리.
 """
  
+import dataclasses
 import math
 import random
 from datetime import datetime, timedelta
@@ -76,8 +77,15 @@ class MarketModel(mesa.Model):
         n_investors: int,
         tickers: list[str],
         seed: int = 1,
+        mode: str = "natural",  # "natural" | "extended" (7-5 학습 모드 확장 샘플링)
     ):
         super().__init__(rng=seed)
+        if mode not in ("natural", "extended"):
+            raise ValueError(f"mode는 natural/extended 중 하나: {mode}")
+        self.mode = mode
+        # 확장 모드에서 agent별 성분 기록 (meta 출력용 — labels에 넣지 않는다:
+        # agent별 가변 비타깃 정보는 전부 meta로, 7-5 leakage 원칙)
+        self.param_components: dict = {}
         # RNG 스트림 분리: 그룹 배정과 파라미터 산포는 독립된 무작위 과정이므로 별도
         # 스트림을 쓴다. 단일 스트림이면 그룹 로직 변경(예: 독립→신규조건부)이 소비하는
         # 난수 개수를 바꿔 무관한 파라미터 draw까지 통째로 밀리고, 그룹-파라미터 간
@@ -88,6 +96,9 @@ class MarketModel(mesa.Model):
         entry_rng = random.Random(seed + 2)  # 신규투자자 진입일 전용 (7-1b) — 별도
         # 스트림이라 진입 로직 on/off가 파라미터·그룹 draw를 밀지 않는다(5-3 RNG 규율)
         portfolio_rng = random.Random(seed + 3)  # 기존투자자 초기 보유 전용 (7-1d)
+        mixture_rng = random.Random(seed + 4)    # 확장 샘플링 성분·꼬리 draw 전용 (7-5)
+        # — 자연값은 항상 py_rng로 뽑고 확장 모드에서만 mixture_rng가 덮어쓰므로,
+        #   natural 모드의 스트림 소비는 현행과 바이트 동일(회귀 검증 성립)
  
         # 가격은 pykrx 실데이터. LOTT 룩백 때문에 SIM_START 이전(2019-11~)까지 받으므로,
         # price_data(전체)는 LOTT·지수 계산용으로 보관하고 시뮬 캘린더는 SIM_START 이후만 건다.
@@ -130,6 +141,27 @@ class MarketModel(mesa.Model):
         for _ in range(n_investors):
             group = sample_investor_group(group_rng)  # group_rng만 소모
             params = sample_investor_params(py_rng, ranges, group, config.MULTIPLIERS)
+            # 확장 샘플링 (7-5): 4개 편향 파라미터를 축별 독립으로
+            # 중립 25% / 자연 50% / 꼬리 25% 혼합 — 비율·상한은 유형 C(설계 자유값,
+            # 모델 성능 보고 조정 가능). config.EXTENDED_MIXTURE 주석 참조.
+            components = {}
+            if self.mode == "extended":
+                p_neutral = config.EXTENDED_MIXTURE["neutral"]
+                p_tail = config.EXTENDED_MIXTURE["tail"]
+                overrides = {}
+                for pname in config.NEUTRAL_VALUES:
+                    r = mixture_rng.random()
+                    if r < p_neutral:
+                        components[pname] = "neutral"
+                        overrides[pname] = config.NEUTRAL_VALUES[pname]
+                    elif r < p_neutral + p_tail:
+                        components[pname] = "tail"
+                        lo, hi = config.EXTENDED_TAIL_BOUNDS[pname]
+                        overrides[pname] = mixture_rng.uniform(lo, hi)
+                    else:
+                        components[pname] = "natural"  # py_rng 자연값 유지
+                if overrides:
+                    params = dataclasses.replace(params, **overrides)
             cash_lo, cash_hi = config.INITIAL_CASH_BY_ASSET[group.asset]
             initial_cash = round(
                 py_rng.uniform(cash_lo, cash_hi)
@@ -160,6 +192,8 @@ class MarketModel(mesa.Model):
                 entry_date = self.trading_days[0]
             a = InvestorAgent(self, params, initial_cash, group, entry_date, init_pos)
             self.initial_assets[str(a.unique_id)] = total_asset
+            if components:
+                self.param_components[str(a.unique_id)] = components
             if init_pos:  # 하네스 replay 시딩용 스냅샷 (p42 기초보유 플래그의 원천)
                 self.initial_positions[str(a.unique_id)] = {
                     tk: dict(p) for tk, p in init_pos.items()

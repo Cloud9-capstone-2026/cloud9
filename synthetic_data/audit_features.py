@@ -17,7 +17,11 @@ from . import config
 from .features import build_features, load_trades_csv
 from .market_data import get_index_data, get_price_data
 
-# 7-1d/7-2 확정 시점의 스모크 기준값 (시드 7) — 큰 폭 하락 시 회귀 의심
+# 7-1d/7-2 확정 시점의 스모크 기준값 (자연 모드 canonical, 시드 7) — 큰 폭 하락 시 회귀 의심.
+# ★ 확장 모드 데이터에 돌리면 기준값·교차검증 참조치는 1:1로 적용되지 않는다(참고용):
+#   라벨 산포 확대로 채널 피처 rho는 상승하고, n_buys x OC처럼 그룹 배율 교란으로
+#   부풀어 있던 상관은 오히려 하락(교란 해소 — 회귀 아님), 풀드 PGR/PLR은 중립 25%
+#   혼입으로 하락하는 것이 정상이다 (7-5 검증 실측: EXPERIMENTS.md).
 REFERENCE = {
     ("pgr_plr_ratio", "disposition_strength"): 0.36,
     ("n_buys", "overconfidence"): 0.37,
@@ -30,18 +34,17 @@ REFERENCE = {
 HARNESS_DISP_REF = 2.187
 
 
-def main(csv_path: str):
+def main(csv_path: str, labels_path: str | None = None):
     trades, labels = load_trades_csv(csv_path)
     if labels is None:
         # 7-4 패키징 이후: 라벨은 trades에 없고 별도 labels.csv에 있다
-        if os.path.exists(config.LABELS_CSV_PATH):
-            labels = pd.read_csv(
-                config.LABELS_CSV_PATH, dtype={"agent_id": str}
-            ).set_index("agent_id")
-            print(f"라벨 소스: {config.LABELS_CSV_PATH}")
+        lp = labels_path or config.LABELS_CSV_PATH
+        if os.path.exists(lp):
+            labels = pd.read_csv(lp, dtype={"agent_id": str}).set_index("agent_id")
+            print(f"라벨 소스: {lp}")
         else:
             sys.exit("라벨 없음 — trades의 편향라벨 컬럼 또는 "
-                     f"{config.LABELS_CSV_PATH}가 필요합니다(합성 데이터 전용 테스트).")
+                     f"{lp}가 필요합니다(합성 데이터 전용 테스트).")
     print(f"거래 {len(trades):,}건, 계좌 {trades['agent_id'].nunique():,}개")
 
     price_df = get_price_data(config.UNIVERSE_TICKERS)
@@ -73,4 +76,7 @@ def main(csv_path: str):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else config.OUTPUT_CSV_PATH)
+    main(
+        sys.argv[1] if len(sys.argv) > 1 else config.OUTPUT_CSV_PATH,
+        sys.argv[2] if len(sys.argv) > 2 else None,
+    )

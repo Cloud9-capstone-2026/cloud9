@@ -263,6 +263,42 @@ OVERCONFIDENCE_MARKET_SCALE = 240
 # (독식 감시 검증에서 과도하게 쏠리면 조정 — TODO 5단계 캘리브레이션)
 PICK_BASE_WEIGHT = 1.0
 
+# ---------------------------------------------------------------------------
+# 학습 모드 확장 샘플링 (7-5) — 4개 편향 파라미터에만 적용 (base 확률은 활동 구조라 제외)
+#
+# 혼합: 축별 독립으로 중립(무편향) / 자연(현행 캘리브레이션 분포) / 확장 꼬리
+# uniform[자연 p90, 1.5 x 자연 p99]. 목적 = 3계층 시퀀스 이상탐지 모델의 학습 커버리지
+# (대조 클래스 + 편향 강도 스펙트럼). 평가 모드는 자연 100%이며, 확장 데이터는 KCMI
+# 재현 검증 대상이 아니다(현실 재현이 아니라 '탐지 스펙트럼 정의').
+#
+# ★ 혼합 비율(25/50/25)과 꼬리 상한(1.5xp99)은 DECISIONS 유형 C — 외부 앵커 없는
+#   설계 자유값. 추후 모델 성능을 보고 조정 가능.
+#
+# RNG 규율: 자연값은 모드와 무관하게 항상 py_rng로 뽑고, 확장 모드에서만
+# mixture_rng(seed+4)가 성분 결정·꼬리 draw 후 덮어쓰기 — 자연 모드의 스트림 소비가
+# 현행과 동일해 바이트 회귀 검증 성립.
+EXTENDED_MIXTURE = {"neutral": 0.25, "tail": 0.25}  # 잔여 0.50 = natural
+NEUTRAL_VALUES = {  # 편향 없음 값 (무편향 대조군 실험과 동일 정의)
+    "disposition_strength": 1.0,
+    "overconfidence": 0.0,
+    "lottery_preference": 0.0,
+    "herd_sensitivity": 0.0,
+}
+# 꼬리 경계 [p90, 1.5xp99] — 커밋본 synthetic_labels.csv(자연 모드 시드 7, 3,000 agent,
+# 배율·clip 포함 최종 분포)의 경험적 분위수로 프리즈 (7-5 실측).
+EXTENDED_TAIL_BOUNDS = {
+    "disposition_strength": (4.625, 8.609),
+    "overconfidence": (0.286, 0.979),
+    "lottery_preference": (0.355, 0.806),
+    "herd_sensitivity": (0.446, 1.159),
+}
+
+# 데이터셋 생성 시드 (generate_dataset.py): 학습(확장) 5개 + 평가(자연) 2개.
+# 산출물 dataset/은 .gitignore — 시드·config 고정이라 스크립트 1회 실행으로 완전 재현.
+DATASET_TRAIN_SEEDS = [11, 13, 17, 19, 23]
+DATASET_EVAL_SEEDS = [101, 102]
+DATASET_DIR = "dataset"
+
 # 출력 경로 (7-4 패키징: 거래/라벨/메타 3파일 분리)
 # trades는 실계좌 11필드 스키마와 완전 일치(처리시간·편향라벨 제거 — leakage 물리 차단,
 # 학습 입력 = 추론 입력 모양). 라벨(학습 타깃)과 메타(그룹 태그 — 학습 비사용, 분석
