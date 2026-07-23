@@ -8,7 +8,10 @@ features.py 회귀 테스트 (7-3-4): 합성 CSV(라벨 포함) → 피처×라�
 실행: python -m synthetic_data.audit_features  (기본: config.OUTPUT_CSV_PATH)
 """
 
+import os
 import sys
+
+import pandas as pd
 
 from . import config
 from .features import build_features, load_trades_csv
@@ -30,7 +33,15 @@ HARNESS_DISP_REF = 2.187
 def main(csv_path: str):
     trades, labels = load_trades_csv(csv_path)
     if labels is None:
-        sys.exit("편향라벨 컬럼이 없는 CSV — 회귀 테스트는 합성 데이터 전용입니다.")
+        # 7-4 패키징 이후: 라벨은 trades에 없고 별도 labels.csv에 있다
+        if os.path.exists(config.LABELS_CSV_PATH):
+            labels = pd.read_csv(
+                config.LABELS_CSV_PATH, dtype={"agent_id": str}
+            ).set_index("agent_id")
+            print(f"라벨 소스: {config.LABELS_CSV_PATH}")
+        else:
+            sys.exit("라벨 없음 — trades의 편향라벨 컬럼 또는 "
+                     f"{config.LABELS_CSV_PATH}가 필요합니다(합성 데이터 전용 테스트).")
     print(f"거래 {len(trades):,}건, 계좌 {trades['agent_id'].nunique():,}개")
 
     price_df = get_price_data(config.UNIVERSE_TICKERS)

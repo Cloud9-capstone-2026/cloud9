@@ -119,6 +119,7 @@ class MarketModel(mesa.Model):
         # 취득단가 = 직전 거래일(2020-02-28) 종가 프록시 — 실제 취득가는 알 수 없고,
         # 측정에서는 p42 규칙으로 제외되므로 agent 매도 판단(손익 기준점)에만 쓰인다.
         self.initial_positions: dict = {}  # agent_id -> {ticker: {수량, 평균단가, 매입일}}
+        self.initial_assets: dict = {}     # agent_id -> 초기 총자산(주식+현금, 분할 전) — meta 출력용(7-4)
         pre = self.price_data[self.price_data["거래일자"] < sim_start]
         base_date = pre["거래일자"].max()
         last_close = pre.sort_values("거래일자").groupby("종목코드")["종가"].last()
@@ -135,6 +136,7 @@ class MarketModel(mesa.Model):
             )  # 정수(원)로 시작 → 예수금 스냅샷이 소수 오프셋 없이 정산금액과 정확히 정합
             # (자산 그룹별 범위 — draw 수는 agent당 uniform 1회로 기존과 동일.
             #  7-1d부터 이 값은 '총자산'이고, 기존투자자는 아래에서 주식/현금으로 분할)
+            total_asset = initial_cash  # 분할 전 총자산 스냅샷 (meta 출력용)
             init_pos: dict = {}
             if config.INITIAL_PORTFOLIO and group.new_key == "기존":
                 frac = portfolio_rng.uniform(*config.INITIAL_STOCK_FRACTION)
@@ -157,6 +159,7 @@ class MarketModel(mesa.Model):
             else:  # 기존투자자(또는 플래그 off)는 첫날부터
                 entry_date = self.trading_days[0]
             a = InvestorAgent(self, params, initial_cash, group, entry_date, init_pos)
+            self.initial_assets[str(a.unique_id)] = total_asset
             if init_pos:  # 하네스 replay 시딩용 스냅샷 (p42 기초보유 플래그의 원천)
                 self.initial_positions[str(a.unique_id)] = {
                     tk: dict(p) for tk, p in init_pos.items()

@@ -263,8 +263,13 @@ OVERCONFIDENCE_MARKET_SCALE = 240
 # (독식 감시 검증에서 과도하게 쏠리면 조정 — TODO 5단계 캘리브레이션)
 PICK_BASE_WEIGHT = 1.0
 
-# 출력 경로
+# 출력 경로 (7-4 패키징: 거래/라벨/메타 3파일 분리)
+# trades는 실계좌 11필드 스키마와 완전 일치(처리시간·편향라벨 제거 — leakage 물리 차단,
+# 학습 입력 = 추론 입력 모양). 라벨(학습 타깃)과 메타(그룹 태그 — 학습 비사용, 분석
+# 전용)는 별도 파일. schema.Trade 자체는 13필드 유지(내부·하네스용) — 기록 시 선별.
 OUTPUT_CSV_PATH = "synthetic_trades.csv"
+LABELS_CSV_PATH = "synthetic_labels.csv"
+META_CSV_PATH = "synthetic_meta.csv"
 
 # pykrx 시세 캐시 디렉터리 (재생성 가능한 파생 데이터 — .gitignore 대상)
 PRICE_CACHE_DIR = "synthetic_data/.cache"
