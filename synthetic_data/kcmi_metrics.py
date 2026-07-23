@@ -74,6 +74,12 @@ _EXPECTED = {
         "연령": ["30대", "40대", "20대이하", "50대", "60대이상"],
         "신규여부": ["신규", "기존"],
     },
+    # 처분조정(6-0): agent 자기정규화 지표 — 활동수준 교란 제거 후 같은 기대 순서.
+    "처분조정": {
+        "성별": ["여성", "남성"],
+        "연령": ["30대", "40대", "20대이하", "50대", "60대이상"],
+        "신규여부": ["신규", "기존"],
+    },
     # 복권 H-L(그림 Ⅳ-13 LOTT1): 남>여, 기존>신규(그림 판독 결과 그대로).
     "복권HL": {"성별": ["남성", "여성"], "신규여부": ["기존", "신규"]},
     # 군집 β(표 A3-1): 신규>기존, 여>남.
@@ -136,6 +142,9 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
     buy_count_by_day: dict = {}                 # date -> {group: 매수 건수} (과잉확신 감도용)
     # group -> [gain_obs, gain_sold, loss_obs, loss_sold] (처분효과 position-day 패널)
     disp = defaultdict(lambda: [0, 0, 0, 0])
+    # agent -> 동일 카운터 (6-0 조정 지표용): agent별 PGR_i/PLR_i는 자기 활동수준으로
+    # 자기정규화되므로, 풀드 비조정 지표의 노출 혼합(저활동 그룹 부풀림)이 제거된다.
+    disp_agent = defaultdict(lambda: [0, 0, 0, 0])
     # 복권형 초과보유용(풀드): 종목별 '그날 보유비중' 누적 → 일평균.
     holding_share_acc: dict = defaultdict(float)
     holding_share_days = 0
@@ -156,12 +165,17 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
                     continue
                 is_gain = c >= pos["평균단가"]  # 등호 포함 (agent.py와 동일)
                 sold = (agent_id, ticker) in sold_today
+                ca = disp_agent[agent_id]
                 if is_gain:
                     disp[g][0] += 1
                     disp[g][1] += sold
+                    ca[0] += 1
+                    ca[1] += sold
                 else:
                     disp[g][2] += 1
                     disp[g][3] += sold
+                    ca[2] += 1
+                    ca[3] += sold
 
         # (2) 오늘 거래 적용(실행순) + 그룹별 매수/매도대금·건수 집계.
         bv, sv, bc = defaultdict(float), defaultdict(float), defaultdict(int)
@@ -222,6 +236,7 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
         "sell_value_by_day": sell_value_by_day,
         "buy_count_by_day": buy_count_by_day,
         "disp": dict(disp),
+        "disp_agent": dict(disp_agent),
         "holding_weight": holding_weight,
     }
 
@@ -347,7 +362,8 @@ def _sias_beta(trades, trading_days, tickers):
 # ---------------------------------------------------------------------------
 def _lottery_rank(model, trading_days):
     """종목별 LOTT 랭크(공통). 시뮬 각 달에 '적용된' LOTT 합성값(직전 달 계산치)을 평균 후
-    종목 횡단면 pct 랭크. 2축 근사(고유변동성+주가). 데이터 없으면 None."""
+    종목 횡단면 pct 랭크. 6-4·6-5부터 KCMI LOTT(1) 3축(FF3 고유변동성+주가+EISKEW) 완성.
+    데이터 없으면 None."""
     sim_months = sorted({(d.year, d.month) for d in trading_days})
     acc: dict = defaultdict(list)
     for (yy, mm) in sim_months:
@@ -442,6 +458,27 @@ def compute_metrics(model) -> dict:
     rp = _replay(model, trading_days, close_map, close_ff, group_of)
     lott_rank = _lottery_rank(model, trading_days)
 
+    def _adj_disposition(member):
+        """6-0 조정 처분: agent별 PGR_i/PLR_i(자기정규화)의 그룹 중앙값.
+
+        비조정 풀드 지표는 노출 혼합으로 저활동 그룹이 부풀려짐(KCMI Cox는 Turn 통제).
+        최소 관측 필터(gain/loss obs>=10, 각 매도>=2)로 불안정 비율 제외 — 필터 통과
+        agent 수(n)를 함께 보고해 선택편향 정도를 드러낸다."""
+        ratios = []
+        for aid, g in group_of.items():
+            if g not in member:
+                continue
+            c = rp["disp_agent"].get(aid)
+            if not c:
+                continue
+            go, gs, lo, ls = c
+            if go >= 10 and lo >= 10 and gs >= 2 and ls >= 2:
+                ratios.append((gs / go) / (ls / lo))
+        return {
+            "median": float(np.median(ratios)) if ratios else float("nan"),
+            "n": len(ratios),
+        }
+
     def _metrics_for(member):
         hp = [x for g in member for x in rp["holding_periods"].get(g, [])]
         holding = {
@@ -469,6 +506,7 @@ def compute_metrics(model) -> dict:
 
     # --- 풀드 ---
     holding, turnover, disposition, overconf = _metrics_for(all_groups)
+    disposition_adj = _adj_disposition(all_groups)
     sias = _sias_beta(model.trades, trading_days, tickers)
     lottery = _lottery(model, trading_days, rp["holding_weight"])
 
@@ -481,11 +519,13 @@ def compute_metrics(model) -> dict:
             if not member:
                 continue
             h, to, dp, oc = _metrics_for(member)
+            adj = _adj_disposition(member)
             entry = {
                 "n_agents": sum(n_agents_of[g] for g in member),
                 "holding_mean": h["mean"], "holding_median": h["median"],
                 "turnover_annual": to["annual"],
                 "disp_ratio": dp["ratio"],
+                "disp_adj": adj["median"], "disp_adj_n": adj["n"],
                 "overconf": oc,
                 "lottery_HmL": None, "sias_beta": None,
             }
@@ -505,6 +545,7 @@ def compute_metrics(model) -> dict:
         "holding": holding,
         "turnover": turnover,
         "disposition": disposition,
+        "disposition_adj": disposition_adj,
         "overconf": overconf,
         "sias": sias,
         "lottery": lottery,
@@ -553,6 +594,8 @@ def print_report(m: dict):
     print(f"  PGR(이익 실현율)={_fmt(dp['pgr'])} (obs {dp['gain_obs']:,}), "
           f"PLR(손실 실현율)={_fmt(dp['plr'])} (obs {dp['loss_obs']:,})")
     print(f"  비율 PGR/PLR : {_fmt(dp['ratio'])}  ← KCMI {T['disposition_ratio']}")
+    da = m["disposition_adj"]
+    print(f"  조정(agent 자기정규화 중앙값): {_fmt(da['median'])}  (유효 agent {da['n']:,})")
 
     print(f"\n[과잉확신 감도]  (상승 다음날/비상승 다음날 매수건수 비율, 간이)")
     print(f"  전체 : {_fmt(m['overconf'])}  (>1이면 과잉확신 방향)")
@@ -581,7 +624,7 @@ def print_report(m: dict):
     for axis, cats in m["groups"].items():
         print(f"\n  ◆ {axis}")
         print(f"    {'카테고리':<10} {'n':>5} {'보유(평균/중앙)':>14} {'회전율':>9} "
-              f"{'처분':>7} {'과잉감도':>8} {'복권H-L':>8} {'군집β':>7}")
+              f"{'처분':>7} {'처분조정':>8} {'과잉감도':>8} {'복권H-L':>8} {'군집β':>7}")
         for cat in _AXIS_ORDER[axis]:
             if cat not in cats:
                 continue
@@ -591,8 +634,8 @@ def print_report(m: dict):
             print(f"    {cat:<10} {e['n_agents']:>5} "
                   f"{e['holding_mean']:>7.2f}/{e['holding_median']:<5.1f} "
                   f"{e['turnover_annual']*100:>8.0f}% "
-                  f"{_fmt(e['disp_ratio']):>7} {_fmt(e['overconf']):>8} "
-                  f"{lot_s:>8} {sias_s:>7}")
+                  f"{_fmt(e['disp_ratio']):>7} {_fmt(e['disp_adj']):>8} "
+                  f"{_fmt(e['overconf']):>8} {lot_s:>8} {sias_s:>7}")
 
     # --- 순서 재현 판정표 ---
     print("\n" + "-" * 66)
@@ -600,6 +643,7 @@ def print_report(m: dict):
     field_of = {
         "회전율": ("turnover_annual", True),
         "처분": ("disp_ratio", True),
+        "처분조정": ("disp_adj", True),
         "과잉확신": ("overconf", True),
         "복권HL": ("lottery_HmL", True),
         "군집β": ("sias_beta", True),

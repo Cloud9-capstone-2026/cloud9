@@ -5,8 +5,7 @@ InvestorAgent: 하루 단위로 매도->매수 판단을 수행하는 개인 투
 from typing import TYPE_CHECKING
 
 import mesa
-import pandas as pd
- 
+
 from . import config
 from .params import BehaviorParams, InvestorGroup
 from .schema import Trade
@@ -33,33 +32,31 @@ class InvestorAgent(mesa.Agent):
         self.positions: dict[str, dict] = {}
  
     def step(self):
-        today_prices = self.model.get_today_prices()
-        if today_prices.empty:
+        if not self.model._today_candidates:  # 오늘 거래가능 종목 없음
             return
-        self._maybe_sell(today_prices)
-        self._maybe_buy(today_prices)
- 
+        self._maybe_sell()
+        self._maybe_buy()
+
     # -- 매도 판단 (처분효과) -------------------------------------------------
-    def _maybe_sell(self, today_prices: pd.DataFrame):
+    def _maybe_sell(self):
         for ticker, pos in list(self.positions.items()):
-            row = today_prices[today_prices["종목코드"] == ticker]
-            if row.empty:
+            price = self.model.get_today_price(ticker)
+            if price is None:  # 오늘 거래 없는 종목(거래정지 등) — 매도 불가
                 continue
-            close = float(row.iloc[0]["종가"])
- 
+            low, high, close = price
+
             if pos["매입일"] == self.model.current_date:
                 continue  # 매수 당일 매도 배제 (KCMI 22-02 방법론과 동일)
- 
+
             is_gain = close >= pos["평균단가"]
             prob = self.params.base_sell_prob * (
                 self.params.disposition_strength if is_gain else 1.0
             )
             if self.random.random() < min(prob, 0.9):
-                self._execute_sell(ticker, pos, row.iloc[0])
- 
-    def _execute_sell(self, ticker: str, pos: dict, price_row: pd.Series):
-        low, high = float(price_row["저가"]), float(price_row["고가"])
-        exec_price = self.random.uniform(low, high)  # TODO(2단계): 체결가 샘플링 정교화
+                self._execute_sell(ticker, pos, low, high)
+
+    def _execute_sell(self, ticker: str, pos: dict, low: float, high: float):
+        exec_price = self.random.uniform(low, high)  # TODO: 체결가 샘플링 정교화(보류)
         qty = pos["수량"]
  
         trade = Trade(
@@ -78,7 +75,7 @@ class InvestorAgent(mesa.Agent):
         self.model.record_trade(trade)
  
     # -- 매수 판단 (과잉확신 + 복권형 선호) -----------------------------------
-    def _maybe_buy(self, today_prices: pd.DataFrame):
+    def _maybe_buy(self):
         market_return = self.model.get_prev_market_return()
         prob = self.params.base_buy_prob
         if market_return is not None and market_return > 0:
@@ -92,82 +89,56 @@ class InvestorAgent(mesa.Agent):
         if self.cash < 100_000:
             return
  
-        ticker = self._pick_ticker(today_prices)
+        ticker = self._pick_ticker()
         if ticker is None:
             return
-        row = today_prices[today_prices["종목코드"] == ticker].iloc[0]
-        self._execute_buy(ticker, row)
+        low, high, _close = self.model.get_today_price(ticker)
+        self._execute_buy(ticker, low, high)
  
-    def _pick_ticker(self, today_prices: pd.DataFrame) -> str | None:
+    def _pick_ticker(self) -> str | None:
         """복권형 선호와 군집 신호를 배타적 분기가 아니라 가중합으로 결합해 종목을 고른다.
 
         KCMI 22-02가 복권형 지표(LOTT)를 세 축의 '랭크 합'으로 만든 것과 같은 가법 구조.
         두 성향이 모두 강한 agent는 '저가이면서 동시에 몰린' 종목에 두 항이 함께 가산돼
-        자연스럽게 이중 가중된다. 두 파라미터가 서로 간섭하지 않아 5단계 캘리브레이션에서
+        자연스럽게 이중 가중된다. 두 파라미터가 서로 간섭하지 않아 캘리브레이션에서
         각 축을 독립적으로 맞출 수 있다.
+
+        LOTT/herd 랭크 정규화는 agent와 무관한 day-level 값이라 model.step()이 하루
+        1회 계산해 둔 스냅샷(_today_lott_norm/_today_herd_norm)을 그대로 쓴다(6-2).
         """
-        candidates = today_prices["종목코드"].unique().tolist()
+        candidates = self.model._today_candidates
         if not candidates:
             return None
 
-        lottery = self._lottery_scores(candidates)
-        herd = self._herd_scores(candidates)
+        lottery = self.model._today_lott_norm
+        herd = self.model._today_herd_norm
 
+        hs = self.params.herd_sensitivity * config.HERD_WEIGHT_SCALE  # 6-6 스케일
         weights = [
             config.PICK_BASE_WEIGHT
             + self.params.lottery_preference * lottery[t]
-            + self.params.herd_sensitivity * herd[t]
+            + hs * herd[t]
             for t in candidates
         ]
         return self.random.choices(candidates, weights=weights, k=1)[0]
 
-    def _lottery_scores(self, candidates: list[str]) -> dict[str, float]:
-        """월별 사전계산된 LOTT 합성값(고유변동성+주가, 직전 달 기준)을 조회해 그날 후보 안에서
-        [0,1] 재정규화(herd_score와 스케일 일치). 데이터 없으면 전 종목 동률 → lottery 항 중립.
-        TODO(5단계): 왜도(EISKEW) 축 추가로 KCMI 3축 완성."""
-        lott = self.model.get_lott_scores(self.model.current_date)
-        if not lott:
-            return {t: 0.0 for t in candidates}
-        return self._rank_norm(candidates, {t: lott.get(t, 0.0) for t in candidates})
-
-    def _herd_scores(self, candidates: list[str]) -> dict[str, float]:
-        """군집 신호: lag일 전(완료된 과거일) 매수자 폭(breadth)이 클수록 높은 점수.
-        오늘 거래가능 후보로만 한정하고, 데이터 없는 종목은 breadth 0으로 최하위."""
-        breadth = self.model.get_herd_breadth(config.HERD_LAG_DAYS)
-        return self._rank_norm(candidates, {t: breadth.get(t, 0) for t in candidates})
-
-    @staticmethod
-    def _rank_norm(
-        candidates: list[str], values: dict[str, float]
-    ) -> dict[str, float]:
-        """values를 오름차순 랭크해 [0,1]로 정규화. 동률은 평균 랭크로 처리.
-
-        동률 평균랭크가 중요한 이유: 시뮬 초반처럼 전 종목 breadth가 0인 경우, 단순 정렬
-        위치로 랭크를 매기면 값이 같은데도 정렬 순서 때문에 일부 종목이 불공평하게
-        가점된다. 평균 랭크는 동률 종목에 같은 점수를 준다.
-        """
-        n = len(candidates)
-        if n <= 1:
-            return {t: 0.0 for t in candidates}
-        vals = [values[t] for t in candidates]
-        out = {}
-        for t in candidates:
-            v = values[t]
-            less = sum(1 for u in vals if u < v)
-            equal = sum(1 for u in vals if u == v)
-            avg_rank = less + (equal - 1) / 2.0
-            out[t] = avg_rank / (n - 1)
-        return out
+    # (_lottery_scores/_herd_scores/_rank_norm은 6-2에서 model.step()의 day-level
+    #  스냅샷 계산으로 이동 — agent×매수판단마다 O(n²) 재계산하던 것을 하루 1회로.)
  
-    def _execute_buy(self, ticker: str, price_row: pd.Series):
-        low, high = float(price_row["저가"]), float(price_row["고가"])
-        exec_price = self.random.uniform(low, high)  # TODO(2단계): 체결가 샘플링 정교화
+    def _execute_buy(self, ticker: str, low: float, high: float):
+        exec_price = self.random.uniform(low, high)  # TODO: 체결가 샘플링 정교화(보류)
  
         max_affordable_qty = int(self.cash // (exec_price * 1.001))
         if max_affordable_qty <= 0:
             return
         lo, hi = config.BUY_CASH_FRACTION_RANGE
         qty = max(1, int(max_affordable_qty * self.random.uniform(lo, hi)))
+        # 유동성 가드(6-3): 전일 거래량의 일정 비율을 넘는 매수 주문은 상한으로 절단.
+        cap = self.model.get_buy_qty_cap(ticker)
+        if cap is not None:
+            if cap <= 0:
+                return  # 전일 거래가 사실상 없던 종목 — 매수 스킵
+            qty = min(qty, cap)
  
         trade = Trade(
             거래일자=self.model.current_date,

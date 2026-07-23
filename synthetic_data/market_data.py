@@ -21,16 +21,33 @@ LOTT 룩백 포함). 시뮬레이션이 실제로 도는 기간(>= SIM_START_DAT
 
 import hashlib
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
+import requests
 from dotenv import load_dotenv
 from pykrx import stock
 
 from . import config
 
-_PRICE_COLUMNS = ["종목코드", "거래일자", "시가", "고가", "저가", "종가"]
+# pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행(hang)에 빠질 수 있다
+# (6-1 유니버스 샘플링에서 실측). 201종목 최초 fetch도 같은 per-ticker 패턴이라
+# 런타임 경로에도 세션 기본 timeout을 강제한다. (캐시 적중 시엔 네트워크 자체가 없음.)
+_orig_request = requests.Session.request
+
+
+def _request_with_timeout(self, *args, **kwargs):
+    kwargs.setdefault("timeout", 15)
+    return _orig_request(self, *args, **kwargs)
+
+
+requests.Session.request = _request_with_timeout
+
+# 거래량은 6-3 유동성 현실성 측정(주문수량/일거래량)용 — 시세 스키마에 보존.
+_PRICE_COLUMNS = ["종목코드", "거래일자", "시가", "고가", "저가", "종가", "거래량"]
 _ADJUSTED = True
+_SCHEMA_VER = "v2"  # 컬럼 추가 시 캐시 무효화용
 
 
 def _cache_file(name: str) -> str:
@@ -41,10 +58,22 @@ def _fetch_price(tickers: list[str]) -> pd.DataFrame:
     """pykrx에서 각 종목 OHLC를 받아 통일 스키마로 concat. 거래일자는 datetime64로 둠
     (parquet 저장에 깔끔). date 변환은 get_price_data 최종 단계에서 일괄 수행."""
     frames = []
-    for ticker in tickers:
-        df = stock.get_market_ohlcv(
-            config.LOTT_ESTIMATION_START, config.SIM_END_DATE, ticker, adjusted=_ADJUSTED
-        )
+    for i, ticker in enumerate(tickers):
+        df = None
+        for attempt in (1, 2):  # timeout 등 일시 오류 1회 재시도
+            try:
+                df = stock.get_market_ohlcv(
+                    config.LOTT_ESTIMATION_START, config.SIM_END_DATE, ticker,
+                    adjusted=_ADJUSTED,
+                )
+                break
+            except Exception:  # noqa: BLE001
+                if attempt == 2:
+                    raise
+                time.sleep(2.0)
+        time.sleep(0.1)  # KRX 쓰로틀링 방지 (캐시 적중 시 이 루프 자체가 안 돎)
+        if (i + 1) % 50 == 0:
+            print(f"  가격 fetch {i + 1}/{len(tickers)}", flush=True)
         if df.empty:
             continue
         df = df[df["거래량"] > 0]  # 거래정지일 제거
@@ -59,6 +88,7 @@ def _fetch_price(tickers: list[str]) -> pd.DataFrame:
                     "고가": df["고가"].round().astype("int64").values,
                     "저가": df["저가"].round().astype("int64").values,
                     "종가": df["종가"].round().astype("int64").values,
+                    "거래량": df["거래량"].astype("int64").values,
                 }
             )
         )
@@ -74,7 +104,8 @@ def get_price_data(tickers: list[str]) -> pd.DataFrame:
     """UNIVERSE 각 종목의 일별 OHLC를 통일 스키마로 반환. (기간은 config에서 읽음)"""
     digest = hashlib.md5(",".join(sorted(tickers)).encode()).hexdigest()[:8]
     cache = _cache_file(
-        f"ohlcv_{config.LOTT_ESTIMATION_START}_{config.SIM_END_DATE}_adj{_ADJUSTED}_{digest}.parquet"
+        f"ohlcv_{_SCHEMA_VER}_{config.LOTT_ESTIMATION_START}_{config.SIM_END_DATE}"
+        f"_adj{_ADJUSTED}_{digest}.parquet"
     )
     if os.path.exists(cache):
         result = pd.read_parquet(cache)
