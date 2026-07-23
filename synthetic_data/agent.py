@@ -20,6 +20,8 @@ class InvestorAgent(mesa.Agent):
         params: BehaviorParams,
         initial_cash: float,
         group: InvestorGroup,
+        entry_date,
+        init_positions: dict | None = None,
     ):
         super().__init__(model)
         self.params = params
@@ -27,11 +29,20 @@ class InvestorAgent(mesa.Agent):
         # (실제 증권사 CSV에 없는 필드 + 이상탐지 leakage 방지). 5-5 그룹별 검증은
         # kcmi_metrics가 model 객체를 받으므로 agent.group으로 직접 접근.
         self.group = group
+        # 진입일(7-1b): 신규투자자는 계좌 개설 시점(그림 Ⅱ-1 분포)부터 활동.
+        # 진입 전에는 step이 no-op — 현금도 사실상 진입 시점에 유입되는 것과 동일.
+        self.entry_date = entry_date
         self.cash = initial_cash
         # positions: {종목코드: {"수량": int, "평균단가": float, "매입일": date}}
-        self.positions: dict[str, dict] = {}
- 
+        # 기존투자자는 초기 보유(7-1d)를 갖고 시작 — 매입일이 시뮬 시작 전 날짜라
+        # '매수 당일 매도 배제'와 충돌 없이 첫날부터 매도 가능. 매도·병합 로직은 동일.
+        self.positions: dict[str, dict] = (
+            {tk: dict(p) for tk, p in init_positions.items()} if init_positions else {}
+        )
+
     def step(self):
+        if self.model.current_date < self.entry_date:  # 진입 전 (7-1b)
+            return
         if not self.model._today_candidates:  # 오늘 거래가능 종목 없음
             return
         self._maybe_sell()
@@ -96,28 +107,32 @@ class InvestorAgent(mesa.Agent):
         self._execute_buy(ticker, low, high)
  
     def _pick_ticker(self) -> str | None:
-        """복권형 선호와 군집 신호를 배타적 분기가 아니라 가중합으로 결합해 종목을 고른다.
+        """복권형 선호와 군집(attention) 신호를 배타적 분기가 아니라 가중합으로 결합해
+        종목을 고른다.
 
         KCMI 22-02가 복권형 지표(LOTT)를 세 축의 '랭크 합'으로 만든 것과 같은 가법 구조.
-        두 성향이 모두 강한 agent는 '저가이면서 동시에 몰린' 종목에 두 항이 함께 가산돼
-        자연스럽게 이중 가중된다. 두 파라미터가 서로 간섭하지 않아 캘리브레이션에서
+        두 성향이 모두 강한 agent는 '저가이면서 동시에 주목받는' 종목에 두 항이 함께
+        가산돼 자연스럽게 이중 가중된다. 두 파라미터가 서로 간섭하지 않아 캘리브레이션에서
         각 축을 독립적으로 맞출 수 있다.
 
-        LOTT/herd 랭크 정규화는 agent와 무관한 day-level 값이라 model.step()이 하루
-        1회 계산해 둔 스냅샷(_today_lott_norm/_today_herd_norm)을 그대로 쓴다(6-2).
+        군집 항은 7-1에서 내부 breadth → 관측가능 시장 attention(전일 비정상거래량+최근
+        수익률 랭크)으로 교체 — 실계좌 피처와 생성 채널이 같은 값이 된다(config 참조).
+        LOTT/attention 랭크 정규화는 agent와 무관한 day-level 값이라 model.step()이 하루
+        1회 계산해 둔 스냅샷(_today_lott_norm/_today_attn_norm)을 그대로 쓴다(6-2).
         """
         candidates = self.model._today_candidates
         if not candidates:
             return None
 
         lottery = self.model._today_lott_norm
-        herd = self.model._today_herd_norm
+        attn = self.model._today_attn_norm
 
         hs = self.params.herd_sensitivity * config.HERD_WEIGHT_SCALE  # 6-6 스케일
+        lp = self.params.lottery_preference * config.LOTT_WEIGHT_SCALE  # 7-2 스케일
         weights = [
             config.PICK_BASE_WEIGHT
-            + self.params.lottery_preference * lottery[t]
-            + hs * herd[t]
+            + lp * lottery[t]
+            + hs * attn[t]
             for t in candidates
         ]
         return self.random.choices(candidates, weights=weights, k=1)[0]

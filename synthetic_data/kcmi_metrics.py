@@ -35,10 +35,15 @@ from . import config
 TRADING_DAYS_PER_YEAR = 250
 
 # KCMI 22-02 목표치(대조용).
+# 회전율 재앵커 (7-1d): 실측 연 1600%의 55.4%는 일중거래(당일 매수-매도, 21-11 그림
+# Ⅱ-19)인데 본 생성기는 일중거래 채널이 구조적으로 없다(매수 당일 매도 배제). 따라서
+# 우리 데이터의 올바른 대조치는 비일중 성분 = 1600% x (1-0.554) ~= 714%. 7-1d 이전의
+# 1600% 달성은 보유평가액(분모)이 비현실적으로 작아서 가능했던 '맞는 숫자, 틀린
+# 메커니즘'이었음 — 초기 보유 도입으로 분모가 현실화되며 드러남.
 KCMI_TARGETS = {
     "holding_mean": 9.67,
     "holding_median": 3.0,
-    "turnover_annual": 16.0,  # 연 1,600%
+    "turnover_annual": 7.14,  # 연 714% (비일중 성분 — 위 주석)
     "disposition_ratio": 2.18,
     "sias_beta": 0.169,
 }
@@ -85,6 +90,11 @@ _EXPECTED = {
     # 군집 β(표 A3-1): 신규>기존, 여>남.
     "군집β": {"신규여부": ["신규", "기존"], "성별": ["여성", "남성"]},
 }
+
+# 보유종목수 분포 대조치 (김민기·김준석 2021 <그림 Ⅱ-9>, %): 1종목 / ≤3 / ≤10 / >10.
+# 7-1c에서 신규 앵커로 도입 — 정확 재현이 아니라 분포 형태 접근이 목표(>3종목 보유자
+# 유의미 비중 + 기존>신규 분산 순서).
+_NSTOCK_KCMI = {"전체": (20, 39, 31, 9), "기존": (16, 39, 35, 11), "신규": (32, 41, 23, 3)}
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +143,20 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
         trades_by_day[t.거래일자].append(t)
 
     positions: dict = defaultdict(dict)  # agent_id -> {ticker: {수량, 평균단가, 매입일}}
+    # 보유종목수(7-1c-1, 그림 Ⅱ-9 대조): agent -> [보유종목수 일합, 보유일수, 첫거래 day_idx]
+    nstock_agent: dict = defaultdict(lambda: [0.0, 0, None])
+
+    # 기초보유 시딩 (7-1d, KCMI 22-02 p42): 시뮬 시작 전 보유분은 "매칭에는 반영하되
+    # 이 수량이 매칭된 조합은 분석에서 제외" — replay에 포지션을 심되 플래그를 붙여
+    # 보유기간·처분 패널에서 제외하고, 보유평가액 MTM·매도대금(회전율)에는 포함한다.
+    # 추가 매수로 병합돼도 플래그 유지(조합 전체 제외), 전량 매도로 청산되면 해제
+    # (이후 같은 종목 재매수는 신규 포지션). ★부분매도 도입 시 이 규칙도 재검토.
+    basis_flag: set = set()  # {(agent_id, ticker)}
+    for aid, pmap in getattr(model, "initial_positions", {}).items():
+        for tk, pos in pmap.items():
+            positions[aid][tk] = dict(pos)
+            basis_flag.add((aid, tk))
+        nstock_agent[aid][2] = 0  # 첫날부터 활동 (전기간 평균 분모)
     holding_periods: dict = defaultdict(list)   # group -> [보유 거래일수]
     holdings_value_by_day: dict = {}            # date -> {group: 보유평가액(ffill)}
     # KCMI(김민기·김준석 2021, p65-66) 회전율 분자는 "일간 매수·매도대금의 평균값"
@@ -160,6 +184,8 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
         for agent_id, pos_map in positions.items():
             g = group_of[agent_id]
             for ticker, pos in pos_map.items():
+                if (agent_id, ticker) in basis_flag:
+                    continue  # 기초보유 — 처분 패널 제외 (p42)
                 c = close_map.get((ticker, d))  # 실제 체결 종가만(모델 skip과 정합)
                 if c is None:
                     continue
@@ -182,11 +208,19 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
         for t in day_trades:
             aid, ticker, qty = t.agent_id, t.종목코드, int(t.거래수량)
             g = group_of[aid]
+            if nstock_agent[aid][2] is None:  # 첫 거래일 기록 (전기간 평균 분모용)
+                nstock_agent[aid][2] = day_index[d]
             if t.거래구분 == "매도":
                 sv[g] += float(t.거래금액)
                 pos = positions[aid].get(ticker)
                 if pos is not None:
-                    holding_periods[g].append(day_index[d] - day_index[pos["매입일"]])
+                    if (aid, ticker) in basis_flag:
+                        # 기초보유 청산 — 보유기간 제외(p42), 플래그 해제(재매수는 신규)
+                        basis_flag.discard((aid, ticker))
+                    else:
+                        holding_periods[g].append(
+                            day_index[d] - day_index[pos["매입일"]]
+                        )
                     del positions[aid][ticker]
             else:  # 매수 — 병합(수량 합산·가중평균단가·매입일 최초 유지), agent._execute_buy와 동일
                 bv[g] += float(t.거래금액)
@@ -212,6 +246,10 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
         v_by_group: dict = defaultdict(float)
         for agent_id, pos_map in positions.items():
             g = group_of[agent_id]
+            if pos_map:  # end-of-day 보유종목수 누적 (그림 Ⅱ-9 '일평균 보유종목수')
+                st = nstock_agent[agent_id]
+                st[0] += len(pos_map)
+                st[1] += 1
             for ticker, pos in pos_map.items():
                 c = close_ff.get((ticker, d))
                 if c is not None:
@@ -231,6 +269,7 @@ def _replay(model, trading_days, close_map, close_ff, group_of):
     )
     return {
         "holding_periods": dict(holding_periods),
+        "nstock_agent": dict(nstock_agent),
         "holdings_value_by_day": holdings_value_by_day,
         "buy_value_by_day": buy_value_by_day,
         "sell_value_by_day": sell_value_by_day,
@@ -377,16 +416,24 @@ def _lottery_rank(model, trading_days):
 
 
 def _excess_summary(lott_rank, excess):
-    """초과비중(excess) 분포를 LOTT 랭크와 대조. 상관 + 상·하위 5분위(H/L) 평균 초과."""
+    """초과비중(excess)을 LOTT 랭크 5분위로 묶어 '분위 합산' 초과비중을 산출.
+
+    7-2 단위 정정: 기존엔 상·하위 분위의 '종목별 평균' 초과를 H/L로 썼는데, KCMI
+    그림 Ⅳ-12/Ⅳ-13은 분위 '합산' 초과비중이다(본문 p61-62: 보유 High +6%/Q4 +8%/
+    Low -30%(LOTT1), 거래 High +21%/Q4 +14%/Q2 -8%/Low -30%(LOTT2 기준 인용)).
+    따라서 5-5~7-1의 '거래 H-L 5.1%'는 KCMI 공표치와 직접 비교할 수 없는 자체
+    통계였음 — 분위 합산으로 정정하고 앵커를 공표 수치(거래 H-L ~ +51%p)로 교체.
+    주의: 공표 거래비중 수치는 LOTT(2) 기준 인용이고 우리 랭크는 LOTT(1) — 본문이
+    "질적 차이 없음"을 명시하나 수치 잔차의 일부는 이 차이에서 올 수 있음(문서화)."""
     common = [t for t in excess.index if t in lott_rank.index]
     if len(common) < 2:
         return None
     lr = lott_rank.loc[common]
     ex = excess.loc[common]
     order = lr.sort_values(ascending=False).index.tolist()
-    k = max(1, len(order) // 5)  # 30종목 → 6
-    H = float(ex.loc[order[:k]].mean())
-    L = float(ex.loc[order[-k:]].mean())
+    k = max(1, len(order) // 5)
+    H = float(ex.loc[order[:k]].sum())
+    L = float(ex.loc[order[-k:]].sum())
     return {
         "corr": float(lr.corr(ex)), "H": H, "L": L, "HmL": H - L,
         "n": len(common), "k": k,
@@ -479,6 +526,37 @@ def compute_metrics(model) -> dict:
             "n": len(ratios),
         }
 
+    def _nstock_dist(member):
+        """일평균 보유종목수 분포(그림 Ⅱ-9 대조, 7-1c-1).
+
+        주 정의 = 보유일 기준 평균(보유 종목이 있던 날만 분모). 참고 정의 = 첫 거래
+        이후 전 거래일 기준(무보유일 0 포함) — KCMI '일평균'의 분모가 명시돼 있지 않아
+        두 정의를 모두 계산·보고하고 그림에 가까운 쪽을 해석 기준으로 삼는다."""
+        held, full = [], []
+        n_days = len(trading_days)
+        for aid, g in group_of.items():
+            if g not in member:
+                continue
+            st = rp["nstock_agent"].get(aid)
+            if not st or st[1] == 0:
+                continue
+            held.append(st[0] / st[1])
+            full.append(st[0] / (n_days - st[2]))
+
+        def buckets(vals):
+            n = len(vals)
+            if not n:
+                return None
+            edges = [(0.0, 1.0), (1.0, 3.0), (3.0, 10.0), (10.0, float("inf"))]
+            return [100.0 * sum(1 for v in vals if lo < v <= hi) / n for lo, hi in edges]
+
+        return {
+            "n": len(held),
+            "mean": float(np.mean(held)) if held else float("nan"),
+            "buckets": buckets(held),
+            "buckets_full": buckets(full),
+        }
+
     def _metrics_for(member):
         hp = [x for g in member for x in rp["holding_periods"].get(g, [])]
         holding = {
@@ -509,6 +587,18 @@ def compute_metrics(model) -> dict:
     disposition_adj = _adj_disposition(all_groups)
     sias = _sias_beta(model.trades, trading_days, tickers)
     lottery = _lottery(model, trading_days, rp["holding_weight"])
+    newfn = _AXES["신규여부"]
+    assetfn = _AXES["자산"]
+    nstock = {
+        "전체": _nstock_dist(all_groups),
+        "기존": _nstock_dist({g for g in all_groups if newfn(g) == "기존"}),
+        "신규": _nstock_dist({g for g in all_groups if newfn(g) == "신규"}),
+        # 자산축 평균 (그림 Ⅱ-10 '자산↑=종목수↑' 단조 확인용)
+        "자산": {
+            cat: _nstock_dist({g for g in all_groups if assetfn(g) == cat})
+            for cat in _AXIS_ORDER["자산"]
+        },
+    }
 
     # --- 축별 분해 ---
     groups_out: dict = {}
@@ -549,6 +639,7 @@ def compute_metrics(model) -> dict:
         "overconf": overconf,
         "sias": sias,
         "lottery": lottery,
+        "nstock": nstock,
         "groups": groups_out,
     }
 
@@ -604,7 +695,9 @@ def print_report(m: dict):
     print("\n[Sias 군집거래 β]  (시차1 횡단면 상관, 일쌍 {})".format(s["n_day_pairs"]))
     print(f"  β : {_fmt(s['beta'])}  ← KCMI {T['sias_beta']}")
 
-    print("\n[복권형 선호]  (LOTT분위 초과비중, H>L 이고 corr>0 이면 KCMI 방향)")
+    print("\n[복권형 선호]  (LOTT 5분위 '합산' 초과비중 — 7-2 단위 정정)")
+    print("  KCMI 대조: 보유(Ⅳ-12) H-L ~ +36%p (High+6/Low-30), "
+          "거래(Ⅳ-13) H-L ~ +51%p (High+21/Low-30, LOTT2 인용)")
     lot = m["lottery"]
 
     def _excess_line(label, r, bench_hint):
@@ -617,6 +710,22 @@ def print_report(m: dict):
 
     _excess_line("초과보유(vs 시총)   ", lot["holding"], "MARKETCAP_20200302")
     _excess_line("초과거래(vs 기관외국)", lot["trading"], "INST_FOREIGN_TRADEVALUE")
+
+    print("\n[보유종목수]  (일평균 분포 %: 1종목/≤3/≤10/>10 — 그림 Ⅱ-9 대조)")
+    for label in ("전체", "기존", "신규"):
+        e = m["nstock"][label]
+        if e["buckets"] is None:
+            continue
+        b = "/".join(f"{x:.0f}" for x in e["buckets"])
+        bf = "/".join(f"{x:.0f}" for x in e["buckets_full"])
+        ref = "/".join(str(x) for x in _NSTOCK_KCMI[label])
+        print(f"  {label}: {b} (전기간 기준 {bf})  ← KCMI {ref}"
+              f"  (n={e['n']:,}, 평균 {e['mean']:.1f}종목)")
+    asset_means = " > ".join(
+        f"{cat} {e['mean']:.1f}" for cat, e in m["nstock"]["자산"].items()
+        if e["buckets"] is not None
+    )
+    print(f"  자산축 평균(기대: 자산이 클수록 큼 — 그림 Ⅱ-10): {asset_means}")
 
     # --- 그룹 분해 ---
     print("\n" + "-" * 66)
