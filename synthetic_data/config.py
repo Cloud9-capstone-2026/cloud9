@@ -298,6 +298,16 @@ EXTENDED_TAIL_BOUNDS = {
 DATASET_TRAIN_SEEDS = [11, 13, 17, 19, 23]
 DATASET_EVAL_SEEDS = [101, 102]
 DATASET_DIR = "dataset"
+# 종류별 하위 폴더 구조: dataset/{kind}/{세트명}_{kind}.csv (kind = trades/labels/
+# meta/trade_labels — 각 7파일). manifest.csv만 dataset/ 루트.
+DATASET_KINDS = ("trades", "labels", "meta", "trade_labels")
+
+
+def dataset_path(name: str, kind: str) -> str:
+    """세트명·종류 → dataset/ 하위 표준 경로. 생성(generate_dataset)과 소비(ml/*)가
+    공유하는 단일 경로 규약."""
+    import os
+    return os.path.join(DATASET_DIR, kind, f"{name}_{kind}.csv")
 
 # 출력 경로 (7-4 패키징: 거래/라벨/메타 3파일 분리)
 # trades는 실계좌 11필드 스키마와 완전 일치(처리시간·편향라벨 제거 — leakage 물리 차단,
@@ -306,6 +316,9 @@ DATASET_DIR = "dataset"
 OUTPUT_CSV_PATH = "synthetic_trades.csv"
 LABELS_CSV_PATH = "synthetic_labels.csv"
 META_CSV_PATH = "synthetic_meta.csv"
+# 거래별 인과 귀속 라벨 (2단계): trades와 행 순서 1:1, 학습 타깃 전용.
+# 실계좌에 존재할 수 없는 정보(본인도 모르는 발생 인과)라 trades에서 물리 분리.
+TRADE_LABELS_CSV_PATH = "synthetic_trade_labels.csv"
 
 # pykrx 시세 캐시 디렉터리 (재생성 가능한 파생 데이터 — .gitignore 대상)
 PRICE_CACHE_DIR = "synthetic_data/.cache"

@@ -1,0 +1,8 @@
+# 3계층 학습 스크립트(ml/) 전용 의존성 — 추론(backend)은 torch만 있으면 됨
+# torch CPU 설치: pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+scikit-learn
+scipy
+pandas
+pyarrow
+numpy
