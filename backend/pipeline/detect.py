@@ -4,10 +4,13 @@ DB(trades) 기반 앙상블 탐지 — Rule-based + Z-score(+마할라노비스)
 업로드 직후 in-process로 호출되어 reports/*.json 저장 + AnalysisResult INSERT.
 
 3계층(models.layer3)은 거래 우선(trade-first) 출력 — 이번 업로드 + 이전 업로드
-전체 거래를 시퀀스로 채점한 뒤, IG(models.xai)로 편향 점수를 거래별로 귀속시켜
-새 거래 각각에 자기 lstm_score(기여도×계좌 백분위)와 주도 편향(top_bias)을 단다.
-시퀀스 절단(max_len) 밖의 오래된 거래는 계좌 점수로 폴백. 채점 전체 실패
-(아티팩트 부재·시세 조회 실패·torch 미설치)면 기존 2계층 가중(0.3/0.7)으로 폴백.
+전체 거래를 시퀀스 태깅 GRU에 통과시켜, 새 거래 각각에 거래별 편향 귀속 확률
+(lstm_score = 4개 편향 확률의 최댓값)과 주도 편향(top_bias)을 단다. 타깃이
+생성기의 거래별 인과 라벨이라 점수의 의미가 "이 거래가 편향 때문일 확률"의
+지도학습 추정. 시퀀스 절단(max_len) 밖의 오래된 거래는 거래별 판정이 없으므로
+그 행만 2계층 가중으로 폴백(계좌 최대점수 대입은 오래된 거래를 부풀리는 편향이
+있어 미사용). 채점 전체 실패(아티팩트 부재·시세 조회 실패·torch 미설치)면
+전 행이 기존 2계층 가중(0.3/0.7)으로 폴백.
 """
 
 import json
@@ -187,16 +190,16 @@ def run_pipeline_from_db(
         full_history = pd.concat([baseline, std_df], ignore_index=True)
         layer3_result = layer3_score(full_history, user_id=user_id)
     if layer3_result:
-        account_score = layer3_result["lstm_score"]
         by_row = {e["row"]: e for e in layer3_result.get("per_trade", [])}
         lstm_rows = []
         for p in new_pos:
             e = by_row.get(len(baseline) + int(p))
-            lstm_rows.append({
-                # 시퀀스 절단(max_len) 밖의 오래된 거래는 계좌 점수 폴백
-                "score": e["trade_score"] if e else account_score,
-                "top_bias": e["top_bias"] if e else None,
-                "bias_scores": e["bias_scores"] if e else None,
+            # 시퀀스 절단(max_len) 밖의 오래된 거래는 거래별 판정이 없음 —
+            # 계좌 최대점수 대입은 부풀림 편향이라 그 행만 2계층 가중 폴백(None).
+            lstm_rows.append(None if e is None else {
+                "score": e["trade_score"],
+                "top_bias": e["top_bias"],
+                "bias_scores": e["bias_scores"],
             })
 
     ensemble = _build_ensemble(rule_result, stat_result, lstm_rows)
