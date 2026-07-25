@@ -80,7 +80,8 @@ def _load_artifacts():
     with open(_ART_DIR / "tagger_meta.json", encoding="utf-8") as fp:
         meta = json.load(fp)
     m = meta["model"]
-    model = GRUTagger(m["n_channels"], m["hidden"], m["layers"], len(meta["attrs"]))
+    model = GRUTagger(m["n_channels"], m["hidden"], m["layers"], len(meta["attrs"]),
+                      dropout=m.get("dropout", 0.0))  # eval 모드라 추론엔 무영향
     model.load_state_dict(torch.load(_ART_DIR / "tagger.pt", map_location="cpu"))
     model.eval()
     return model, meta

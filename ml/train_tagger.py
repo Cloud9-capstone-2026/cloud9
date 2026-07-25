@@ -2,18 +2,18 @@
 3계층 시퀀스 태깅 학습 (2단계): 거래별 인과 귀속 라벨 직접 학습.
 
 실행: python -m ml.train_tagger  (레포 최상위, ml.prepare + trade_labels 재생성 후)
-학습: train_extended s11~s23 / 검증: 계좌 10% / 평가: eval_natural s101·s102
+학습: train_extended s11~s23 (계좌 90/10 학습/검증 분할, 검증은 early stopping용)
+평가: eval_natural s101·s102 (최종 평가 전용 — 학습·튜닝에 미사용)
 
-타깃 = 생성기가 기록한 거래별 편향 귀속 확률(trade_labels 4컬럼, DECISIONS 2단계):
+타깃 = 생성기가 기록한 거래별 편향 귀속 확률(trade_labels 4컬럼, DECISIONS 8-1):
   attr_disposition   (매도) 1 − p₀/p₁ — 처분효과가 만든 초과 확률 귀속
   attr_overconfidence(매수) 1 − p₀/p₁ — 상승일 증폭 귀속
   attr_lottery/herd  (매수) 선택 가중의 성분 비중
-모델 출력(sigmoid)이 곧 "이 거래가 그 편향 때문일 확률"의 추정 — 1단계 IG 프록시를
-대체하는 지도학습 직접 추정이며, 출력 단위가 거래라 1·2계층과 정합.
+모델 출력(sigmoid)이 곧 "이 거래가 그 편향 때문일 확률"의 추정 — 출력 단위가
+거래라 1·2계층과 정합.
 
-평가: 편향별로 해당 거래 부분집합(처분=매도, 나머지=매수)에서 Spearman·AUC·MAE +
-계좌 수준 sanity(거래 예측 평균 vs 계좌 라벨). trades는 바이트 불변이므로
-ml/cache의 events를 재사용한다.
+데이터 적재·학습 루프는 함수로 분리되어 sweep_tagger(하이퍼파라미터 스윕)가
+재사용한다. 이 스크립트의 기본값 실행 = 스윕 이전의 1차 설정.
 
 산출: ml/artifacts/tagger.pt + tagger_meta.json (backend/models/layer3.py가 읽음)
 """
@@ -49,22 +49,22 @@ ATTR_PARAM = {"attr_disposition": "disposition_strength",
 TRAIN_SETS = [f"train_extended_s{s}" for s in config.DATASET_TRAIN_SEEDS]
 EVAL_SETS = [f"eval_natural_s{s}" for s in config.DATASET_EVAL_SEEDS]
 
-HIDDEN, LAYERS, BATCH, MAX_EPOCHS, PATIENCE, LR = 64, 1, 256, 100, 8, 1e-3
+HIDDEN, LAYERS, DROPOUT, BATCH, MAX_EPOCHS, PATIENCE, LR = 64, 1, 0.0, 256, 100, 8, 1e-3
 MAX_LEN_PCTL, MAX_LEN_CAP = 95, 256
 VAL_FRAC = 0.1
 
+_crit = nn.BCEWithLogitsLoss(reduction="none")
 
-def _load_set(name: str, max_len: int, norm_stats: dict | None):
-    """세트 → (feat|시퀀스 재료). norm_stats가 없으면 feat만 반환(통계 fit용)."""
+
+def _load_set(name: str):
+    """세트 → (피처 프레임, trades 행 순서의 귀속 라벨 행렬, 거래구분 배열)."""
     ev = pd.read_parquet(os.path.join(CACHE_DIR, f"{name}_events.parquet"))
     tr = pd.read_csv(config.dataset_path(name, "trades"))
     tl = pd.read_csv(config.dataset_path(name, "trade_labels"))
     assert len(ev) == len(tr) == len(tl), f"{name}: events/trades/trade_labels 행수 불일치"
     ev = seqfeat.attach_trade_rows(ev, tr)
     feat = seqfeat.event_features(ev)
-    attr_mat = tl[ATTRS].to_numpy(dtype="float32")  # trades 행 순서
-    side = tr["거래구분"].to_numpy()
-    return feat, attr_mat, side
+    return feat, tl[ATTRS].to_numpy(dtype="float32"), tr["거래구분"].to_numpy()
 
 
 def _to_tensors(feat, attr_mat, norm_stats, max_len):
@@ -77,23 +77,15 @@ def _to_tensors(feat, attr_mat, norm_stats, max_len):
     return ids, X, lengths, rows, Y, valid.astype("float32")
 
 
-def main():
-    random.seed(SEED)
-    np.random.seed(SEED)
-    torch.manual_seed(SEED)
-    os.makedirs(ART_DIR, exist_ok=True)
-
-    print("학습 세트 로드...", flush=True)
-    feats, attrs, sides = [], [], []
+def load_train_tensors(verbose: bool = True) -> dict:
+    """학습 5시드 조립 → 텐서·분할·정규화 통계. train/sweep 공용 (1회 로드 후 재사용)."""
+    feats, attrs = [], []
     for name in TRAIN_SETS:
-        feat, attr_mat, side = _load_set(name, 0, None)
+        feat, attr_mat, _side = _load_set(name)
         feat["agent_id"] = name + "/" + feat["agent_id"]
         feats.append(feat)
         attrs.append(attr_mat)
-        sides.append(side)
-
-    # 세트 간 _trade_row 충돌 방지: 세트별 오프셋 부여 후 라벨 행렬 연결
-    offset = 0
+    offset = 0  # 세트 간 _trade_row 충돌 방지 오프셋
     for i, f in enumerate(feats):
         f["_trade_row"] = f["_trade_row"] + offset
         offset += len(attrs[i])
@@ -103,7 +95,6 @@ def main():
     norm_stats = seqfeat.fit_norm_stats(feat_train)
     counts = feat_train.groupby("agent_id").size()
     max_len = int(min(np.percentile(counts, MAX_LEN_PCTL), MAX_LEN_CAP))
-    print(f"시퀀스 길이: p{MAX_LEN_PCTL}={max_len} (계좌 {len(counts):,})", flush=True)
 
     ids, X, lengths, rows, Y, M = _to_tensors(feat_train, attr_train, norm_stats, max_len)
     idx = np.arange(len(ids))
@@ -111,18 +102,33 @@ def main():
     rng.shuffle(idx)
     n_val = int(len(idx) * VAL_FRAC)
     vi, ti = idx[:n_val], idx[n_val:]
-    print(f"학습 {len(ti):,} / 검증 {len(vi):,} 계좌, "
-          f"라벨 거래 {int(M.sum()):,}건", flush=True)
+    if verbose:
+        print(f"시퀀스 길이: p{MAX_LEN_PCTL}={max_len} (계좌 {len(counts):,}) / "
+              f"학습 {len(ti):,} / 검증 {len(vi):,} 계좌, "
+              f"라벨 거래 {int(M.sum()):,}건", flush=True)
+    return {
+        "Xt": torch.from_numpy(X), "Lt": torch.from_numpy(lengths),
+        "Yt": torch.from_numpy(Y), "Mt": torch.from_numpy(M),
+        "ti": ti, "vi": vi, "norm_stats": norm_stats, "max_len": max_len,
+    }
 
-    Xt, Lt = torch.from_numpy(X), torch.from_numpy(lengths)
-    Yt, Mt = torch.from_numpy(Y), torch.from_numpy(M)
 
-    model = GRUTagger(seqfeat.N_CHANNELS, HIDDEN, LAYERS, len(ATTRS))
-    opt = torch.optim.Adam(model.parameters(), lr=LR)
-    crit = nn.BCEWithLogitsLoss(reduction="none")
+def train_config(data: dict, hidden: int, layers: int, dropout: float, lr: float,
+                 max_epochs: int = MAX_EPOCHS, patience: int = PATIENCE,
+                 seed: int = SEED, verbose: bool = True):
+    """설정 하나 학습 → (best val_bce, best state_dict, 수렴 epoch). 스윕 공용."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    Xt, Lt, Yt, Mt = data["Xt"], data["Lt"], data["Yt"], data["Mt"]
+    ti, vi = data["ti"].copy(), data["vi"]
+    rng = np.random.default_rng(seed)
+
+    model = GRUTagger(seqfeat.N_CHANNELS, hidden, layers, len(ATTRS), dropout=dropout)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     def _masked_loss(logits, y, m):
-        return (crit(logits, y) * m.unsqueeze(-1)).sum() / (m.sum() * len(ATTRS))
+        return (_crit(logits, y) * m.unsqueeze(-1)).sum() / (m.sum() * len(ATTRS))
 
     def _eval_loss(sub):
         model.eval()
@@ -130,13 +136,12 @@ def main():
             tot, n = 0.0, 0.0
             for b in range(0, len(sub), BATCH):
                 s = sub[b : b + BATCH]
-                logits = model(Xt[s], Lt[s])
-                tot += (crit(logits, Yt[s]) * Mt[s].unsqueeze(-1)).sum().item()
+                tot += (_crit(model(Xt[s], Lt[s]), Yt[s]) * Mt[s].unsqueeze(-1)).sum().item()
                 n += Mt[s].sum().item() * len(ATTRS)
         return tot / n
 
-    best, best_state, bad = float("inf"), None, 0
-    for epoch in range(1, MAX_EPOCHS + 1):
+    best, best_state, best_epoch, bad = float("inf"), None, 0, 0
+    for epoch in range(1, max_epochs + 1):
         model.train()
         rng.shuffle(ti)
         for b in range(0, len(ti), BATCH):
@@ -148,20 +153,25 @@ def main():
         vl = _eval_loss(vi)
         marker = ""
         if vl < best - 1e-5:
-            best, best_state, bad = vl, {k: v.clone() for k, v in model.state_dict().items()}, 0
+            best, best_epoch, bad = vl, epoch, 0
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
             marker = " *"
         else:
             bad += 1
-        print(f"epoch {epoch:3d}  val_bce {vl:.4f}{marker}", flush=True)
-        if bad >= PATIENCE:
-            print(f"early stop (patience {PATIENCE})", flush=True)
+        if verbose:
+            print(f"epoch {epoch:3d}  val_bce {vl:.4f}{marker}", flush=True)
+        if bad >= patience:
+            if verbose:
+                print(f"early stop (patience {patience})", flush=True)
             break
-    model.load_state_dict(best_state)
+    return best, best_state, best_epoch
 
-    # ---- 평가: 거래 단위 (처음으로 진짜 per-trade 정답 대비) -----------------
+
+def evaluate_and_report(model, norm_stats, max_len) -> dict:
+    """봉인된 평가 시드에서 거래 단위 평가 + 계좌 sanity. (최종 모델에만 사용할 것)"""
     report = {}
     for name in EVAL_SETS:
-        feat, attr_mat, side = _load_set(name, max_len, norm_stats)
+        feat, attr_mat, side = _load_set(name)
         e_ids, eX, eL, e_rows, eY, eM = _to_tensors(feat, attr_mat, norm_stats, max_len)
         model.eval()
         preds = []
@@ -170,11 +180,11 @@ def main():
                 preds.append(torch.sigmoid(
                     model(torch.from_numpy(eX[b:b+BATCH]),
                           torch.from_numpy(eL[b:b+BATCH]))).numpy())
-        P = np.vstack(preds)  # [N, T, 4]
+        P = np.vstack(preds)
 
         valid = e_rows >= 0
-        flat_rows = e_rows[valid]                # 원본 trades 행 번호
-        flat_pred = P[valid]                     # [n, 4]
+        flat_rows = e_rows[valid]
+        flat_pred = P[valid]
         flat_true = attr_mat[flat_rows]
         flat_side = side[flat_rows]
 
@@ -198,7 +208,7 @@ def main():
             print(f"  {a:<22} {ATTR_SIDE[a]:>4} {tab[a]['rho']:>7} "
                   f"{tab[a]['auc']:>7} {tab[a]['mae']:>8}")
 
-        # 계좌 수준 sanity: 거래 예측 평균 vs 계좌 라벨 (1단계 지표와 비교 가능)
+        # 계좌 수준 sanity: 거래 예측 평균 vs 계좌 라벨
         labels = pd.read_csv(
             config.dataset_path(name, "labels"),
             dtype={"agent_id": str}).set_index("agent_id")
@@ -214,6 +224,18 @@ def main():
         print(f"  [계좌 sanity rho] " +
               ", ".join(f"{ATTR_PARAM[a]} {acc[a]}" for a in ATTRS))
         report[name] = {"per_trade": tab, "account_sanity": acc}
+    return report
+
+
+def main(hidden=HIDDEN, layers=LAYERS, dropout=DROPOUT, lr=LR):
+    os.makedirs(ART_DIR, exist_ok=True)
+    print("학습 세트 로드...", flush=True)
+    data = load_train_tensors()
+    best, best_state, best_epoch = train_config(data, hidden, layers, dropout, lr)
+
+    model = GRUTagger(seqfeat.N_CHANNELS, hidden, layers, len(ATTRS), dropout=dropout)
+    model.load_state_dict(best_state)
+    report = evaluate_and_report(model, data["norm_stats"], data["max_len"])
 
     torch.save(model.state_dict(), os.path.join(ART_DIR, "tagger.pt"))
     meta = {
@@ -221,13 +243,15 @@ def main():
         "attrs": ATTRS,
         "attr_side": ATTR_SIDE,
         "attr_param": ATTR_PARAM,
-        "norm_stats": norm_stats,
-        "max_len": max_len,
-        "model": {"hidden": HIDDEN, "layers": LAYERS,
+        "norm_stats": data["norm_stats"],
+        "max_len": data["max_len"],
+        "model": {"hidden": hidden, "layers": layers, "dropout": dropout,
                   "n_channels": seqfeat.N_CHANNELS},
         "train_sets": TRAIN_SETS,
         "eval_sets": EVAL_SETS,
+        "lr": lr,
         "val_bce": round(best, 5),
+        "best_epoch": best_epoch,
         "eval_report": report,
     }
     with open(os.path.join(ART_DIR, "tagger_meta.json"), "w", encoding="utf-8") as fp:

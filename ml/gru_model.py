@@ -18,9 +18,15 @@ class GRUTagger(nn.Module):
     출력은 로짓 — 확률은 sigmoid, 학습 손실은 BCEWithLogits(패딩 마스크 적용).
     """
 
-    def __init__(self, n_features: int, hidden: int, layers: int, n_targets: int):
+    def __init__(self, n_features: int, hidden: int, layers: int, n_targets: int,
+                 dropout: float = 0.0):
         super().__init__()
-        self.gru = nn.GRU(n_features, hidden, num_layers=layers, batch_first=True)
+        # GRU dropout은 층 사이에만 적용되는 torch 규약(layers=1이면 무효·경고라 0으로)
+        self.gru = nn.GRU(n_features, hidden, num_layers=layers, batch_first=True,
+                          dropout=dropout if layers > 1 else 0.0)
+        # head 앞 dropout은 모듈이 아니라 forward에서 함수형으로 적용 —
+        # Sequential 인덱스를 유지해 기존 아티팩트 state_dict 키와 호환.
+        self.p_drop = float(dropout)
         self.head = nn.Sequential(
             nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, n_targets)
         )
@@ -31,6 +37,8 @@ class GRUTagger(nn.Module):
         )
         out, _ = self.gru(packed)
         out, _ = pad_packed_sequence(out, batch_first=True, total_length=x.shape[1])
+        if self.p_drop > 0:
+            out = nn.functional.dropout(out, self.p_drop, self.training)
         return self.head(out)  # [B, T, n_targets] 로짓
 
 
