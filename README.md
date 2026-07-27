@@ -88,7 +88,7 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 | 분류 | 기술 |
 |------|------|
 | Frontend | React, Recharts|
-| Backend | FastAPI, Python |
+| Backend | FastAPI, Python, PostgreSQL, SQLAlchemy |
 | AI / Data | PyTorch (LSTM), Scikit-learn, Integrated Gradients, Pandas, NumPy |
 | Collaboration | GitHub, Notion |
 | Database | PostgreSQL (Railway)|
