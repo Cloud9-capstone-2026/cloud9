@@ -12,3 +12,9 @@ reports/
 synthetic_data/.cache/
 # 7-5 다중 시드 데이터셋 산출물 — generate_dataset.py로 완전 재현 가능(용량상 미커밋, 팀 드라이브 전달)
 dataset/
+
+# 루트 canonical 산출물(시드 7) — synthetic_data.main 1회 실행으로 완전 재현(정책 통일: 산출 데이터 미커밋)
+synthetic_trades.csv
+synthetic_labels.csv
+synthetic_meta.csv
+synthetic_trade_labels.csv
