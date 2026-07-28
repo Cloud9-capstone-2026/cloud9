@@ -1,0 +1,6 @@
+{
+    // Pylance가 backend/ 내부 패키지(models.*, pipeline.*)를 해석하게 함 —
+    // ml/calibrate_ensemble.py 등이 런타임에 sys.path로 backend를 추가하는 것을
+    // 정적 분석기는 볼 수 없어 뜨던 import 경고 제거용 (런타임 영향 없음)
+    "python.analysis.extraPaths": ["backend"]
+}

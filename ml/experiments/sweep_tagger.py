@@ -1,7 +1,7 @@
 """
 태거 하이퍼파라미터 스윕 — 검증 손실(val_bce)로만 선발, 평가 시드는 봉인 유지.
 
-실행: python -m ml.sweep_tagger  (레포 최상위, CPU ~1시간)
+실행: python -m ml.experiments.sweep_tagger  (레포 최상위, CPU ~5시간)
 
 그리드: hidden {64,128} × layers {1,2} × dropout {0,0.2} (lr 1e-3) 8조합
         + 저학습률 확인 2조합(최소·최대 용량 × lr 3e-4) = 총 10.
@@ -13,7 +13,7 @@ train_tagger.main(그 조합)으로 재학습·평가·저장한다.
 
 import time
 
-from .train_tagger import load_train_tensors, train_config
+from ..train.train_tagger import load_train_tensors, train_config
 
 # (hidden, layers, dropout, lr)
 CONFIGS = [

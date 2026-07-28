@@ -1,7 +1,7 @@
 """
 3계층 GRU 멀티태스크 회귀 학습 + GBDT 베이스라인 (최소 슬라이스 2단계).
 
-실행: python -m ml.train_gru  (레포 최상위, ml.prepare 완료 후)
+실행: python -m ml.train.train_gru  (레포 최상위, ml.train.prepare 완료 후)
 학습: train_extended s11~s23 (계좌 90/10 학습/검증 분할, 검증은 early stopping용)
 평가: eval_natural s101·s102 (최종 평가 전용 — 학습·튜닝에 미사용)
 타깃: 4개 편향 파라미터 (dataset/{name}_labels.csv)
@@ -31,8 +31,8 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from torch import nn
 
 from synthetic_data import config
-from . import seqfeat
-from .gru_model import GRURegressor
+from .. import seqfeat
+from ..gru_model import GRURegressor
 
 CACHE_DIR = os.path.join("ml", "cache")
 ART_DIR = os.path.join("ml", "artifacts")

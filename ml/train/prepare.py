@@ -1,7 +1,7 @@
 """
 3계층 학습 데이터 준비 (최소 슬라이스 1단계).
 
-실행: python -m ml.prepare  (레포 최상위에서, dataset/ 생성 이후)
+실행: python -m ml.train.prepare  (레포 최상위에서, dataset/ 생성 이후)
 산출: ml/cache/{세트명}_events.parquet, {세트명}_aggregates.parquet
 
 dataset/ 7세트(학습 확장 5 + 평가 자연 2)의 trades CSV를 synthetic_data.features의

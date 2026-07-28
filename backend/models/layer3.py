@@ -1,7 +1,7 @@
 """
 3계층 (딥러닝) — 시퀀스 태깅 GRU로 거래별 편향 귀속 확률 추론 (2단계).
 
-ml/train_tagger.py가 저장한 아티팩트(ml/artifacts/tagger.pt, tagger_meta.json)만
+ml/train/train_tagger.py가 저장한 아티팩트(ml/artifacts/tagger.pt, tagger_meta.json)만
 읽는다. 피처 생성은 학습과 동일 코드 경로(synthetic_data.features.build_features →
 ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 것이 sim-to-real 원칙.
 
