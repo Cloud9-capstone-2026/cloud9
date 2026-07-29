@@ -28,7 +28,7 @@ KOSPI_INDEX_CODE = "1001"  # pykrx 코스피 지수 코드 (시장모형 회귀�
 # import해 재노출한다. 값 검토는 git diff로(프리즈 원칙 유지: 런타임 credential-free 정적).
 # 구성: KOSPI+KOSDAQ 시총 5분위 비례 계층화 201종목(시드 42), SPAC 제외, 전 기간 커버리지
 # 필터(생존편향 수용·명시). 상세·기준일은 universe_frozen.py 헤더 참고.
-from .universe_frozen import (  # noqa: E402
+from .market.universe_frozen import (  # noqa: E402
     INST_FOREIGN_TRADEVALUE,
     KOSDAQ_TICKERS,
     MARKETCAP_20200302,

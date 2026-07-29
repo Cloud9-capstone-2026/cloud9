@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import mesa
 
-from . import config
+from .. import config
 from .params import BehaviorParams, InvestorGroup
 from .schema import Trade
 if TYPE_CHECKING:

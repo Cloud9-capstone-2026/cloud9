@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 import mesa
 import pandas as pd
  
-from . import config
+from .. import config
 from .agent import InvestorAgent
-from .lott import compute_monthly_lott
-from .market_data import get_index_data, get_price_data
+from ..market.lott import compute_monthly_lott
+from ..market_data import get_index_data, get_price_data
 from .params import sample_investor_group, sample_investor_params
 from .schema import Trade
  
