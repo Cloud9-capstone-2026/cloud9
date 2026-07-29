@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import mesa
 
-from . import config
+from .. import config
 from .params import BehaviorParams, InvestorGroup
 from .schema import Trade
 if TYPE_CHECKING:
@@ -64,12 +64,20 @@ class InvestorAgent(mesa.Agent):
                 self.params.disposition_strength if is_gain else 1.0
             )
             if self.random.random() < min(prob, 0.9):
-                self._execute_sell(ticker, pos, low, high)
+                # 거래별 인과 귀속 (2단계): 이 매도의 실제 발생 확률 p₁ 대비 처분효과가
+                # 없었을 반사실 확률 p₀의 비 — 1−p₀/p₁ = "편향이 만든 초과 확률에서
+                # 이 매도가 나왔을 확률"(thinning 분해). 손실 매도는 채널 미개입 = 0.
+                # 이미 계산된 값의 산술 조합만 기록 — RNG 무소비(바이트 회귀 불변).
+                p1 = min(prob, 0.9)
+                p0 = min(self.params.base_sell_prob, 0.9)
+                disp_attr = max(0.0, 1.0 - p0 / p1) if (is_gain and p1 > 0) else 0.0
+                self._execute_sell(ticker, pos, low, high, disp_attr)
 
-    def _execute_sell(self, ticker: str, pos: dict, low: float, high: float):
+    def _execute_sell(self, ticker: str, pos: dict, low: float, high: float,
+                      disp_attr: float = 0.0):
         exec_price = self.random.uniform(low, high)  # TODO: 체결가 샘플링 정교화(보류)
         qty = pos["수량"]
- 
+
         trade = Trade(
             거래일자=self.model.current_date,
             agent_id=str(self.unique_id),
@@ -79,6 +87,8 @@ class InvestorAgent(mesa.Agent):
             거래단가=round(exec_price),
             처리시간=self._sample_time(),
             편향라벨=self.params.as_label(),
+            귀속라벨={"disposition": disp_attr, "overconfidence": 0.0,
+                    "lottery": 0.0, "herd": 0.0},
         )
         self.cash += trade.정산금액
         del self.positions[ticker]
@@ -89,26 +99,34 @@ class InvestorAgent(mesa.Agent):
     def _maybe_buy(self):
         market_return = self.model.get_prev_market_return()
         prob = self.params.base_buy_prob
+        boosted = False
         if market_return is not None and market_return > 0:
             prob *= (
                 1 + self.params.overconfidence * market_return
                 * config.OVERCONFIDENCE_MARKET_SCALE
             )
- 
+            boosted = True
+
         if self.random.random() >= min(prob, 0.9):
             return
         if self.cash < 100_000:
             return
- 
-        ticker = self._pick_ticker()
+
+        # 과잉확신 귀속 (2단계): 매도의 처분 귀속과 동일한 반사실 비(1−p₀/p₁) —
+        # 상승일 증폭이 없었으면 이 매수가 나지 않았을 확률. 비상승일은 0.
+        p1 = min(prob, 0.9)
+        p0 = min(self.params.base_buy_prob, 0.9)
+        oc_attr = max(0.0, 1.0 - p0 / p1) if (boosted and p1 > 0) else 0.0
+
+        ticker, lott_attr, herd_attr = self._pick_ticker()
         if ticker is None:
             return
         low, high, _close = self.model.get_today_price(ticker)
-        self._execute_buy(ticker, low, high)
+        self._execute_buy(ticker, low, high, oc_attr, lott_attr, herd_attr)
  
-    def _pick_ticker(self) -> str | None:
+    def _pick_ticker(self) -> tuple:
         """복권형 선호와 군집(attention) 신호를 배타적 분기가 아니라 가중합으로 결합해
-        종목을 고른다.
+        종목을 고른다. 반환: (종목 | None, 복권 귀속확률, 군집 귀속확률).
 
         KCMI 22-02가 복권형 지표(LOTT)를 세 축의 '랭크 합'으로 만든 것과 같은 가법 구조.
         두 성향이 모두 강한 agent는 '저가이면서 동시에 주목받는' 종목에 두 항이 함께
@@ -122,7 +140,7 @@ class InvestorAgent(mesa.Agent):
         """
         candidates = self.model._today_candidates
         if not candidates:
-            return None
+            return None, 0.0, 0.0
 
         lottery = self.model._today_lott_norm
         attn = self.model._today_attn_norm
@@ -135,12 +153,21 @@ class InvestorAgent(mesa.Agent):
             + hs * attn[t]
             for t in candidates
         ]
-        return self.random.choices(candidates, weights=weights, k=1)[0]
+        choice = self.random.choices(candidates, weights=weights, k=1)[0]
+        # 종목 선택 귀속 (2단계): 가중합 추첨은 "성분(기본/복권/군집)을 가중 비례로
+        # 고른 뒤 그 성분이 종목을 고른" 혼합 과정과 확률적으로 동치 —
+        # P(성분 | 선택 종목) = 성분항 / 전체 가중치. 선택 후 산술 계산만이라 RNG 무소비.
+        w = (config.PICK_BASE_WEIGHT + lp * lottery[choice] + hs * attn[choice])
+        lott_attr = lp * lottery[choice] / w if w > 0 else 0.0
+        herd_attr = hs * attn[choice] / w if w > 0 else 0.0
+        return choice, lott_attr, herd_attr
 
     # (_lottery_scores/_herd_scores/_rank_norm은 6-2에서 model.step()의 day-level
     #  스냅샷 계산으로 이동 — agent×매수판단마다 O(n²) 재계산하던 것을 하루 1회로.)
  
-    def _execute_buy(self, ticker: str, low: float, high: float):
+    def _execute_buy(self, ticker: str, low: float, high: float,
+                     oc_attr: float = 0.0, lott_attr: float = 0.0,
+                     herd_attr: float = 0.0):
         exec_price = self.random.uniform(low, high)  # TODO: 체결가 샘플링 정교화(보류)
  
         max_affordable_qty = int(self.cash // (exec_price * 1.001))
@@ -164,6 +191,8 @@ class InvestorAgent(mesa.Agent):
             거래단가=round(exec_price),
             처리시간=self._sample_time(),
             편향라벨=self.params.as_label(),
+            귀속라벨={"disposition": 0.0, "overconfidence": oc_attr,
+                    "lottery": lott_attr, "herd": herd_attr},
         )
         self.cash -= trade.정산금액
 

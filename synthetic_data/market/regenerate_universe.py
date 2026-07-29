@@ -5,7 +5,7 @@ config.UNIVERSE_TICKERS를 만들 때 쓴 도구. 시가총액 API(get_market_ca
 KRX 정보데이터시스템 로그인이 필요하므로, 저장소 루트의 .env에서 KRX_ID/KRX_PW를
 python-dotenv로 로드한다. (정상 실행 경로인 get_price_data는 공개 OHLCV라 자격증명 불필요.)
 
-실행:  python -m synthetic_data.regenerate_universe
+실행:  python -m synthetic_data.market.regenerate_universe
 출력:  (1) config.SIM_START_DATE 기준 KOSPI 시총 상위 N개를 종목명과 함께 출력하고,
            config.UNIVERSE_TICKERS에 붙여넣을 파이썬 리스트 블록.
        (2) 현재 config.UNIVERSE_TICKERS 각 종목의 시가총액을 뽑아
@@ -23,8 +23,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# 저장소 루트의 .env(= 이 파일 부모의 부모)를 명시적으로 로드 → cwd와 무관하게 동작.
-_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+# 저장소 루트의 .env(= 이 파일 기준 세 단계 위)를 명시적으로 로드 → cwd와 무관하게 동작.
+_ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(_ENV_PATH)
 
 if not os.environ.get("KRX_ID") or not os.environ.get("KRX_PW"):
@@ -38,7 +38,7 @@ import requests  # noqa: E402
 
 from pykrx import stock  # noqa: E402  (dotenv 로드 후 import)
 
-from . import config  # noqa: E402
+from .. import config  # noqa: E402
 
 # pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행(hang)에 빠질 수 있다
 # (6-1에서 실제 발생: 30분 CPU 정지). 세션 기본 timeout을 강제한다.

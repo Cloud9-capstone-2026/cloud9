@@ -10,7 +10,7 @@ LOTT(1) 월별 합성값 계산 — 생성기(model)와 피처 빌더(features)�
 import numpy as np
 import pandas as pd
 
-from . import config
+from .. import config
 
 
 def build_ff3_factors(ret_wide: pd.DataFrame, idx_ret: pd.Series) -> pd.DataFrame:

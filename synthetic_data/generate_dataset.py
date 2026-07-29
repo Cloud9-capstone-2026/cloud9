@@ -3,9 +3,10 @@
 
 실행: python -m synthetic_data.generate_dataset  (레포 최상위에서, 총 ~3분)
 
-산출: dataset/ 아래 학습(확장 샘플링) 5시드 + 평가(자연) 2시드 = 7세트 x 3파일
-      + manifest.csv. 산출물은 .gitignore(용량) — 시드·config가 고정이라 이 스크립트
-      1회 실행으로 누구든 완전 재현 가능하며, 파일 전달은 팀 드라이브로 한다.
+산출: dataset/{trades,labels,meta,trade_labels}/ 종류별 하위 폴더에 학습(확장 샘플링)
+      5시드 + 평가(자연) 2시드 = 종류당 7파일 + dataset/manifest.csv. 산출물은
+      .gitignore(용량) — 시드·config가 고정이라 이 스크립트 1회 실행으로 누구든
+      완전 재현 가능하며, 파일 전달은 팀 드라이브로 한다.
 
 평가 시드는 자연 분포이므로 KCMI 재현 지표를 함께 출력한다(확장 모드는 재현 검증
 대상이 아님 — '탐지 스펙트럼 정의'이지 현실 재현이 아니다. config.EXTENDED_MIXTURE 참조).
@@ -16,9 +17,9 @@ import os
 import pandas as pd
 
 from . import config
-from .kcmi_metrics import compute_metrics
+from .validation.kcmi_metrics import compute_metrics
 from .main import package_outputs
-from .model import MarketModel
+from .core.model import MarketModel
 
 
 def _run_one(mode: str, seed: int, verify: bool) -> dict:
@@ -31,12 +32,10 @@ def _run_one(mode: str, seed: int, verify: bool) -> dict:
         mode=mode,
     )
     model.run()
-    paths = {
-        kind: os.path.join(config.DATASET_DIR, f"{name}_{kind}.csv")
-        for kind in ("trades", "labels", "meta")
-    }
+    paths = {kind: config.dataset_path(name, kind) for kind in config.DATASET_KINDS}
     n_trades, n_agents = package_outputs(
-        model, paths["trades"], paths["labels"], paths["meta"]
+        model, paths["trades"], paths["labels"], paths["meta"],
+        trade_labels_path=paths["trade_labels"],
     )
     row = {"name": name, "mode": mode, "seed": seed,
            "n_trades": n_trades, "n_agents": n_agents,
@@ -55,7 +54,8 @@ def _run_one(mode: str, seed: int, verify: bool) -> dict:
 
 
 def main():
-    os.makedirs(config.DATASET_DIR, exist_ok=True)
+    for kind in config.DATASET_KINDS:  # 종류별 하위 폴더 (config.dataset_path 규약)
+        os.makedirs(os.path.join(config.DATASET_DIR, kind), exist_ok=True)
     rows = []
     for seed in config.DATASET_TRAIN_SEEDS:
         rows.append(_run_one("extended", seed, verify=False))

@@ -28,7 +28,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
-from . import config
+from .. import config
 
 # 연율화 상수 — 한국 시장 연간 거래일 관례치. 원 논문(김민기·김준석 2021)에 정확한 상수가
 # 명시돼 있지 않아 표준 가정. KCMI "연 1,600%"와 대조할 때 이 상수로 환산한다.
@@ -776,7 +776,7 @@ def print_report(m: dict):
 
 
 if __name__ == "__main__":
-    from .model import MarketModel
+    from ..core.model import MarketModel
 
     print(f"모델 구동: N={config.N_INVESTORS} ...")
     model = MarketModel(
