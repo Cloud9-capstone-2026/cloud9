@@ -15,6 +15,9 @@ Canary Base Agent 합성 데이터 생성기 - 엔트리포인트
 - meta   : 그룹 태그(표 Ⅲ-1 4축)·진입일·초기 보유 정보 + 확장 샘플링 성분 4컬럼
            (7-5) — 분석 전용, ML 학습 사용 금지. 성분 플래그는 agent별 가변
            비타깃 정보라 labels가 아닌 여기에 둔다(leakage 원칙)
+- trade_labels : 거래별 인과 귀속 확률 4종 (2단계) — trades와 행 순서 1:1.
+           "이 거래가 각 편향 채널 때문에 발생했을 확률"(반사실 비·성분 비중,
+           schema.Trade.귀속라벨 주석 참조). 시퀀스 태깅 모델의 학습 타깃 전용
 """
 
 import pandas as pd
@@ -30,10 +33,27 @@ TRADES_COLUMNS = [
 _BIAS_PARAMS = list(config.NEUTRAL_VALUES)  # 4개 편향 파라미터 명
 
 
-def package_outputs(model, trades_path, labels_path, meta_path, quiet=False):
-    """run() 끝난 model을 trades/labels/meta 3파일로 기록. 반환: (거래수, agent수)."""
+def package_outputs(model, trades_path, labels_path, meta_path,
+                    trade_labels_path=None, quiet=False):
+    """run() 끝난 model을 trades/labels/meta(+trade_labels) 파일로 기록.
+    반환: (거래수, agent수)."""
     df = model.trades_to_dataframe()[TRADES_COLUMNS]
     df.to_csv(trades_path, index=False, encoding="utf-8-sig")
+
+    if trade_labels_path:  # 거래별 인과 귀속 (행 순서 = trades와 1:1)
+        tl = pd.DataFrame(
+            {
+                "agent_id": t.agent_id,
+                "거래일자": t.거래일자,
+                "거래구분": t.거래구분,
+                "attr_disposition": t.귀속라벨.get("disposition", 0.0),
+                "attr_overconfidence": t.귀속라벨.get("overconfidence", 0.0),
+                "attr_lottery": t.귀속라벨.get("lottery", 0.0),
+                "attr_herd": t.귀속라벨.get("herd", 0.0),
+            }
+            for t in model.trades
+        )
+        tl.to_csv(trade_labels_path, index=False, encoding="utf-8-sig")
 
     labels = pd.DataFrame(
         {
@@ -79,7 +99,8 @@ def main():
     )
     model.run()
     package_outputs(
-        model, config.OUTPUT_CSV_PATH, config.LABELS_CSV_PATH, config.META_CSV_PATH
+        model, config.OUTPUT_CSV_PATH, config.LABELS_CSV_PATH, config.META_CSV_PATH,
+        trade_labels_path=config.TRADE_LABELS_CSV_PATH,
     )
 
 
