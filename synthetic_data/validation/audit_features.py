@@ -5,7 +5,7 @@ features.py 회귀 테스트 (7-3-4): 합성 CSV(라벨 포함) → 피처×라�
 회귀하지 않았는지, (2) 빌더의 처분 측정이 하네스와 정합인지, (3) 관측창별 유효
 계좌 수를 확인한다. rho는 목표가 아니라 스모크(DECISIONS.md §0 순환 방지 원칙).
 
-실행: python -m synthetic_data.audit_features  (기본: config.OUTPUT_CSV_PATH)
+실행: python -m synthetic_data.validation.audit_features  (기본: config.OUTPUT_CSV_PATH)
 """
 
 import os
@@ -13,9 +13,9 @@ import sys
 
 import pandas as pd
 
-from . import config
-from .features import build_features, load_trades_csv
-from .market_data import get_index_data, get_price_data
+from .. import config
+from ..features import build_features, load_trades_csv
+from ..market_data import get_index_data, get_price_data
 
 # 7-1d/7-2 확정 시점의 스모크 기준값 (자연 모드 canonical, 시드 7) — 큰 폭 하락 시 회귀 의심.
 # ★ 확장 모드 데이터에 돌리면 기준값·교차검증 참조치는 1:1로 적용되지 않는다(참고용):

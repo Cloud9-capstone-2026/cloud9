@@ -13,8 +13,8 @@ CSV에 없는 필드이고, 이상탐지 모델이 그룹 태그로 컨닝(leaka
 import random
 from dataclasses import dataclass
 
-from . import config
-from .config import BehaviorParamRanges
+from .. import config
+from ..config import BehaviorParamRanges
 
 
 @dataclass(frozen=True)

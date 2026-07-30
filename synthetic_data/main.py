@@ -23,7 +23,7 @@ Canary Base Agent 합성 데이터 생성기 - 엔트리포인트
 import pandas as pd
 
 from . import config
-from .model import MarketModel
+from .core.model import MarketModel
 
 # 실계좌 11필드 스키마 (features.load_trades_csv의 기대 입력과 동일)
 TRADES_COLUMNS = [

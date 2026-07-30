@@ -17,9 +17,9 @@ import os
 import pandas as pd
 
 from . import config
-from .kcmi_metrics import compute_metrics
+from .validation.kcmi_metrics import compute_metrics
 from .main import package_outputs
-from .model import MarketModel
+from .core.model import MarketModel
 
 
 def _run_one(mode: str, seed: int, verify: bool) -> dict:

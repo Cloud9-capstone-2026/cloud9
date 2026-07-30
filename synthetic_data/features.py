@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
-from .lott import apply_month_rank, compute_monthly_lott
+from .market.lott import apply_month_rank, compute_monthly_lott
 
 # 실계좌 입력 스키마(추론 시 기대 입력): 합성 13필드에서 처리시간·편향라벨을 뺀 11필드
 #   거래일자, 고객ID, 종목코드, 거래구분, 거래수량, 거래단가, 거래금액,

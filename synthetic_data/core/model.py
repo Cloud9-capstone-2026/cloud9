@@ -10,10 +10,10 @@ from datetime import datetime, timedelta
 import mesa
 import pandas as pd
  
-from . import config
+from .. import config
 from .agent import InvestorAgent
-from .lott import compute_monthly_lott
-from .market_data import get_index_data, get_price_data
+from ..market.lott import compute_monthly_lott
+from ..market_data import get_index_data, get_price_data
 from .params import sample_investor_group, sample_investor_params
 from .schema import Trade
  
@@ -200,13 +200,16 @@ class MarketModel(mesa.Model):
                 }
 
     def _build_entry_distribution(self):
-        """config.NEW_ENTRY_WEEKLY_WEIGHTS(주별)를 시뮬 거래일 단위 가중으로 전개.
+        """config.NEW_ENTRY_WEEKLY_SHARE(주별 정규화 비중)를 거래일 단위 가중으로 전개.
 
-        주 가중치를 그 주에 속한 거래일들에 균등 분할(주 내 일별 분포는 자료 없음 —
-        균등이 최소 가정). 어떤 주에도 속하지 않는 거래일은 가중 0으로 제외된다."""
+        정규화는 config가 담당(비중 합 1.0) — 여기서는 각 주의 비중을 그 주에 속한
+        거래일들에 균등 분할만 한다(주 내 일별 분포는 자료 없음 — 균등이 최소 가정).
+        일별 전개를 config에 두지 않는 이유: 거래일 캘린더가 pykrx 시세 데이터에서
+        나오므로 config에 두면 데이터-설정 이중 관리가 된다. 어떤 주에도 속하지 않는
+        거래일은 가중 0으로 제외된다."""
         weeks = [
             (datetime.strptime(d, "%Y-%m-%d").date(), w)
-            for d, w in config.NEW_ENTRY_WEEKLY_WEIGHTS
+            for d, w in config.NEW_ENTRY_WEEKLY_SHARE
         ]
         day_week: dict = {}  # 거래일 -> 주 시작일
         counts: dict = {}    # 주 시작일 -> 그 주의 거래일 수
