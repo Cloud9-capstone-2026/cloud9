@@ -54,12 +54,21 @@ class InvestorAgent(mesa.Agent):
             price = self.model.get_today_price(ticker)
             if price is None:  # 오늘 거래 없는 종목(거래정지 등) — 매도 불가
                 continue
-            low, high, close = price
+            low, high, _close = price
 
             if pos["매입일"] == self.model.current_date:
                 continue  # 매수 당일 매도 배제 (KCMI 22-02 방법론과 동일)
 
-            is_gain = close >= pos["평균단가"]
+            # 관측가 = 그날 투자자가 시장을 본 시점의 가격 — 당일 범위 내 임의 시점
+            # (기존 체결가 가정 재사용, 신규 파라미터 없음. TODO: 샘플링 정교화 보류).
+            # 이익 판정과 체결을 이 한 가격으로 통일한다: 종전 방식(종가로 판단,
+            # 별도 uniform으로 체결)은 판단-체결 가격 괴리로 "이익 귀속인데 손실
+            # 체결"인 모순 라벨(플립)을 ~13% 만들었다(단계0 실험 A, 2026-07-30).
+            # 장중에 알 수 없는 당일 종가로 판단하던 look-ahead도 함께 제거.
+            # 반올림 후 비교: 기록되는 거래단가(정수)와 판정 기준을 일치시켜
+            # 반올림 경계의 잔여 플립까지 차단.
+            obs_price = round(self.random.uniform(low, high))
+            is_gain = obs_price >= pos["평균단가"]
             prob = self.params.base_sell_prob * (
                 self.params.disposition_strength if is_gain else 1.0
             )
@@ -67,15 +76,15 @@ class InvestorAgent(mesa.Agent):
                 # 거래별 인과 귀속 (2단계): 이 매도의 실제 발생 확률 p₁ 대비 처분효과가
                 # 없었을 반사실 확률 p₀의 비 — 1−p₀/p₁ = "편향이 만든 초과 확률에서
                 # 이 매도가 나왔을 확률"(thinning 분해). 손실 매도는 채널 미개입 = 0.
-                # 이미 계산된 값의 산술 조합만 기록 — RNG 무소비(바이트 회귀 불변).
+                # 이미 계산된 값의 산술 조합만 기록 — RNG 무소비.
                 p1 = min(prob, 0.9)
                 p0 = min(self.params.base_sell_prob, 0.9)
                 disp_attr = max(0.0, 1.0 - p0 / p1) if (is_gain and p1 > 0) else 0.0
-                self._execute_sell(ticker, pos, low, high, disp_attr)
+                self._execute_sell(ticker, pos, obs_price, disp_attr)
 
-    def _execute_sell(self, ticker: str, pos: dict, low: float, high: float,
+    def _execute_sell(self, ticker: str, pos: dict, exec_price: float,
                       disp_attr: float = 0.0):
-        exec_price = self.random.uniform(low, high)  # TODO: 체결가 샘플링 정교화(보류)
+        # 체결가 = _maybe_sell의 관측가 그대로 (판단 가격과 동일 — 플립 원천 차단)
         qty = pos["수량"]
 
         trade = Trade(
