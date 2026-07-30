@@ -313,7 +313,9 @@ NEUTRAL_VALUES = {  # 편향 없음 값 (무편향 대조군 실험과 동일 �
 # 꼬리 경계 [p90, 1.5xp99] — 커밋본 synthetic_labels.csv(자연 모드 시드 7, 3,000 agent,
 # 배율·clip 포함 최종 분포)의 경험적 분위수로 프리즈 (7-5 실측).
 EXTENDED_TAIL_BOUNDS = {
-    "disposition_strength": (4.625, 8.609),
+    # 0730 재산정: disposition_strength 내부 평균 3.35→4.40 재캘리브레이션에 따라
+    # 자연 분포(시드 7, 배율·clip 포함)의 (p90, 1.5×p99)를 다시 프리즈.
+    "disposition_strength": (6.007, 10.873),
     "overconfidence": (0.286, 0.979),
     "lottery_preference": (0.355, 0.806),
     "herd_sensitivity": (0.446, 1.159),
@@ -322,7 +324,10 @@ EXTENDED_TAIL_BOUNDS = {
 # 데이터셋 생성 시드 (generate_dataset.py): 학습(확장) 5개 + 평가(자연) 2개.
 # 산출물 dataset/은 .gitignore — 시드·config 고정이라 스크립트 1회 실행으로 완전 재현.
 DATASET_TRAIN_SEEDS = [11, 13, 17, 19, 23]
-DATASET_EVAL_SEEDS = [101, 102]
+# 평가 시드 s101·s102 → s103·s104 교체 (2026-07-30): 단계0 실험 A(플립률)에서
+# 구 시드의 거래별 라벨을 열어봤으므로, 매도 로직 수정(관측가 판정) 후 재평가는
+# 미접촉 시드로 봉인 상태를 복원한다 (사전 등록 보완 5번).
+DATASET_EVAL_SEEDS = [103, 104]
 DATASET_DIR = "dataset"
 # 종류별 하위 폴더 구조: dataset/{kind}/{세트명}_{kind}.csv (kind = trades/labels/
 # meta/trade_labels — 각 7파일). manifest.csv만 dataset/ 루트.
@@ -369,9 +374,12 @@ class BehaviorParamRanges:
     """
  
     # 내부 배율(측정 위험비율 아님). 산포·그룹배율·과잉확신 채널이 측정 비율을 압축하므로
-    # 측정치 2.18을 재현하려면 내부값이 더 높아야 한다 (5-4 3.55 → 5-5 3.88 → 6-3 3.35:
-    # 계층화 유니버스에서 압축 정도가 달라져 재조정).
-    disposition_strength: tuple[float, float] = (3.35, 0.5)
+    # 측정치 2.18을 재현하려면 내부값이 더 높아야 한다 (5-4 3.55 → 5-5 3.88 → 6-3 3.35
+    # → 0730 4.40: 매도 판정을 종가→관측가(체결가와 동일)로 바꾸며 부스트 조건과 측정
+    # 규약(종가 기반)이 탈동조 — 측정 비율이 추가 희석돼 재캘리브레이션.
+    # base_sell_prob 0.084→0.064 동반 하향(회전율 복원). 3시드(7/103/104) 검증:
+    # 처분 2.159, 보유 10.37/3.0, 회전 738%, OC 1.30, H-L +46.8%p — 전 지표 밴드 내).
+    disposition_strength: tuple[float, float] = (4.40, 0.5)
     overconfidence: tuple[float, float] = (0.1, 0.05)
     herd_sensitivity: tuple[float, float] = (0.2, 0.15)  # β 음수는 구조 한계(6단계) — 상향 무효 확인
     # 7-2 재배치: (0.3, 0.2)→(0.15, 0.15) + LOTT_WEIGHT_SCALE 곱 — mean 하향·상대 산포
@@ -384,5 +392,7 @@ class BehaviorParamRanges:
     base_buy_prob: tuple[float, float] = (0.12, 0.08)
     # std >> mean: 의도적 산포 확대(활발형/보유형 혼합). 바닥 질량이 '거의 안 파는
     # 보유형'을 만들어 보유기간 비대칭(중앙값 3 << 평균 9.7)과 회전-보유 곱 제약 완화 달성.
-    base_sell_prob: tuple[float, float] = (0.084, 0.095)
+    # 0730 재캘리브레이션: 0.084→0.064 (disposition_strength 4.40 상향의 회전율 부작용
+    # 상쇄 — disposition_strength 주석 참조. std는 유지: 보유형 바닥 질량 설계 보존).
+    base_sell_prob: tuple[float, float] = (0.064, 0.095)
  
