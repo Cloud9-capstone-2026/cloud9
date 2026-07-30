@@ -23,6 +23,7 @@ None → 호출부(detect.py)는 2계층 가중으로 폴백.
 
 import json
 import logging
+import os
 import sys
 from datetime import timedelta
 from functools import lru_cache
@@ -36,7 +37,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-_ART_DIR = _REPO_ROOT / "ml" / "artifacts"
+# 아티팩트 위치: 환경변수 우선(배포 서버 — 모델 파일은 gitignore라 레포에 없음),
+# 없으면 로컬 학습 산출 경로. 둘 다 비어 있으면 GitHub Release에서 내려받는다
+# (_ensure_artifacts — CANARY_MODEL_RELEASE 태그 필요, 사설 레포는 GITHUB_TOKEN).
+_ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifacts"))
+_RELEASE_ASSETS = ("tagger.pt", "tagger_meta.json", "distribution_ref.json",
+                   "hashes.json")
 logger = logging.getLogger(__name__)
 
 try:
@@ -73,16 +79,56 @@ BIAS_NAMES = {
 }
 
 
+def _ensure_artifacts() -> Path:
+    """아티팩트 확보: 로컬 존재 시 그대로, 없으면 GitHub Release에서 1회 다운로드.
+
+    다운로드 실패는 예외 → _load_artifacts → score_account None → 2계층 폴백
+    (기존 실패 정책 그대로). 태그 미설정이면 시도 없이 즉시 부재 처리."""
+    if (_ART_DIR / "tagger.pt").exists() and (_ART_DIR / "tagger_meta.json").exists():
+        return _ART_DIR
+    tag = os.environ.get("CANARY_MODEL_RELEASE")
+    if not tag:
+        raise RuntimeError(
+            f"모델 아티팩트 없음({_ART_DIR}) — CANARY_MODEL_DIR 또는 "
+            "CANARY_MODEL_RELEASE(다운로드 태그)를 설정할 것")
+    repo = os.environ.get("CANARY_MODEL_REPO", "Cloud9-capstone-2026/cloud9")
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    r = requests.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
+                     headers=headers, timeout=30)
+    r.raise_for_status()
+    assets = {a["name"]: a for a in r.json().get("assets", [])}
+    missing = [n for n in ("tagger.pt", "tagger_meta.json") if n not in assets]
+    if missing:
+        raise RuntimeError(f"Release {tag}에 필수 자산 없음: {missing}")
+    _ART_DIR.mkdir(parents=True, exist_ok=True)
+    for name in _RELEASE_ASSETS:
+        if name not in assets:
+            continue  # 선택 자산(hashes 등)은 없어도 동작
+        dl = requests.get(assets[name]["url"],
+                          headers={**headers, "Accept": "application/octet-stream"},
+                          timeout=300)
+        dl.raise_for_status()
+        tmp = _ART_DIR / (name + ".tmp")
+        tmp.write_bytes(dl.content)
+        tmp.replace(_ART_DIR / name)  # 부분 다운로드가 정본이 되지 않도록 원자 교체
+    logger.info("layer3 아티팩트 다운로드 완료: %s (%s)", tag, _ART_DIR)
+    return _ART_DIR
+
+
 @lru_cache(maxsize=1)
 def _load_artifacts():
     if _IMPORT_ERROR is not None:
         raise RuntimeError(f"layer3 의존성 import 실패: {_IMPORT_ERROR!r}")
-    with open(_ART_DIR / "tagger_meta.json", encoding="utf-8") as fp:
+    art = _ensure_artifacts()
+    with open(art / "tagger_meta.json", encoding="utf-8") as fp:
         meta = json.load(fp)
     m = meta["model"]
     model = GRUTagger(m["n_channels"], m["hidden"], m["layers"], len(meta["attrs"]),
                       dropout=m.get("dropout", 0.0))  # eval 모드라 추론엔 무영향
-    model.load_state_dict(torch.load(_ART_DIR / "tagger.pt", map_location="cpu"))
+    model.load_state_dict(torch.load(art / "tagger.pt", map_location="cpu"))
     model.eval()
     return model, meta
 
