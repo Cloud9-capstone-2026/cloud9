@@ -5,7 +5,7 @@
 산출: ml/cache/{세트명}_events.parquet, {세트명}_aggregates.parquet
 
 dataset/ 7세트(학습 확장 5 + 평가 자연 2)의 trades CSV를 synthetic_data.features의
-빌더에 통과시켜 캐싱한다 — 학습 스크립트(train_gru)가 매 실험마다 build_features를
+빌더에 통과시켜 캐싱한다 — 학습 스크립트(train_tagger)가 매 실험마다 build_features를
 재계산하지 않게 하기 위한 것. 시세·지수는 synthetic_data/.cache의 로컬 parquet을
 그대로 쓰므로 네트워크가 필요 없다.
 

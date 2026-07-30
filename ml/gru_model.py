@@ -1,8 +1,10 @@
 """
-GRU 멀티태스크 회귀 모델 정의 — 학습(ml.train_gru)과 추론(backend.models.layer3) 공유.
+GRU 시퀀스 태깅 모델 정의 — 학습(ml.train.train_tagger)과 추론(backend.models.layer3) 공유.
 
 이 모듈만 따로 둔 이유: 추론(backend)이 학습 스크립트의 무거운 의존성(sklearn·scipy)
 없이 모델 구조만 import할 수 있게 하기 위함.
+(초기 슬라이스의 계좌 단위 GRURegressor는 2026-07-30 제거 — 거래 단위 태깅으로 대체,
+프로필도 검사 기반 갱신으로 확정되며 페르소나 재활용 후보 지위까지 소멸. git 이력 참조.)
 """
 
 from torch import nn
@@ -40,25 +42,3 @@ class GRUTagger(nn.Module):
         if self.p_drop > 0:
             out = nn.functional.dropout(out, self.p_drop, self.training)
         return self.head(out)  # [B, T, n_targets] 로짓
-
-
-class GRURegressor(nn.Module):
-    """이벤트 시퀀스 [B, T, C] → 4개 편향 파라미터 회귀.
-
-    가변 길이는 pack_padded_sequence로 처리 — 패딩 구간은 GRU 연산에서 제외되므로
-    별도 마스크 없이 마지막 유효 hidden state가 계좌 표현이 된다.
-    """
-
-    def __init__(self, n_features: int, hidden: int, layers: int, n_targets: int):
-        super().__init__()
-        self.gru = nn.GRU(n_features, hidden, num_layers=layers, batch_first=True)
-        self.head = nn.Sequential(
-            nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, n_targets)
-        )
-
-    def forward(self, x, lengths):
-        packed = pack_padded_sequence(
-            x, lengths.cpu(), batch_first=True, enforce_sorted=False
-        )
-        _, h = self.gru(packed)  # h: [layers, B, hidden]
-        return self.head(h[-1])
