@@ -1,6 +1,7 @@
 ﻿# requirements.lock - pip freeze 스냅샷 (2026-07-30, 단계 1a)
 # Python 3.12.7 / 단일 venv - backend + ml + synthetic_data 공용
-# 재현: pip install -r requirements.lock  (torch CPU 휠은 backend/requirements.txt의 --extra-index-url 참조)
+# 재현: pip install -r requirements.lock  (아래 index 지시문 포함 — 단독 설치 가능)
+--extra-index-url https://download.pytorch.org/whl/cpu
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anthropic==0.103.1

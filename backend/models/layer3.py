@@ -21,6 +21,7 @@ None → 호출부(detect.py)는 2계층 가중으로 폴백.
 학습 데이터에도 결측 구간이 있어 모델이 마스크 패턴을 학습한 상태다.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -114,6 +115,26 @@ def _ensure_artifacts() -> Path:
         tmp = _ART_DIR / (name + ".tmp")
         tmp.write_bytes(dl.content)
         tmp.replace(_ART_DIR / name)  # 부분 다운로드가 정본이 되지 않도록 원자 교체
+
+    # 무결성 검증: hashes.json의 출력물 지문과 대조 — 전송 손상·자산 뒤섞임 탐지.
+    # (hashes.json 자체가 같은 Release에서 오므로 악의적 교체까지 막지는 못함 —
+    # 그건 Release 접근 권한의 문제. 여기서는 무결성만 책임진다.)
+    # 불일치는 예외 → 기존 실패 정책(2계층 폴백). hashes.json 없으면 검증 생략 경고.
+    hashes_path = _ART_DIR / "hashes.json"
+    if hashes_path.exists():
+        with open(hashes_path, encoding="utf-8") as fp:
+            expected = json.load(fp).get("artifacts", {})
+        for name, want in expected.items():
+            p = _ART_DIR / name
+            if not p.exists():
+                continue
+            got = hashlib.sha256(p.read_bytes()).hexdigest()
+            if got != want:
+                raise RuntimeError(
+                    f"아티팩트 무결성 불일치: {name} (기대 {want[:12]}…, 실제 {got[:12]}…)")
+        logger.info("layer3 아티팩트 무결성 검증 통과 (%d개)", len(expected))
+    else:
+        logger.warning("hashes.json 부재 — 다운로드 아티팩트 무결성 검증 생략")
     logger.info("layer3 아티팩트 다운로드 완료: %s (%s)", tag, _ART_DIR)
     return _ART_DIR
 

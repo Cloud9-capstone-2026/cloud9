@@ -17,6 +17,7 @@ mean_abn_vol_at_buy).
 미통과 시 = 생성기 군집 채널 자체 재검토(중단·논의).
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -42,7 +43,7 @@ FIXED = dict(  # 자연 평균 고정값 (config.BehaviorParamRanges 0730 확정
 )
 
 
-def main():
+def main(seed: int = 7):
     counter = {"i": 0}
 
     def fixed_params(rng, ranges, group, multipliers):
@@ -56,7 +57,7 @@ def main():
         m = model_mod.MarketModel(
             n_investors=config.N_INVESTORS,
             tickers=config.UNIVERSE_TICKERS,
-            seed=7, mode="natural",
+            seed=seed, mode="natural",
         )
         m.run()
     finally:
@@ -78,19 +79,44 @@ def main():
     ag["hs"] = ag["agent_id"].astype(str).map(hs_by_agent)
 
     g = ag.groupby("hs")["mean_abn_vol_at_buy"]
-    means, ses, ns = g.mean(), g.sem(), g.size()
-    print("\n=== herd ceteris-paribus (시드 7, herd만 변화·전원 그 외 동일) ===")
-    print(f"{'herd':>6}{'계좌':>8}{'abn_vol@buy 평균':>18}{'SE':>10}")
+    means, meds, ses, ns = g.mean(), g.median(), g.sem(), g.size()
+    print(f"\n=== herd ceteris-paribus (시드 {seed}, herd만 변화·전원 그 외 동일) ===")
+    print(f"{'herd':>6}{'계좌':>8}{'평균':>10}{'중앙값':>10}{'SE':>10}")
     for hs in sorted(means.index):
-        print(f"{hs:>6}{ns[hs]:>8}{means[hs]:>18.4f}{ses[hs]:>10.4f}")
+        print(f"{hs:>6}{ns[hs]:>8}{means[hs]:>10.4f}{meds[hs]:>10.4f}{ses[hs]:>10.4f}")
 
-    mono = all(means[b] >= means[a]
-               for a, b in zip(sorted(means.index), sorted(means.index)[1:]))
+    # 판정 1(실험 B와 동일 관용 규칙): 평균 단조 비감소, 허용 = 인접 역전 1건이고
+    # 크기 < 결합 SE. 판정 2: Spearman 양(+)·p<0.05 (계좌 단위 — 이상치에 강건).
+    levels = sorted(means.index)
+    drops = []
+    for a, b in zip(levels, levels[1:]):
+        d = float(means[b] - means[a])
+        if d < 0:
+            drops.append({"from": a, "to": b, "drop": round(d, 4),
+                          "combined_se": round(float(np.hypot(ses[a], ses[b])), 4)})
+    mono = (len(drops) == 0) or (
+        len(drops) == 1 and abs(drops[0]["drop"]) < drops[0]["combined_se"])
     r, p = stats.spearmanr(ag["hs"], ag["mean_abn_vol_at_buy"])
     ok = mono and (r > 0) and (p < 0.05)
-    print(f"\n단조 증가: {'OK' if mono else 'FAIL'} | Spearman r={r:+.4f} p={p:.3g}"
-          f" | 판정: {'통과 — 메커니즘 유효' if ok else '미통과 — 군집 채널 재검토'}")
+    verdict = "통과 — 메커니즘 유효" if ok else "미통과 — 군집 채널 재검토"
+    print(f"\n단조(허용 1건<결합SE): {'OK' if mono else 'FAIL'} (역전 {len(drops)}건)"
+          f" | Spearman r={r:+.4f} p={p:.3g} | 판정: {verdict}")
+
+    out_path = os.path.join(_REPO, "ml", "cache",
+                            f"verify_herd_ceteris_paribus_s{seed}.json")
+    with open(out_path, "w", encoding="utf-8") as fp:
+        json.dump({
+            "herd_grid": HERD_GRID, "fixed_params": FIXED, "seed": seed,
+            "level_means": {str(hs): round(float(means[hs]), 4) for hs in levels},
+            "level_medians": {str(hs): round(float(meds[hs]), 4) for hs in levels},
+            "level_ses": {str(hs): round(float(ses[hs]), 4) for hs in levels},
+            "level_ns": {str(hs): int(ns[hs]) for hs in levels},
+            "inversions": drops, "monotonic_with_tolerance": bool(mono),
+            "spearman_r": round(float(r), 4), "p": float(f"{p:.3g}"),
+            "verdict": verdict,
+        }, fp, ensure_ascii=False, indent=2)
+    print(f"결과 저장: {out_path}")
 
 
 if __name__ == "__main__":
-    main()
+    main(int(sys.argv[1]) if len(sys.argv) > 1 else 7)
