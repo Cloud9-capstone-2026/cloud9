@@ -34,23 +34,15 @@ if not os.environ.get("KRX_ID") or not os.environ.get("KRX_PW"):
 
 import time  # noqa: E402
 
-import requests  # noqa: E402
-
 from pykrx import stock  # noqa: E402  (dotenv 로드 후 import)
 
 from .. import config  # noqa: E402
 
 # pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행(hang)에 빠질 수 있다
-# (6-1에서 실제 발생: 30분 CPU 정지). 세션 기본 timeout을 강제한다.
-_orig_request = requests.Session.request
+# (6-1에서 실제 발생: 30분 CPU 정지). 전역 기본 timeout 패치는 net.py로 통합.
+from ..net import ensure_timeout_patch  # noqa: E402
 
-
-def _request_with_timeout(self, *args, **kwargs):
-    kwargs.setdefault("timeout", 15)
-    return _orig_request(self, *args, **kwargs)
-
-
-requests.Session.request = _request_with_timeout
+ensure_timeout_patch()
 
 MARKET = "KOSPI"
 TOP_N = 30

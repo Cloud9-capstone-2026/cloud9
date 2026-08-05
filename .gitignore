@@ -10,6 +10,8 @@ reports/
 
 # synthetic_data pykrx 시세 캐시 (재생성 가능한 파생 데이터)
 synthetic_data/.cache/
+# backend 분석용 시세 캐시 (price_cache.py — 재생성 가능)
+backend/.price_cache/
 # 7-5 다중 시드 데이터셋 산출물 — generate_dataset.py로 완전 재현 가능(용량상 미커밋, 팀 드라이브 전달)
 dataset/
 

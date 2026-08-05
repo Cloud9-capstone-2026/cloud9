@@ -25,24 +25,16 @@ import time
 from pathlib import Path
 
 import pandas as pd
-import requests
 from dotenv import load_dotenv
 from pykrx import stock
 
 from . import config
 
 # pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행(hang)에 빠질 수 있다
-# (6-1 유니버스 샘플링에서 실측). 201종목 최초 fetch도 같은 per-ticker 패턴이라
-# 런타임 경로에도 세션 기본 timeout을 강제한다. (캐시 적중 시엔 네트워크 자체가 없음.)
-_orig_request = requests.Session.request
+# (6-1 유니버스 샘플링에서 실측). 전역 기본 timeout 패치는 net.py 한 곳으로 통합.
+from .net import ensure_timeout_patch
 
-
-def _request_with_timeout(self, *args, **kwargs):
-    kwargs.setdefault("timeout", 15)
-    return _orig_request(self, *args, **kwargs)
-
-
-requests.Session.request = _request_with_timeout
+ensure_timeout_patch()
 
 # 거래량은 6-3 유동성 현실성 측정(주문수량/일거래량)용 — 시세 스키마에 보존.
 _PRICE_COLUMNS = ["종목코드", "거래일자", "시가", "고가", "저가", "종가", "거래량"]

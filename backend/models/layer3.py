@@ -54,19 +54,14 @@ try:
 except Exception as e:  # torch 미설치 등 — score는 None 폴백
     _IMPORT_ERROR = e
 
-# pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행 위험
-# (synthetic_data.market_data와 동일 조치)
+# pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행 위험 —
+# 전역 기본 timeout 패치는 synthetic_data.net 한 곳으로 통합 (idempotent).
+# requests 자체는 아래 Release 다운로드(_ensure_artifacts)가 직접 쓴다.
 import requests
 
-_orig_request = requests.Session.request
+from synthetic_data.net import ensure_timeout_patch
 
-
-def _request_with_timeout(self, *args, **kwargs):
-    kwargs.setdefault("timeout", 15)
-    return _orig_request(self, *args, **kwargs)
-
-
-requests.Session.request = _request_with_timeout
+ensure_timeout_patch()
 
 # 시세 룩백 버퍼: abn_vol 기준선(60거래일)·LOTT 창 확보용 (캘린더 일수)
 _PRICE_LOOKBACK_DAYS = 150
@@ -155,33 +150,16 @@ def _load_artifacts():
 
 
 def _fetch_price_df(tickers, d_min, d_max) -> pd.DataFrame:
-    """계좌 종목들의 OHLCV를 pykrx 공개 API로 조회 → market_data 스키마.
+    """계좌 종목들의 OHLCV → market_data 스키마. price_cache 경유 —
+    커버된 구간은 네트워크 없음, 부족 구간만 pykrx 증분 조회(2-1).
     실패 종목은 건너뜀(해당 종목 시장 컨텍스트는 결측 → 마스크)."""
-    from pykrx import stock  # 지연 import (모듈 로드 시 네트워크 의존 제거)
+    from price_cache import get_ohlcv  # 지연 import (모듈 로드 의존 최소화)
 
-    start = (d_min - timedelta(days=_PRICE_LOOKBACK_DAYS)).strftime("%Y%m%d")
-    end = d_max.strftime("%Y%m%d")
-    frames = []
-    for tk in tickers:
-        try:
-            df = stock.get_market_ohlcv(start, end, tk, adjusted=True)
-        except Exception:
-            continue
-        if df is None or df.empty:
-            continue
-        df = df[df["거래량"] > 0]
-        if df.empty:
-            continue
-        frames.append(pd.DataFrame({
-            "종목코드": tk,
-            "거래일자": pd.to_datetime(df.index).date,
-            "시가": df["시가"].values, "고가": df["고가"].values,
-            "저가": df["저가"].values, "종가": df["종가"].values,
-            "거래량": df["거래량"].values,
-        }))
-    if not frames:
+    start = d_min - timedelta(days=_PRICE_LOOKBACK_DAYS)
+    df = get_ohlcv(tickers, start, d_max)
+    if df.empty:
         raise RuntimeError("시세 조회 전면 실패 — layer3 스킵")
-    return pd.concat(frames, ignore_index=True)
+    return df
 
 
 def _fetch_index_df(price_df) -> pd.DataFrame:
