@@ -1,4 +1,4 @@
-﻿# requirements.lock - pip freeze 스냅샷 (2026-07-30, 단계 1a)
+﻿# requirements.lock - pip freeze 스냅샷 (2026-07-30, 단계 1a; 2026-08-05 pytest 추가)
 # Python 3.12.7 / 단일 venv - backend + ml + synthetic_data 공용
 # 재현: pip install -r requirements.lock  (아래 index 지시문 포함 — 단독 설치 가능)
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -32,6 +32,7 @@ h5py==3.16.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.11
+iniconfig==2.3.0
 Jinja2==3.1.6
 jiter==0.15.0
 joblib==1.5.3
@@ -50,6 +51,7 @@ packaging==26.0
 pandas==2.3.3
 pillow==12.2.0
 platformdirs==4.9.6
+pluggy==1.6.0
 pooch==1.9.0
 psycopg2-binary==2.9.11
 pyarrow==25.0.0
@@ -59,9 +61,11 @@ pycparser==3.0
 pycryptodome==3.23.0
 pydantic==2.12.5
 pydantic_core==2.41.5
+Pygments==2.20.0
 pykrx==1.2.8
 pyparsing==3.3.2
 pypdf==6.14.2
+pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.29
