@@ -36,6 +36,25 @@ class Trade(Base):
     정산금액 = Column(BigInteger, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
+class AnalysisJob(Base):
+    """업로드 1건당 분석 작업 1개 추적 (2-2 비동기 전환).
+
+    csv_uploads.status(CSV 저장 여부)와 역할이 다름 — 여기의 status는 분석
+    진행 상태(pending→running→done|failed)이고 프론트가 폴링으로 읽는 값.
+    upload_id unique = 같은 업로드에 job 중복 생성을 DB 제약으로 차단.
+    상태 전이는 pipeline.jobs의 조건부 UPDATE로만 수행(역방향 전이 없음)."""
+    __tablename__ = "analysis_jobs"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    upload_id    = Column(Integer, ForeignKey("csv_uploads.id"), unique=True, nullable=False)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status       = Column(String(20), nullable=False, default="pending")
+    error_reason = Column(String(500), nullable=True)   # 내부 기록용 — API 응답에 미노출
+    retry_count  = Column(Integer, nullable=False, default=0)
+    created_at   = Column(TIMESTAMP, server_default=func.now())
+    started_at   = Column(TIMESTAMP, nullable=True)
+    finished_at  = Column(TIMESTAMP, nullable=True)
+
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
 

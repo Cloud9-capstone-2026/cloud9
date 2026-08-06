@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import trades, analysis
+from routers import trades, analysis, jobs
 import uvicorn
 import os
 
@@ -18,6 +18,7 @@ app.add_middleware(
 
 app.include_router(trades.router, prefix="/trades", tags=["trades"])
 app.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
+app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 
 @app.get("/")
 def root():
