@@ -1,7 +1,6 @@
 """
-GET /jobs/{job_id} — 분석 작업 상태 폴링 (2-2).
-
-프론트 계약(도경 공유분): 업로드 응답의 job_id로 1~2초 간격 폴링,
+GET /jobs/{job_id} — 분석 작업 상태.
+업로드 응답의 job_id로 1~2초 간격 폴링,
 done/failed가 오면 중단. done이면 기존 결과 조회 API로 이동.
 
 - 소유자 확인: job.user_id가 있으면 요청 user_id와 불일치 시 404

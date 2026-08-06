@@ -37,12 +37,12 @@ class Trade(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 class AnalysisJob(Base):
-    """업로드 1건당 분석 작업 1개 추적 (2-2 비동기 전환).
+    """업로드 1건당 분석 작업 1개 추적.
 
     csv_uploads.status(CSV 저장 여부)와 역할이 다름 — 여기의 status는 분석
     진행 상태(pending→running→done|failed)이고 프론트가 폴링으로 읽는 값.
     upload_id unique = 같은 업로드에 job 중복 생성을 DB 제약으로 차단.
-    상태 전이는 pipeline.jobs의 조건부 UPDATE로만 수행(역방향 전이 없음)."""
+    상태 전이는 pipeline.jobs의 조건부 UPDATE로만 수행 가능."""
     __tablename__ = "analysis_jobs"
 
     id           = Column(Integer, primary_key=True, index=True)

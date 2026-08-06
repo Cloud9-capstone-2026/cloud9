@@ -20,9 +20,8 @@ def get_trades(db: Session = Depends(get_db)):
     trades = db.query(Trade).all()
     return trades
 
-# POST /trades/upload — CSV 저장 + 분석 job 생성 후 즉시 202 반환 (2-2 비동기).
-# 분석은 BackgroundTasks의 worker(pipeline.jobs)가 수행 — 프론트는 응답의
-# job_id로 GET /jobs/{id}를 폴링한다.
+# POST /trades/upload — CSV 저장 + 분석 job 생성 후 즉시 202 반환
+# 분석은 BackgroundTasks의 worker(pipeline.jobs)가 수행 
 @router.post("/upload", status_code=202)
 async def upload_trades(background_tasks: BackgroundTasks,
                         file: UploadFile = File(...),

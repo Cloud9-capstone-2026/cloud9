@@ -1,5 +1,5 @@
 """
-분석 job worker (2-2) — 업로드 라우트가 BackgroundTasks로 등록하는 실행 함수.
+분석 job worker — 업로드 라우트가 BackgroundTasks로 등록하는 실행 함수.
 
 실행 규율:
 - 요청 스코프 DB 세션 재사용 금지 — worker는 SessionLocal로 자체 세션을 열고 닫는다
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def notify_done(job_id: int, upload_id: int) -> None:
-    """완료 푸시 알림 훅 — RN 푸시 구현 시 여기서 발송한다(지금은 자리만)."""
+    """완료 푸시 알림 구현하게되면....."""
 
 
 def _transition(db, job_id: int, from_status: str, values: dict) -> bool:

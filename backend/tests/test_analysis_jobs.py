@@ -1,9 +1,9 @@
 """
-2-2 비동기 전환 검증 — sqlite 인메모리 + TestClient, 외부 네트워크·실분석 0.
+비동기 전환 검증 — sqlite 인메모리 + TestClient, 외부 네트워크·실분석 0.
 
-분석 파이프라인은 mock 카운터로 대체(2-1과 같은 방식) — "몇 번 실행됐는가"를
+분석 파이프라인은 mock 카운터로 대체 — "몇 번 실행됐는가"를
 명시적으로 센다. TestClient는 BackgroundTasks를 응답 직후 동기로 실행하므로
-업로드 → worker 완주까지 한 요청 안에서 검증된다.
+업로드 → worker 완주까지 한 요청 안에서 검증.
 """
 
 import io

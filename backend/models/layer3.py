@@ -151,7 +151,7 @@ def _load_artifacts():
 
 def _fetch_price_df(tickers, d_min, d_max) -> pd.DataFrame:
     """계좌 종목들의 OHLCV → market_data 스키마. price_cache 경유 —
-    커버된 구간은 네트워크 없음, 부족 구간만 pykrx 증분 조회(2-1).
+    커버된 구간은 네트워크 없음, 부족 구간만 pykrx 증분 조회.
     실패 종목은 건너뜀(해당 종목 시장 컨텍스트는 결측 → 마스크)."""
     from price_cache import get_ohlcv  # 지연 import (모듈 로드 의존 최소화)
 

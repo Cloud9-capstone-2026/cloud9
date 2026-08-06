@@ -1,5 +1,5 @@
 """
-시세 조회 캐시 (단계 2-1) — 종목별 parquet + sidecar 증분 캐시.
+시세 조회 캐시 — 종목별 parquet + sidecar 증분 캐시.
 
 분석마다 종목별 순차 pykrx 호출(150일 룩백)을 반복하던 것을, 조회 성공 구간을
 로컬에 쌓아 부족한 구간만 받아오게 한다. 분석 속도 개선 + KRX 장애 의존 완화.
@@ -7,7 +7,7 @@
 설계 (2026-08-05 착수 기준 반영):
 - 커버 범위의 정의 = "조회에 성공한 요청 구간"(sidecar의 ranges). 행의 최소/최대
   날짜가 아니다 — 휴장일·주말로 행이 없는 구간을 결손으로 오판하지 않기 위함.
-- 동시성: 종목별 threading.Lock. 2-2의 BackgroundTasks worker가 스레드풀에서
+- 동시성: 종목별 threading.Lock. 업로드 분석의 BackgroundTasks worker가 스레드풀에서
   돌므로 같은 종목 동시 접근이 실제로 발생한다.
 - 원자성: parquet·sidecar 모두 임시파일 → os.replace 교체. 부분 쓰기가 정본이
   되지 않는다.

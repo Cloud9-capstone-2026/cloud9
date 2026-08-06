@@ -1,7 +1,7 @@
 """
 detect.py 순수 함수 스모크 — DB·네트워크 없이 표준화 → 신규 추출 → 앙상블
-배관이 계약대로 동작함을 보증한다 (2-2 비동기 전환 때 이 배관이 worker로 이사).
-run_pipeline_from_db 자체(DB 세션 필요)는 2-2에서 job 단위 테스트로 커버 예정.
+배관이 계약대로 동작함을 보증한다 (비동기 전환으로 이 배관이 worker로 이사).
+run_pipeline_from_db 자체(DB 세션 필요)는 test_analysis_jobs가 job 단위로 커버.
 """
 
 import numpy as np
