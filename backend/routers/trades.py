@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from database import get_db
-from orm import Trade, CsvUpload, AnalysisResult
-from pipeline.detect import run_pipeline_from_db
+from orm import Trade, CsvUpload, AnalysisJob
+from pipeline.jobs import run_analysis_job
 import pandas as pd
 import io
 
@@ -20,14 +20,20 @@ def get_trades(db: Session = Depends(get_db)):
     trades = db.query(Trade).all()
     return trades
 
-# POST /trades/upload — CSV 업로드 → DB 저장 → 파이프라인 트리거 (in-process)
-@router.post("/upload")
-async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_db)):
+# POST /trades/upload — CSV 저장 + 분석 job 생성 후 즉시 202 반환
+# 분석은 BackgroundTasks의 worker(pipeline.jobs)가 수행 
+@router.post("/upload", status_code=202)
+async def upload_trades(background_tasks: BackgroundTasks,
+                        file: UploadFile = File(...),
+                        db: Session = Depends(get_db)):
     contents = await file.read()
     if file.filename.lower().endswith(('.xlsx', '.xls')):
         df = pd.read_excel(io.BytesIO(contents))
     else:
         df = pd.read_csv(io.StringIO(contents.decode("utf-8-sig")))
+    # 날짜를 date 객체로 명시 변환 — Postgres는 문자열을 암묵 변환해주지만
+    # sqlite(로컬·테스트)는 거부하므로 DB 무관하게 타입을 통일한다.
+    df["거래일자"] = pd.to_datetime(df["거래일자"]).dt.date
 
     # 1. csv_uploads INSERT
     csv_upload = CsvUpload(
@@ -74,29 +80,20 @@ async def upload_trades(file: UploadFile = File(...), db: Session = Depends(get_
 
     csv_upload.status = "done"
     csv_upload.row_count = new_count
-    db.commit()
 
-    # 3. 파이프라인 트리거 (in-process). 분석 실패해도 업로드는 살아남도록 try/except.
-    analysis_summary = None
-    try:
-        analysis = run_pipeline_from_db(
-            db,
-            upload_id=csv_upload.id,
-            Trade=Trade,
-            AnalysisResult=AnalysisResult,
-            user_id="user_001",
-        )
-        ensemble = analysis["detection_result"]["ensemble"]
-        analysis_summary = {
-            "new_trades_count": analysis["new_trades_count"],
-            "anomalies": sum(1 for e in ensemble if e["is_anomaly"]),
-            "saved_path": analysis.get("saved_path"),
-        }
-    except Exception as ex:
-        analysis_summary = {"error": str(ex)}
+    # 3. 분석 job 생성(pending). upload_id unique — 같은 업로드에 중복 생성 불가.
+    job = AnalysisJob(upload_id=csv_upload.id, status="pending")
+    db.add(job)
+
+    # 4. commit이 끝난 뒤에만 백그라운드 등록 — worker는 자체 세션으로 읽으므로
+    #    등록이 먼저면 미커밋 행을 못 보는 레이스가 생긴다.
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_analysis_job, job.id)
 
     return {
-        "message": f"{new_count}건 저장 완료 (중복 {skip_count}건 스킵)",
         "upload_id": csv_upload.id,
-        "analysis": analysis_summary,
+        "job_id": job.id,
+        "status": job.status,
+        "message": f"{new_count}건 저장 완료 (중복 {skip_count}건 스킵)",
     }

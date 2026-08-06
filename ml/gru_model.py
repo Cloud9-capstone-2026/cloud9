@@ -1,0 +1,44 @@
+"""
+GRU 시퀀스 태깅 모델 정의 — 학습(ml.train.train_tagger)과 추론(backend.models.layer3) 공유.
+
+이 모듈만 따로 둔 이유: 추론(backend)이 학습 스크립트의 무거운 의존성(sklearn·scipy)
+없이 모델 구조만 import할 수 있게 하기 위함.
+(초기 슬라이스의 계좌 단위 GRURegressor는 2026-07-30 제거 — 거래 단위 태깅으로 대체,
+프로필도 검사 기반 갱신으로 확정되며 페르소나 재활용 후보 지위까지 소멸. git 이력 참조.)
+"""
+
+from torch import nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
+
+
+class GRUTagger(nn.Module):
+    """이벤트 시퀀스 [B, T, C] → 각 시점(거래)별 편향 귀속 로짓 [B, T, n_targets].
+
+    2단계 시퀀스 태깅: 타깃은 생성기의 거래별 인과 귀속 확률(trade_labels).
+    단방향 GRU라 시점 t의 출력은 거래 1..t 이력만 조건으로 한다 — "그 시점까지의
+    이전 거래들을 고려해 이 거래를 판단"하는 인과 방향이 구조적으로 보장된다.
+    출력은 로짓 — 확률은 sigmoid, 학습 손실은 BCEWithLogits(패딩 마스크 적용).
+    """
+
+    def __init__(self, n_features: int, hidden: int, layers: int, n_targets: int,
+                 dropout: float = 0.0):
+        super().__init__()
+        # GRU dropout은 층 사이에만 적용되는 torch 규약(layers=1이면 무효·경고라 0으로)
+        self.gru = nn.GRU(n_features, hidden, num_layers=layers, batch_first=True,
+                          dropout=dropout if layers > 1 else 0.0)
+        # head 앞 dropout은 모듈이 아니라 forward에서 함수형으로 적용 —
+        # Sequential 인덱스를 유지해 기존 아티팩트 state_dict 키와 호환.
+        self.p_drop = float(dropout)
+        self.head = nn.Sequential(
+            nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, n_targets)
+        )
+
+    def forward(self, x, lengths):
+        packed = pack_padded_sequence(
+            x, lengths.cpu(), batch_first=True, enforce_sorted=False
+        )
+        out, _ = self.gru(packed)
+        out, _ = pad_packed_sequence(out, batch_first=True, total_length=x.shape[1])
+        if self.p_drop > 0:
+            out = nn.functional.dropout(out, self.p_drop, self.training)
+        return self.head(out)  # [B, T, n_targets] 로짓
