@@ -21,18 +21,23 @@ def save_analysis(data: dict, db: Session = Depends(get_db)):
     ensemble = data.get("detection_result", {}).get("ensemble", [])
 
     for e in ensemble:
+        deep = e.get("deep") or {}
         row = AnalysisResult(
             user_id     = user_id,
-            rule_score  = e.get("rule_score"),
-            stat_score  = e.get("stat_score"),
-            lstm_score  = e.get("lstm_score"),  # 3계층 (detect.py ensemble에서 전달, 실패 시 None)
-            final_score = e.get("final_score"),
-            is_anomaly  = e.get("is_anomaly"),
+            rule_score  = (e.get("rule") or {}).get("score"),
+            stat_score  = (e.get("stat") or {}).get("score"),
+            lstm_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None
+            final_score = None,               # 가중합 폐기
+            is_anomaly  = e.get("verdict") == "이상",
             xai_result  = {
                 "날짜": e.get("날짜"),
                 "종목명": e.get("종목명"),
-                "triggered_rules": e.get("triggered_rules"),
-                "mahalanobis": e.get("mahalanobis"),
+                "verdict": e.get("verdict"),
+                "flags": e.get("flags"),
+                "layers_available": e.get("layers_available"),
+                "triggered_rules": (e.get("rule") or {}).get("triggered_rules"),
+                "mahalanobis": (e.get("stat") or {}).get("mahalanobis"),
+                "top_bias": deep.get("top_bias"),
             },
         )
         db.add(row)
