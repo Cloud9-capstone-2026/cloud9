@@ -45,7 +45,7 @@ from models.zscore import run_zscore  # noqa: E402
 CACHE_DIR = os.path.join("ml", "cache")
 ART_DIR = os.path.join("ml", "artifacts")
 TUNE_SETS = ["train_extended_s11", "train_extended_s13"]
-EVAL_SETS = ["eval_natural_s101", "eval_natural_s102"]
+EVAL_SETS = [f"eval_natural_s{s}" for s in config.DATASET_EVAL_SEEDS]  # 0730 시드 교체 반영
 TAU = 0.5
 BATCH = 256
 AXIS_FLOOR = 0.3  # 최약축 재현율 하한 (보정 후보용)
@@ -241,6 +241,8 @@ def main():
     threshold_candidates(tbl, y, S, w_best)
     if tuple(w_best) != (0.3, 0.3, 0.4):  # 현행 가중 비교표 (참고)
         threshold_candidates(tbl, y, S, [0.3, 0.3, 0.4])
+    # 단계형 판정 구조(계층별 독립 flag)용 — 3계층 단독 점수의 θ 후보표
+    threshold_candidates(tbl, y, S, [0.0, 0.0, 1.0])
     sensitivity(tbl, S, w_best)
     print("\nθ 후보표를 보고 최종 (가중치, θ) 결정 후: "
           "python -m ml.calibrate_ensemble --eval W1 W2 W3 THETA")

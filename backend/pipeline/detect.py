@@ -1,16 +1,23 @@
 """
 detect.py
-DB(trades) 기반 앙상블 탐지 — Rule-based + Z-score(+마할라노비스) + 3계층 GRU
-업로드 직후 in-process로 호출되어 reports/*.json 저장 + AnalysisResult INSERT.
+DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스) + 3계층 GRU.
+업로드 worker(pipeline.jobs)가 호출해 reports/*.json 저장 + AnalysisResult INSERT.
+
+판정 방식(계층별 독립 flag + 단계형 등급 — 프론트 합의 구조):
+  각 거래에 대해 계층이 각자 판정한다.
+    rule  = 위반 규칙 존재 여부
+    stat  = 마할라노비스 거리 > 임계(2.5, zscore 정의)
+    deep  = 거래 편향 확률(4종 최댓값) >= DEEP_THRESHOLD
+  verdict = flag 개수 0 → "정상", 1 → "경고", 2 이상 → "이상".
+  가중합 점수는 폐기 — 캘리브레이션에서 3계층 단독이 가중합(0.3/0.3/0.4)보다
+  나았고(AP 0.948 vs 0.883), 1·2계층의 가치(명백 위반·비편향 이상치)는 독립
+  flag로 사는 구조가 맞다.
 
 3계층(models.layer3)은 거래 우선(trade-first) 출력 — 이번 업로드 + 이전 업로드
-전체 거래를 시퀀스 태깅 GRU에 통과시켜, 새 거래 각각에 거래별 편향 귀속 확률
-(lstm_score = 4개 편향 확률의 최댓값)과 주도 편향(top_bias)을 단다. 타깃이
-생성기의 거래별 인과 라벨이라 점수의 의미가 "이 거래가 편향 때문일 확률"의
-지도학습 추정. 시퀀스 절단(max_len) 밖의 오래된 거래는 거래별 판정이 없으므로
-그 행만 2계층 가중으로 폴백(계좌 최대점수 대입은 오래된 거래를 부풀리는 편향이
-있어 미사용). 채점 전체 실패(아티팩트 부재·시세 조회 실패·torch 미설치)면
-전 행이 기존 2계층 가중(0.3/0.7)으로 폴백.
+전체 거래를 시퀀스 태깅 GRU에 통과시켜 새 거래 각각에 편향 귀속 확률과 주도
+편향(top_bias)을 단다. 시퀀스 절단(max_len) 밖 거래·채점 전체 실패(아티팩트
+부재·시세 조회 실패·torch 미설치) 시 그 거래는 deep 판정 없이 두 계층만으로
+같은 규칙을 적용하고 layers_available로 표시한다.
 """
 
 import json
@@ -47,9 +54,10 @@ DB_TO_STANDARD = {
 
 REPORTS_DIR = BACKEND_DIR / "reports"
 
-RULE_W, STAT_W = 0.3, 0.7            # 2계층 폴백 가중 (3계층 실패 시)
-RULE_W3, STAT_W3, LSTM_W3 = 0.3, 0.3, 0.4  # 3계층 앙상블 가중 (README 잠정값)
-FINAL_THRESHOLD = 0.5
+# 3계층 flag 임계값 — ml.experiments.calibrate_ensemble의 "최약축≥0.3" 후보
+# (튜닝 s11+s13: 정밀도 0.977, 4개 편향축 재현율 전부 ≥0.30 / 평가 s103·s104
+#  검증: 정밀도 0.967~0.968, 재현율 0.345~0.355). 2026-08-06 확정.
+DEEP_THRESHOLD = 0.7283
 
 
 def _standardize(df: pd.DataFrame) -> pd.DataFrame:
@@ -108,33 +116,47 @@ def save_detection_result(user_id: str, result: dict) -> str:
     return str(path)
 
 
+def _verdict(n_flags: int) -> str:
+    return "정상" if n_flags == 0 else ("경고" if n_flags == 1 else "이상")
+
+
 def _build_ensemble(
     rule_result: dict, stat_result: dict, lstm_rows: list[dict] | None = None
 ) -> list[dict]:
-    """lstm_rows: 거래별 {score, top_bias, bias_scores} 리스트 — rule/stat의
-    trade_results와 같은 순서·길이. None이면 3계층 부재 → 2계층 가중 폴백."""
+    """거래별 계층 독립 판정 + 단계형 등급.
+
+    lstm_rows: 거래별 {score, top_bias, top_bias_명, bias_scores} 리스트 —
+    rule/stat의 trade_results와 같은 순서·길이. 항목이 None이면 그 거래는
+    3계층 판정 불가(시퀀스 절단 밖·채점 실패) → flags에 deep 키 없이 두 계층만.
+    """
     ensemble = []
     for i, (r, s) in enumerate(
         zip(rule_result["trade_results"], stat_result["trade_results"])
     ):
         lr = lstm_rows[i] if lstm_rows else None
-        if lr is None:  # 3계층 실패/부재 — 2계층 가중 폴백
-            final_score = RULE_W * r["rule_score"] + STAT_W * s["stat_score"]
-        else:
-            final_score = (RULE_W3 * r["rule_score"] + STAT_W3 * s["stat_score"]
-                           + LSTM_W3 * lr["score"])
+        flags = {
+            "rule": len(r["triggered_rules"]) > 0,
+            "stat": bool(s["is_anomaly"]),
+        }
+        deep = None
+        if lr is not None:
+            flags["deep"] = lr["score"] >= DEEP_THRESHOLD
+            deep = {
+                "score": lr["score"],
+                "top_bias": lr["top_bias"],          # "이 거래는 ~편향일 수도"
+                "top_bias_명": lr.get("top_bias_명"),
+                "bias_scores": lr["bias_scores"],    # 편향축별 거래 점수
+            }
         ensemble.append({
             "날짜": r["날짜"],
             "종목명": r["종목명"],
-            "rule_score": r["rule_score"],
-            "stat_score": s["stat_score"],
-            "lstm_score": lr["score"] if lr else None,
-            "lstm_top_bias": lr["top_bias"] if lr else None,      # "이 거래는 ~편향일 수도"
-            "lstm_bias_scores": lr["bias_scores"] if lr else None,  # 편향축별 거래 점수
-            "final_score": round(final_score, 4),
-            "is_anomaly": final_score > FINAL_THRESHOLD,
-            "triggered_rules": r["triggered_rules"],
-            "mahalanobis": s["mahalanobis"],
+            "verdict": _verdict(sum(flags.values())),
+            "flags": flags,
+            "layers_available": len(flags),
+            "rule": {"score": r["rule_score"],
+                     "triggered_rules": r["triggered_rules"]},
+            "stat": {"score": s["stat_score"], "mahalanobis": s["mahalanobis"]},
+            "deep": deep,
         })
     return ensemble
 
@@ -164,6 +186,8 @@ def run_pipeline_from_db(
 
     if not trades:
         result = {**base_payload, "new_trades_count": 0,
+                  "account_verdict": "정상",
+                  "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
         result["saved_path"] = save_detection_result(user_id, result)
         return result
@@ -175,6 +199,8 @@ def run_pipeline_from_db(
 
     if len(new_trades) == 0:
         result = {**base_payload, "new_trades_count": 0,
+                  "account_verdict": "정상",
+                  "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
         result["saved_path"] = save_detection_result(user_id, result)
         return result
@@ -199,14 +225,24 @@ def run_pipeline_from_db(
             lstm_rows.append(None if e is None else {
                 "score": e["trade_score"],
                 "top_bias": e["top_bias"],
+                "top_bias_명": e.get("top_bias_명"),
                 "bias_scores": e["bias_scores"],
             })
 
     ensemble = _build_ensemble(rule_result, stat_result, lstm_rows)
 
+    counts = {"정상": 0, "경고": 0, "이상": 0}
+    for e in ensemble:
+        counts[e["verdict"]] += 1
+    # 계좌 요약(참고용) — 판정 기준은 거래별. 요약 = 거래 중 최악 등급
+    account_verdict = ("이상" if counts["이상"] else
+                       "경고" if counts["경고"] else "정상")
+
     result = {
         **base_payload,
         "new_trades_count": len(new_trades),
+        "account_verdict": account_verdict,
+        "verdict_counts": counts,
         "detection_result": {
             "rule": rule_result,
             "stat": stat_result,
@@ -221,16 +257,20 @@ def run_pipeline_from_db(
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
-            rule_score  = e["rule_score"],
-            stat_score  = e["stat_score"],
-            lstm_score  = e["lstm_score"],
-            final_score = e["final_score"],
-            is_anomaly  = e["is_anomaly"],
+            rule_score  = e["rule"]["score"],
+            stat_score  = e["stat"]["score"],
+            lstm_score  = e["deep"]["score"] if e["deep"] else None,
+            final_score = None,  # 가중합 폐기 — 컬럼 정리는 스키마 작업 때
+            is_anomaly  = e["verdict"] == "이상",
             xai_result  = {
                 "날짜": e["날짜"],
                 "종목명": e["종목명"],
-                "triggered_rules": e["triggered_rules"],
-                "mahalanobis": e["mahalanobis"],
+                "verdict": e["verdict"],
+                "flags": e["flags"],
+                "layers_available": e["layers_available"],
+                "triggered_rules": e["rule"]["triggered_rules"],
+                "mahalanobis": e["stat"]["mahalanobis"],
+                "top_bias": e["deep"]["top_bias"] if e["deep"] else None,
             },
         ))
     db.commit()

@@ -1,25 +1,18 @@
 """
-detect.py 순수 함수 스모크 — DB·네트워크 없이 표준화 → 신규 추출 → 앙상블
+detect.py 순수 함수 스모크 — DB·네트워크 없이 표준화 → 신규 추출 → 판정
 배관이 계약대로 동작함을 보증한다 (비동기 전환으로 이 배관이 worker로 이사).
 run_pipeline_from_db 자체(DB 세션 필요)는 test_analysis_jobs가 job 단위로 커버.
+
+판정 계약: 계층별 독립 flag(rule=위반 존재, stat=마할라노비스>2.5,
+deep=점수>=DEEP_THRESHOLD) → flag 개수 0/1/2+ = 정상/경고/이상.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
-from pipeline.detect import (
-    FINAL_THRESHOLD,
-    LSTM_W3,
-    RULE_W,
-    RULE_W3,
-    STAT_W,
-    STAT_W3,
-    _build_ensemble,
-    _extract_new_trades,
-)
+from pipeline.detect import DEEP_THRESHOLD, _build_ensemble, _extract_new_trades
 
 
 def test_extract_first_upload_returns_all(standard_trades):
@@ -56,47 +49,96 @@ def test_rule_and_stat_shapes(standard_trades):
         assert 0.0 <= s["stat_score"] <= 1.0
 
 
-@pytest.fixture()
-def layer_results(standard_trades):
+# ─ 판정(verdict) 계약 — 계층 결과를 손으로 구성해 조합별로 검증 ─
+
+def _rule_row(triggered):
+    return {"날짜": "2020-06-01", "종목명": "테스트A",
+            "rule_score": 0.7 if triggered else 0.0,
+            "triggered_rules": ["당일_왕복매매"] if triggered else []}
+
+
+def _stat_row(anomalous, m=None):
+    if m is None:
+        m = 3.1 if anomalous else 1.2
+    return {"날짜": "2020-06-01", "종목명": "테스트A", "z_vector": [0, 0, 0],
+            "mahalanobis": m, "stat_score": 0.7 if anomalous else 0.3,
+            "is_anomaly": anomalous}
+
+
+def _deep_row(score):
+    return {"score": score, "top_bias": "disposition_strength",
+            "top_bias_명": "처분효과",
+            "bias_scores": {"disposition_strength": score, "overconfidence": 0.1,
+                            "lottery_preference": 0.1, "herd_sensitivity": 0.1}}
+
+
+def _one(rule_on, stat_on, deep_score):
+    """계층 판정 1거래 구성 → ensemble 1행 반환."""
+    rule = {"is_anomaly": rule_on, "trade_results": [_rule_row(rule_on)]}
+    stat = {"is_anomaly": stat_on, "trade_results": [_stat_row(stat_on)]}
+    rows = None if deep_score is None else [_deep_row(deep_score)]
+    return _build_ensemble(rule, stat, rows)[0]
+
+
+HI = DEEP_THRESHOLD + 0.01   # deep flag 켜지는 점수
+LO = DEEP_THRESHOLD - 0.01   # 안 켜지는 점수
+
+
+@pytest.mark.parametrize("rule_on,stat_on,deep_score,want", [
+    (False, False, LO, "정상"),   # flag 0개
+    (True,  False, LO, "경고"),   # rule만
+    (False, True,  LO, "경고"),   # stat만
+    (False, False, HI, "경고"),   # deep만
+    (True,  True,  LO, "이상"),   # 2개
+    (True,  False, HI, "이상"),
+    (True,  True,  HI, "이상"),   # 3개
+])
+def test_verdict_mapping(rule_on, stat_on, deep_score, want):
+    e = _one(rule_on, stat_on, deep_score)
+    assert e["verdict"] == want
+    assert e["flags"] == {"rule": rule_on, "stat": stat_on,
+                          "deep": deep_score >= DEEP_THRESHOLD}
+    assert e["layers_available"] == 3
+
+
+@pytest.mark.parametrize("rule_on,stat_on,want", [
+    (False, False, "정상"),
+    (True,  False, "경고"),
+    (True,  True,  "이상"),   # 2계층만으로도 "이상" 가능
+])
+def test_verdict_without_deep_layer(rule_on, stat_on, want):
+    """3계층 판정 불가(절단 밖·실패) — 두 계층만으로 같은 규칙 적용."""
+    e = _one(rule_on, stat_on, None)
+    assert e["verdict"] == want
+    assert e["layers_available"] == 2
+    assert "deep" not in e["flags"]
+    assert e["deep"] is None
+
+
+def test_deep_flag_theta_boundary():
+    """θ 경계: 정확히 θ면 flag(이상 신호는 포함 판정), 그 아래면 미flag."""
+    assert _one(False, False, DEEP_THRESHOLD)["flags"]["deep"] is True
+    assert _one(False, False, DEEP_THRESHOLD - 1e-6)["flags"]["deep"] is False
+
+
+def test_ensemble_row_contract():
+    """프론트 계약 필드 — 키·타입·계층별 상세 재료."""
+    e = _one(True, False, HI)
+    assert set(e) == {"날짜", "종목명", "verdict", "flags", "layers_available",
+                      "rule", "stat", "deep"}
+    assert e["rule"]["triggered_rules"] == ["당일_왕복매매"]
+    assert isinstance(e["stat"]["mahalanobis"], float)
+    assert e["deep"]["top_bias_명"] == "처분효과"
+    assert set(e["deep"]["bias_scores"]) == {
+        "disposition_strength", "overconfidence",
+        "lottery_preference", "herd_sensitivity"}
+
+
+def test_stat_flag_follows_zscore_definition(standard_trades):
+    """stat flag는 zscore의 거래별 is_anomaly(마할라노비스>2.5)를 그대로 따른다."""
     rule = run_rule_based(standard_trades)
     stat = run_zscore(standard_trades, standard_trades.head(5))
-    return rule, stat
-
-
-def test_ensemble_two_layer_fallback(layer_results):
-    """3계층 부재(None) → 2계층 가중(0.3/0.7), lstm 필드는 None."""
-    rule, stat = layer_results
     ens = _build_ensemble(rule, stat, None)
-    assert len(ens) == len(rule["trade_results"])
-    for e, r, s in zip(ens, rule["trade_results"], stat["trade_results"]):
-        want = RULE_W * r["rule_score"] + STAT_W * s["stat_score"]
-        assert e["final_score"] == pytest.approx(want, abs=1e-4)
-        assert e["lstm_score"] is None
-        assert e["lstm_top_bias"] is None
-        assert e["is_anomaly"] == (e["final_score"] > FINAL_THRESHOLD)
-
-
-def test_ensemble_three_layer_and_row_fallback(layer_results):
-    """3계층 점수 있는 행은 0.3/0.3/0.4 가중, None인 행(시퀀스 절단 밖)만
-    2계층 폴백 — 행 단위 혼합이 계약."""
-    rule, stat = layer_results
-    n = len(rule["trade_results"])
-    bias = {"disposition_strength": 0.9, "overconfidence": 0.1,
-            "lottery_preference": 0.1, "herd_sensitivity": 0.1}
-    lstm_rows = [{"score": 0.9, "top_bias": "disposition_strength",
-                  "bias_scores": bias} for _ in range(n)]
-    lstm_rows[0] = None  # 절단 밖 거래 시뮬레이션
-
-    ens = _build_ensemble(rule, stat, lstm_rows)
-    r0, s0 = rule["trade_results"][0], stat["trade_results"][0]
-    assert ens[0]["final_score"] == pytest.approx(
-        RULE_W * r0["rule_score"] + STAT_W * s0["stat_score"], abs=1e-4)
-    assert ens[0]["lstm_score"] is None
-
-    for e, r, s in zip(ens[1:], rule["trade_results"][1:], stat["trade_results"][1:]):
-        want = (RULE_W3 * r["rule_score"] + STAT_W3 * s["stat_score"]
-                + LSTM_W3 * 0.9)
-        assert e["final_score"] == pytest.approx(want, abs=1e-4)
-        assert e["lstm_score"] == 0.9
-        assert e["lstm_top_bias"] == "disposition_strength"
-        assert e["lstm_bias_scores"] == bias
+    for e, s in zip(ens, stat["trade_results"]):
+        assert e["flags"]["stat"] == s["is_anomaly"]
+        assert e["stat"]["mahalanobis"] == s["mahalanobis"]
