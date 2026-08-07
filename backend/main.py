@@ -1,10 +1,12 @@
-# deploy test
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routers import trades, analysis, jobs
 import uvicorn
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 Base.metadata.create_all(bind=engine)
 
