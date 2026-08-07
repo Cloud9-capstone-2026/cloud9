@@ -50,6 +50,7 @@ def run_analysis_job(job_id: int) -> None:
                 Trade=Trade,
                 AnalysisResult=AnalysisResult,
                 user_id=f"user_{job.user_id:03d}" if job.user_id else "user_001",
+                job_id=job.id,
             )
             _transition(db, job_id, "running",
                         {"status": "done", "finished_at": datetime.now()})

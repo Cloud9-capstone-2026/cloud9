@@ -167,6 +167,7 @@ def run_pipeline_from_db(
     Trade,
     AnalysisResult,
     user_id: str = "user_001",
+    job_id: int | None = None,
 ) -> dict:
     """
     업로드된 trades(upload_id 소속)를 DB에서 읽어 2계층 앙상블 분석.
@@ -257,6 +258,7 @@ def run_pipeline_from_db(
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
+            job_id      = job_id,
             rule_score  = e["rule"]["score"],
             stat_score  = e["stat"]["score"],
             lstm_score  = e["deep"]["score"] if e["deep"] else None,
