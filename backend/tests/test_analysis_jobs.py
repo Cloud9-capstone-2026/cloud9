@@ -42,7 +42,7 @@ def app_env(monkeypatch):
 
     pipeline_calls = []
 
-    def fake_pipeline(db, upload_id, Trade, AnalysisResult, user_id="user_001"):
+    def fake_pipeline(db, upload_id, Trade, AnalysisResult, user_id="user_001", job_id=None):
         pipeline_calls.append(upload_id)
         return {"new_trades_count": 0, "detection_result": {"ensemble": []}}
 

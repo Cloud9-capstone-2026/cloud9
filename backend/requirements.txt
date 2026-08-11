@@ -12,3 +12,4 @@ openpyxl
 # CPU 휠이 설치된다. 로컬 수동 설치도 pip install -r 로 동일.)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
+alembic

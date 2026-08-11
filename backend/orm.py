@@ -61,6 +61,10 @@ class AnalysisResult(Base):
     id          = Column(Integer, primary_key=True, index=True)
     user_id     = Column(Integer, nullable=True)
     upload_id   = Column(Integer, ForeignKey("csv_uploads.id"), nullable=True)
+    # 재시도(retry_count) 시 "몇 번째 시도의 결과인지" 구분용. upload_id만으로는
+    # 같은 업로드에 재시도가 여러 번 있었을 때 결과가 뒤섞임. nullable=True인 이유:
+    # routers/analysis.py의 POST(레거시 직접 저장 경로)는 job 문맥이 없어 None으로 남음.
+    job_id      = Column(Integer, ForeignKey("analysis_jobs.id"), nullable=True)
     rule_score  = Column(Float)
     stat_score  = Column(Float)
     lstm_score  = Column(Float)

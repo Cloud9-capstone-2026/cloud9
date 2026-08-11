@@ -1,0 +1,103 @@
+"""baseline schema
+
+Revision ID: 08b573070345
+Revises: 
+Create Date: 2026-08-07 11:05:11.841185
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '08b573070345'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    op.create_table('users',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=50), nullable=False),
+    sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
+    op.create_table('csv_uploads',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=True),
+    sa.Column('file_name', sa.String(length=255), nullable=False),
+    sa.Column('row_count', sa.Integer(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=True),
+    sa.Column('uploaded_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_csv_uploads_id'), 'csv_uploads', ['id'], unique=False)
+    op.create_table('analysis_jobs',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('upload_id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('error_reason', sa.String(length=500), nullable=True),
+    sa.Column('retry_count', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.Column('started_at', sa.TIMESTAMP(), nullable=True),
+    sa.Column('finished_at', sa.TIMESTAMP(), nullable=True),
+    sa.ForeignKeyConstraint(['upload_id'], ['csv_uploads.id'], ),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('upload_id')
+    )
+    op.create_index(op.f('ix_analysis_jobs_id'), 'analysis_jobs', ['id'], unique=False)
+    op.create_table('analysis_results',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=True),
+    sa.Column('upload_id', sa.Integer(), nullable=True),
+    sa.Column('rule_score', sa.Float(), nullable=True),
+    sa.Column('stat_score', sa.Float(), nullable=True),
+    sa.Column('lstm_score', sa.Float(), nullable=True),
+    sa.Column('final_score', sa.Float(), nullable=True),
+    sa.Column('is_anomaly', sa.Boolean(), nullable=True),
+    sa.Column('xai_result', sa.JSON(), nullable=True),
+    sa.Column('analyzed_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.ForeignKeyConstraint(['upload_id'], ['csv_uploads.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_analysis_results_id'), 'analysis_results', ['id'], unique=False)
+    op.create_table('trades',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=True),
+    sa.Column('upload_id', sa.Integer(), nullable=True),
+    sa.Column('거래일자', sa.Date(), nullable=False),
+    sa.Column('종목명', sa.String(length=50), nullable=False),
+    sa.Column('거래구분', sa.String(length=10), nullable=False),
+    sa.Column('거래수량', sa.Integer(), nullable=False),
+    sa.Column('거래단가', sa.Integer(), nullable=False),
+    sa.Column('거래금액', sa.BigInteger(), nullable=False),
+    sa.Column('수수료', sa.Integer(), nullable=False),
+    sa.Column('거래세', sa.Integer(), nullable=False),
+    sa.Column('정산금액', sa.BigInteger(), nullable=False),
+    sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.ForeignKeyConstraint(['upload_id'], ['csv_uploads.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_trades_id'), 'trades', ['id'], unique=False)
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    op.drop_index(op.f('ix_trades_id'), table_name='trades')
+    op.drop_table('trades')
+    op.drop_index(op.f('ix_analysis_results_id'), table_name='analysis_results')
+    op.drop_table('analysis_results')
+    op.drop_index(op.f('ix_analysis_jobs_id'), table_name='analysis_jobs')
+    op.drop_table('analysis_jobs')
+    op.drop_index(op.f('ix_csv_uploads_id'), table_name='csv_uploads')
+    op.drop_table('csv_uploads')
+    op.drop_index(op.f('ix_users_id'), table_name='users')
+    op.drop_table('users')
