@@ -61,6 +61,20 @@ def test_score_account_contract(fake_layer3, no_network_layer3, standard_trades)
     _assert_contract(out, len(standard_trades))
 
 
+def test_account_metrics_for_distribution_check(fake_layer3, synthetic_trades,
+                                                price_df, index_df):
+    """분포 점검(v1) 재료 — 계좌 지표 6종이 기준 분포와 같은 키로 산출된다."""
+    out = fake_layer3.score_from_trades(
+        synthetic_trades, price_df=price_df, index_df=index_df
+    )
+    m = out["account_metrics"]
+    assert set(m) == {"turnover_annual", "buy_share", "mean_abn_vol_at_buy",
+                      "mean_lott_at_buy", "holding_days_mean", "n_trades"}
+    assert m["n_trades"] == len(synthetic_trades)
+    assert 0.0 <= m["buy_share"] <= 1.0
+    assert m["holding_days_mean"] is None or m["holding_days_mean"] > 0
+
+
 def test_score_from_trades_deterministic(fake_layer3, synthetic_trades,
                                          price_df, index_df):
     """같은 입력 → 같은 출력 (캐시 도입 후에도 유지돼야 하는 성질)."""

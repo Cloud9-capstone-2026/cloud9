@@ -189,6 +189,37 @@ def _fetch_index_df(price_df) -> pd.DataFrame:
     return pd.DataFrame({"거래일자": days, "종가": [np.nan] * len(days)})
 
 
+def _account_metrics(aggregates: pd.DataFrame) -> dict | None:
+    """계좌 행동 지표 — ml.train.make_distribution_ref와 동일 정의.
+
+    pipeline.monitor의 분포 점검(v1)이 학습 분포와 대조하는 값. 산출 실패는
+    None(점검 unavailable)일 뿐 채점에는 영향 없다."""
+    try:
+        ag = aggregates[aggregates["window"] == "full"]
+        if ag.empty:
+            return None
+        row = ag.iloc[0]  # 단일 계좌 전제 (score_from_trades와 동일)
+
+        def _f(key):
+            v = row.get(key)
+            return None if v is None or pd.isna(v) else float(v)
+
+        n_buys = _f("n_buys") or 0.0
+        n_sells = _f("n_sells") or 0.0
+        n_tr = n_buys + n_sells
+        return {
+            "turnover_annual": _f("turnover_annual"),
+            "buy_share": (n_buys / n_tr) if n_tr > 0 else None,
+            "mean_abn_vol_at_buy": _f("mean_abn_vol_at_buy"),
+            "mean_lott_at_buy": _f("mean_lott_at_buy"),
+            "holding_days_mean": _f("holding_days_mean"),
+            "n_trades": n_tr,
+        }
+    except Exception as e:  # noqa: BLE001 — 지표는 부가 정보, 채점을 막지 않음
+        logger.warning("계좌 지표 산출 실패 — 분포 점검 생략: %r", e)
+        return None
+
+
 def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dict | None:
     """합성 스키마 거래(agent_id·종목코드 등 features.REQUIRED_COLUMNS)를 단일
     계좌로 보고 채점. price/index 미지정 시 pykrx에서 조회(테스트에서는 주입)."""
@@ -251,6 +282,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             "bias_mean": {p: round(float(P[:, j].mean()), 4)
                           for j, p in enumerate(params)},
             "n_events": L,
+            "account_metrics": _account_metrics(out["aggregates"]),
         }
     except Exception as e:
         logger.warning("layer3 채점 실패 — 2계층 폴백: %r", e)
