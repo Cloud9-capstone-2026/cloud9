@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
+from pipeline.monitor import check_distribution
 
 try:  # 3계층 — 의존성(torch)·아티팩트가 없으면 2계층으로 폴백
     from models.layer3 import score_account as layer3_score
@@ -189,6 +190,7 @@ def run_pipeline_from_db(
         result = {**base_payload, "new_trades_count": 0,
                   "account_verdict": "정상",
                   "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
+                  "distribution_check": {"status": "unavailable"},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
         result["saved_path"] = save_detection_result(user_id, result)
         return result
@@ -202,6 +204,7 @@ def run_pipeline_from_db(
         result = {**base_payload, "new_trades_count": 0,
                   "account_verdict": "정상",
                   "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
+                  "distribution_check": {"status": "unavailable"},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
         result["saved_path"] = save_detection_result(user_id, result)
         return result
@@ -244,6 +247,10 @@ def run_pipeline_from_db(
         "new_trades_count": len(new_trades),
         "account_verdict": account_verdict,
         "verdict_counts": counts,
+        # 학습 분포 대비 이탈 점검(v1 — 플래그만, 판정 불변). out_of_range면
+        # 이 계좌의 딥러닝 판정은 학습 범위 밖 외삽이라 신뢰도 주의.
+        "distribution_check": check_distribution(
+            (layer3_result or {}).get("account_metrics")),
         "detection_result": {
             "rule": rule_result,
             "stat": stat_result,
