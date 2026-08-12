@@ -6,7 +6,8 @@ ml/train/train_tagger.py가 저장한 아티팩트(ml/artifacts/tagger.pt, tagge
 ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 것이 sim-to-real 원칙.
 
 출력 (score_account) — 거래 우선(trade-first):
-  per_trade   거래별 판정 리스트(시퀀스 최근 max_len건 중 채점 가능분). 각 항목 =
+  per_trade   거래별 판정 리스트(전 거래 — 이력이 max_len을 넘으면 창을 1건씩
+              밀며 나눠 채점, _score_windows 참조). 각 항목 =
               {row(입력 행 위치), bias_scores(편향별 귀속 확률 0~1 — 모델 sigmoid
                출력 그대로), top_bias, trade_score(=최대 귀속 확률),
                evidence(편향별 판정 근거 — models.xai IG 분해: 이 거래 자신의
@@ -15,7 +16,7 @@ ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 
               거래별 인과 라벨이므로 1단계의 IG 프록시와 달리 의미가 정의상 일치.
               시장 맥락이 전무한 거래(시세 조회 실패 등)는 제외 — 사유는
               score_from_trades 본문 주석 참조.
-  lstm_score  per_trade trade_score의 최댓값 (시퀀스 절단 밖 거래의 폴백용 요약)
+  lstm_score  per_trade trade_score의 최댓값 (계좌 요약 참고용)
   bias_mean   편향별 거래 평균 확률 (참고용 — 제품 출력 아님)
 
 실패 정책: 어떤 이유로든(아티팩트 부재·시세 조회 전면 실패·torch 미설치) 채점을
@@ -225,11 +226,39 @@ def _account_metrics(aggregates: pd.DataFrame) -> dict | None:
         return None
 
 
-def _attach_evidence(model, X, L, params, per_trade, positions) -> None:
+def _score_windows(model, M, W: int):
+    """전체 시퀀스 M[N, C]의 거래별 편향 확률 [N, n_targets] (sigmoid 완료).
+
+    모델은 학습 조건상 한 번에 W(max_len)건까지만 본다. N > W면 오래된 거래를
+    절단하는 대신 창을 거래 1건씩 밀며 여러 번 채점한다:
+      위치 0..W-1   첫 창 [0, W)에서 채점 — 이력이 그것뿐(학습 시퀀스의 시작과
+                    같은 상황)
+      위치 t >= W   직전 W-1건을 담은 창 [t-W+1, t]의 마지막 위치로 채점 —
+                    모든 거래가 균일하게 최대 문맥을 확보(학습 시퀀스의 마지막
+                    위치와 같은 조건)
+    창들은 서로 독립이라 배치로 묶어 한 번에 순전파한다.
+    """
+    N = M.shape[0]
+    with torch.no_grad():
+        if N <= W:
+            return torch.sigmoid(model(M.unsqueeze(0), torch.tensor([N])))[0, :N]
+        parts = [torch.sigmoid(model(M[:W].unsqueeze(0), torch.tensor([W])))[0]]
+        CHUNK = 512  # 꼬리 창 배치 상한 — 초대형 계좌 메모리 절충
+        for s in range(W, N, CHUNK):
+            tails = torch.stack(
+                [M[t - W + 1: t + 1] for t in range(s, min(s + CHUNK, N))])
+            lens = torch.full((len(tails),), W, dtype=torch.long)
+            parts.append(torch.sigmoid(model(tails, lens))[:, W - 1])
+        return torch.cat(parts)
+
+
+def _attach_evidence(model, M, W, params, per_trade, positions) -> None:
     """per_trade 각 항목에 evidence(XAI 근거) 부착 — 실패해도 채점은 유지.
 
-    positions: per_trade 각 항목의 시퀀스 내 위치. 시장 맥락 없는 거래 제외로
-    per_trade 인덱스와 시퀀스 위치가 어긋날 수 있어 명시적으로 받는다.
+    positions: per_trade 각 항목의 시퀀스 내 위치(시장 맥락 없는 거래 제외로
+    어긋날 수 있어 명시적으로 받는다). 창 규약은 _score_windows와 동일 —
+    위치 t < min(N, W)는 첫 창에서, t >= W는 자기 꼬리 창의 마지막 위치에서
+    근거를 계산하므로 점수와 근거가 같은 문맥을 공유한다.
 
     편향별 값 = {trade_share·context_share(현재 거래 대 과거 문맥의 기여
     절댓값 비율 — 합 1), features(값 채널 10개 전부, |기여| 내림차순 —
@@ -240,11 +269,23 @@ def _attach_evidence(model, X, L, params, per_trade, positions) -> None:
     try:
         from models.xai import evidence_summary, trade_attributions
 
-        attrs = trade_attributions(model, torch.from_numpy(X[0]), L)
-        for entry, t in zip(per_trade, positions):
+        first_len = min(M.shape[0], W)
+        first = [t for t in positions if t < first_len]
+        jobs = []  # (per_trade 항목, 해당 거래의 기여도 [4, T, C], 창 내 위치)
+        by_pos = dict(zip(positions, per_trade))
+        if first:
+            attrs = trade_attributions(model, M[:first_len], first_len,
+                                       targets=first)
+            jobs += [(by_pos[t], attrs[i], t) for i, t in enumerate(first)]
+        for t in (t for t in positions if t >= W):
+            attrs = trade_attributions(model, M[t - W + 1: t + 1], W,
+                                       targets=[W - 1])
+            jobs.append((by_pos[t], attrs[0], W - 1))
+
+        for entry, attr, t in jobs:
             ev = {}
             for j, p in enumerate(params):
-                s = evidence_summary(attrs[t, j], t)
+                s = evidence_summary(attr[j], t)
                 own, ctx = abs(s["own_total"]), abs(s["context_total"])
                 denom = own + ctx
                 ev[p] = {
@@ -295,27 +336,27 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             .astype(int)
         )
 
+        # 절단 없이 전체 이력을 시퀀스로 — max_len은 "한 번에 보는 창 크기"일
+        # 뿐 채점 범위의 한계가 아니다 (창 분할은 _score_windows).
         ids, X, lengths, rows = seqfeat.build_sequences(
-            feat, meta["norm_stats"], meta["max_len"], return_rows=True
+            feat, meta["norm_stats"], max(len(feat), 1), return_rows=True
         )
         if not ids:
             return None
-        with torch.no_grad():
-            probs = torch.sigmoid(
-                model(torch.from_numpy(X), torch.from_numpy(lengths))
-            ).numpy()
 
         # 단일 계좌 전제 — 첫 계좌 기준
-        L = int(lengths[0])
-        P = probs[0, :L]        # [L, 4] 거래별 편향 귀속 확률
-        seq_rows = rows[0, :L]  # 각 위치의 trades 행 번호
+        N = int(lengths[0])
+        M = torch.from_numpy(X[0, :N])  # [N, 17] 정규화 완료 전체 시퀀스
+        seq_rows = rows[0, :N]          # 각 위치의 trades 행 번호
+        W = int(meta["max_len"])
+        P = _score_windows(model, M, W).numpy()  # [N, 4] 거래별 편향 귀속 확률
         params = [meta["attr_param"][a] for a in meta["attrs"]]
         src = (trades["_src_row"].to_numpy()
                if "_src_row" in trades.columns else trades.index.to_numpy())
 
         per_trade = []
         positions = []  # 각 per_trade 항목의 시퀀스 내 위치 (evidence 매칭용)
-        for i in range(L):
+        for i in range(N):
             r = int(seq_rows[i])
             if r in no_market:
                 continue
@@ -337,7 +378,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             logger.warning("전 거래 시장 맥락 결측 — layer3 스킵 (2계층 폴백)")
             return None
 
-        _attach_evidence(model, X, L, params, per_trade, positions)
+        _attach_evidence(model, M, W, params, per_trade, positions)
 
         return {
             "per_trade": per_trade,

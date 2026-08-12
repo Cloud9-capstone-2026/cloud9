@@ -56,12 +56,15 @@ FEATURE_NAMES = {**_BASE_NAMES,
 
 def trade_attributions(model, x: torch.Tensor, length: int,
                        steps: int = IG_STEPS,
-                       batch_cap: int = BATCH_CAP) -> torch.Tensor:
-    """단일 계좌 시퀀스의 전 거래 × 전 편향 IG 기여도.
+                       batch_cap: int = BATCH_CAP,
+                       targets: list[int] | None = None) -> torch.Tensor:
+    """단일 계좌 시퀀스의 거래 × 편향 IG 기여도.
 
     x: [T, C] (seqfeat 정규화 완료 텐서), length: 유효 길이 L (패딩 제외).
-    반환: [L, n_targets, T, C] — [t, j]는 거래 t의 편향 j 로짓에 대한 입력별
-    기여도. 패딩 시점과 (인과성에 의해) t 이후 시점은 0.
+    targets: 기여도를 계산할 거래 위치 목록 (기본 전체 0..L-1) — 창 분할
+    채점에서 창당 필요한 위치만 계산해 총량을 거래 수에 비례시키는 용도.
+    반환: [len(targets), n_targets, T, C] — i번째가 targets[i] 거래의 편향별
+    입력 기여도. 패딩 시점과 (인과성에 의해) 대상 거래 이후 시점은 0.
 
     비용 절감 두 가지 (값은 동일 — 테스트가 청킹 불변성으로 보증):
     - 거래별 그래디언트가 서로 섞이지 않도록 거래마다 경로 복사본을 따로 두고,
@@ -82,10 +85,11 @@ def trade_attributions(model, x: torch.Tensor, length: int,
     alphas = ((torch.arange(steps, dtype=x.dtype) + 0.5) / steps).view(-1, 1, 1)
     path_pts = alphas * x                    # [steps, T, C] (전 거래 공유 값)
 
-    attrs = torch.zeros(L, n_targets, T, C, dtype=x.dtype)
+    ts_all = list(range(L)) if targets is None else [int(t) for t in targets]
+    attrs = torch.zeros(len(ts_all), n_targets, T, C, dtype=x.dtype)
     chunk = max(1, batch_cap // steps)       # 한 배치에 담는 거래 수
-    for t0 in range(0, L, chunk):
-        ts = torch.arange(t0, min(t0 + chunk, L))
+    for c0 in range(0, len(ts_all), chunk):
+        ts = torch.tensor(ts_all[c0:c0 + chunk])
         k = len(ts)
         inp = (path_pts.repeat(k, 1, 1)      # [k*steps, T, C] 거래별 독립 복사본
                .detach().requires_grad_(True))
@@ -98,7 +102,7 @@ def trade_attributions(model, x: torch.Tensor, length: int,
                 target, inp, retain_graph=(j < n_targets - 1)
             )[0]                                               # [k*steps, T, C]
             avg_grad = grads.view(k, steps, T, C).mean(dim=1)  # [k, T, C]
-            attrs[ts, j] = x * avg_grad      # (입력 − 기준선) = x
+            attrs[c0:c0 + k, j] = x * avg_grad  # (입력 − 기준선) = x
     return attrs.detach()
 
 

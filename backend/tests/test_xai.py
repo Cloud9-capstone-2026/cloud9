@@ -78,6 +78,14 @@ def test_deterministic(model, x, attrs):
     assert torch.equal(again, attrs)
 
 
+def test_targets_subset_matches_full(model, x, attrs):
+    """targets 부분 계산 = 전체 계산의 해당 행 — 창 분할 채점 최적화의 전제."""
+    sub = trade_attributions(model, x, L, targets=[2, 5])
+    assert sub.shape[0] == 2
+    torch.testing.assert_close(sub[0], attrs[2])
+    torch.testing.assert_close(sub[1], attrs[5])
+
+
 def test_evidence_summary_contract():
     """요약 규약: own/context 분해, 전 채널 |기여| 내림차순, 부호 유지."""
     C = seqfeat.N_CHANNELS
