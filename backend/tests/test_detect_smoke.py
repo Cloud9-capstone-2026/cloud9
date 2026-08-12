@@ -134,6 +134,81 @@ def test_ensemble_row_contract():
         "lottery_preference", "herd_sensitivity"}
 
 
+def test_deep_evidence_passthrough():
+    """layer3가 계산한 evidence(판정 근거)는 deep에 그대로 실린다 — 없으면 None."""
+    ev = {"disposition_strength": {
+        "trade_share": 0.62, "context_share": 0.38,
+        "features": [{"feature": "보유기간", "attribution": 0.42}]}}
+    rule = {"is_anomaly": False, "trade_results": [_rule_row(False)]}
+    stat = {"is_anomaly": False, "trade_results": [_stat_row(False)]}
+    e = _build_ensemble(rule, stat, [{**_deep_row(HI), "evidence": ev}])[0]
+    assert e["deep"]["evidence"] == ev
+    assert _one(False, False, HI)["deep"]["evidence"] is None  # 계산 실패 행
+
+
+def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
+    """DB 저장(xai_result)에 딥러닝 상세가 포함된다 — top_bias_명·bias_scores·
+    evidence. 조회 라우터(GET /analysis/)는 저장분을 그대로 반환하므로 이
+    계약이 곧 프론트가 받는 형태다. sqlite 인메모리 + 가짜 3계층."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import orm
+    from database import Base
+    from pipeline import detect
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine)()
+
+    db.add(orm.CsvUpload(id=1, file_name="t.csv"))
+    for _, r in standard_trades.iterrows():
+        db.add(orm.Trade(
+            upload_id=1, 거래일자=r["날짜"].date(), 종목명=r["종목명"],
+            거래구분=r["매매구분"], 거래수량=int(r["체결수량"]),
+            거래단가=int(r["체결단가"]), 거래금액=int(r["총거래금액"]),
+            수수료=0, 거래세=0, 정산금액=int(r["총거래금액"]),
+        ))
+    db.commit()
+
+    EVID = {"disposition_strength": {
+        "trade_share": 0.61, "context_share": 0.39,
+        "features": [{"feature": "매도실현수익률", "attribution": -1.2}]}}
+
+    def fake_layer3(df, user_id="user"):
+        return {
+            "per_trade": [{
+                "row": i, "trade_score": 0.9,
+                "top_bias": "disposition_strength", "top_bias_명": "처분효과",
+                "bias_scores": {"disposition_strength": 0.9, "overconfidence": 0.1,
+                                "lottery_preference": 0.1, "herd_sensitivity": 0.1},
+                "evidence": EVID,
+            } for i in range(len(df))],
+            "lstm_score": 0.9, "bias_mean": {}, "n_events": len(df),
+            "account_metrics": None,
+        }
+
+    monkeypatch.setattr(detect, "layer3_score", fake_layer3)
+    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)  # 리포트 파일은 임시로
+
+    detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                AnalysisResult=orm.AnalysisResult,
+                                user_id="user_001")
+
+    rows = db.query(orm.AnalysisResult).all()
+    assert len(rows) == len(standard_trades)
+    for r in rows:
+        x = r.xai_result
+        assert x["top_bias_명"] == "처분효과"
+        assert set(x["bias_scores"]) == {"disposition_strength", "overconfidence",
+                                         "lottery_preference", "herd_sensitivity"}
+        assert x["evidence"] == EVID
+        assert r.lstm_score == 0.9
+        assert r.upload_id == 1
+
+
 def test_stat_flag_follows_zscore_definition(standard_trades):
     """stat flag는 zscore의 거래별 is_anomaly(마할라노비스>2.5)를 그대로 따른다."""
     rule = run_rule_based(standard_trades)

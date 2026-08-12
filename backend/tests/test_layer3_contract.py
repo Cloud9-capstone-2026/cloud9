@@ -75,6 +75,125 @@ def test_account_metrics_for_distribution_check(fake_layer3, synthetic_trades,
     assert m["holding_days_mean"] is None or m["holding_days_mean"] > 0
 
 
+def test_per_trade_evidence_contract(fake_layer3, synthetic_trades,
+                                     price_df, index_df):
+    """XAI 근거(evidence) 계약 — 편향 4종 각각 기여율 분해 + 피처별 기여.
+
+    trade_share·context_share는 |현재 거래 기여|와 |과거 문맥 기여|의 비율
+    (합 1, 반올림 오차 허용). features는 값 채널 10개 전부 — 관측여부 채널은
+    결측 표현용 내부 구조라 미노출. 표시명 + 로짓 단위 기여도(부호 유지),
+    |기여| 내림차순.
+    """
+    out = fake_layer3.score_from_trades(
+        synthetic_trades, price_df=price_df, index_df=index_df
+    )
+    for e in out["per_trade"]:
+        ev = e["evidence"]
+        assert set(ev) == BIAS_PARAMS
+        for d in ev.values():
+            assert set(d) == {"trade_share", "context_share", "features"}
+            if d["trade_share"] is not None:
+                assert d["trade_share"] + d["context_share"] == \
+                    pytest.approx(1.0, abs=0.02)
+            feats = d["features"]
+            assert len(feats) == 10  # 값 채널 전부
+            assert all(set(f) == {"feature", "attribution"} for f in feats)
+            assert all("(관측)" not in f["feature"] for f in feats)
+            mags = [abs(f["attribution"]) for f in feats]
+            assert mags == sorted(mags, reverse=True)
+
+    # 시퀀스 첫 거래는 과거 문맥이 없다 — 기여율이 현재 거래 100%
+    first = out["per_trade"][0]
+    for d in first["evidence"].values():
+        assert d["context_share"] in (0.0, None)
+
+
+@pytest.fixture()
+def tiny_window_layer3(fake_layer3, monkeypatch):
+    """가짜 태거의 창 크기(max_len)를 6으로 줄여 8건 픽스처가 창 분할
+    경로(N > W)를 타게 한다. 모델·정규화 통계는 fake_layer3 그대로."""
+    model, meta = fake_layer3._load_artifacts()
+    monkeypatch.setattr(fake_layer3, "_load_artifacts",
+                        lambda: (model, {**meta, "max_len": 6}))
+    return fake_layer3
+
+
+def test_long_history_scores_all_trades(tiny_window_layer3, synthetic_trades,
+                                        price_df, index_df):
+    """이력이 창(max_len)보다 길어도 전 거래가 채점된다 — 창 보폭 1 폴백.
+
+    과거에는 최근 max_len건만 채점하고 나머지는 deep 없이 2계층 폴백이었다.
+    """
+    out = tiny_window_layer3.score_from_trades(
+        synthetic_trades, price_df=price_df, index_df=index_df
+    )
+    _assert_contract(out, len(synthetic_trades))  # 8건 > 창 6 — 행 1:1 유지
+    assert all("evidence" in e for e in out["per_trade"])
+
+
+def test_window_scores_match_manual_slices(tiny_window_layer3, synthetic_trades,
+                                           price_df, index_df):
+    """창 규약 검증 — 같은 정규화 시퀀스로 손수 채점한 값과 일치.
+
+    위치 t < W: 첫 창 [0, W)의 위치 t 점수.
+    위치 t >= W: 창 [t-W+1, t]을 단독 채점한 마지막 위치 점수.
+    """
+    import torch
+
+    W = 6
+    out = tiny_window_layer3.score_from_trades(
+        synthetic_trades, price_df=price_df, index_df=index_df
+    )
+    model, meta = tiny_window_layer3._load_artifacts()
+    params = [meta["attr_param"][a] for a in meta["attrs"]]
+
+    # layer3와 같은 경로로 정규화 시퀀스 재구성
+    from synthetic_data.features import build_features
+    from ml import seqfeat
+    trades = synthetic_trades.reset_index(drop=True)
+    fout = build_features(trades, price_df, index_df, windows=(None,))
+    ev = seqfeat.attach_trade_rows(fout["events"], trades)
+    feat = seqfeat.event_features(ev)
+    _, X, lengths, rows = seqfeat.build_sequences(
+        feat, meta["norm_stats"], len(feat), return_rows=True
+    )
+    N = int(lengths[0])
+    M = torch.from_numpy(X[0, :N])
+    by_row = {e["row"]: e for e in out["per_trade"]}
+
+    with torch.no_grad():
+        first = torch.sigmoid(model(M[:W].unsqueeze(0), torch.tensor([W])))[0]
+        for t in range(W):                       # 첫 창 구간
+            got = by_row[int(rows[0, t])]["bias_scores"]
+            for j, p in enumerate(params):
+                assert got[p] == pytest.approx(float(first[t, j]), abs=1e-4)
+        for t in range(W, N):                    # 꼬리 창 구간
+            win = M[t - W + 1: t + 1].unsqueeze(0)
+            want = torch.sigmoid(model(win, torch.tensor([W])))[0, W - 1]
+            got = by_row[int(rows[0, t])]["bias_scores"]
+            for j, p in enumerate(params):
+                assert got[p] == pytest.approx(float(want[j]), abs=1e-4)
+
+
+def test_no_market_data_trades_not_scored(fake_layer3, synthetic_trades,
+                                          price_df, index_df):
+    """시세가 전혀 없는 종목의 거래는 채점 제외 — "시세 조회 실패"라는 시스템
+    사정이 결측 신호로 점수에 들어가지 않도록. 제외 거래는 detect.py에서
+    2계층 판정으로 폴백되고, 나머지 거래는 정상 채점된다."""
+    partial = price_df[price_df["종목코드"] != "000030"]
+    out = fake_layer3.score_from_trades(
+        synthetic_trades, price_df=partial, index_df=index_df
+    )
+    tr = synthetic_trades.reset_index(drop=True)
+    dropped = set(tr.index[tr["종목코드"] == "000030"])
+    assert dropped, "픽스처에 000030 거래가 있어야 하는 테스트"
+
+    rows = {e["row"] for e in out["per_trade"]}
+    assert rows == set(range(len(tr))) - dropped
+    assert out["n_events"] == len(tr) - len(dropped)
+    assert all("evidence" in e for e in out["per_trade"])  # 채점분은 근거도 정상
+
+
 def test_score_from_trades_deterministic(fake_layer3, synthetic_trades,
                                          price_df, index_df):
     """같은 입력 → 같은 출력 (캐시 도입 후에도 유지돼야 하는 성질)."""

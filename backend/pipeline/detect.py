@@ -15,9 +15,10 @@ DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스)
 
 3계층(models.layer3)은 거래 우선(trade-first) 출력 — 이번 업로드 + 이전 업로드
 전체 거래를 시퀀스 태깅 GRU에 통과시켜 새 거래 각각에 편향 귀속 확률과 주도
-편향(top_bias)을 단다. 시퀀스 절단(max_len) 밖 거래·채점 전체 실패(아티팩트
-부재·시세 조회 실패·torch 미설치) 시 그 거래는 deep 판정 없이 두 계층만으로
-같은 규칙을 적용하고 layers_available로 표시한다.
+편향(top_bias)을 단다(이력이 길면 창 분할로 전 거래 채점). 시장 맥락 없는
+거래(시세 조회 실패 — layer3가 채점 제외)·채점 전체 실패(아티팩트 부재·torch
+미설치) 시 그 거래는 deep 판정 없이 두 계층만으로 같은 규칙을 적용하고
+layers_available로 표시한다.
 """
 
 import json
@@ -128,7 +129,7 @@ def _build_ensemble(
 
     lstm_rows: 거래별 {score, top_bias, top_bias_명, bias_scores} 리스트 —
     rule/stat의 trade_results와 같은 순서·길이. 항목이 None이면 그 거래는
-    3계층 판정 불가(시퀀스 절단 밖·채점 실패) → flags에 deep 키 없이 두 계층만.
+    3계층 판정 불가(시세 조회 실패·채점 실패) → flags에 deep 키 없이 두 계층만.
     """
     ensemble = []
     for i, (r, s) in enumerate(
@@ -147,6 +148,9 @@ def _build_ensemble(
                 "top_bias": lr["top_bias"],          # "이 거래는 ~편향일 수도"
                 "top_bias_명": lr.get("top_bias_명"),
                 "bias_scores": lr["bias_scores"],    # 편향축별 거래 점수
+                # 편향별 판정 근거(IG 분해): 이 거래 자신의 피처별 기여 상위 +
+                # 현재/과거 문맥 기여율. 계산 실패 시 None
+                "evidence": lr.get("evidence"),
             }
         ensemble.append({
             "날짜": r["날짜"],
@@ -224,13 +228,14 @@ def run_pipeline_from_db(
         lstm_rows = []
         for p in new_pos:
             e = by_row.get(len(baseline) + int(p))
-            # 시퀀스 절단(max_len) 밖의 오래된 거래는 거래별 판정이 없음 —
-            # 계좌 최대점수 대입은 부풀림 편향이라 그 행만 2계층 가중 폴백(None).
+            # 시장 맥락 없는 거래(시세 조회 실패)는 거래별 판정이 없음 —
+            # 계좌 최대점수 대입은 부풀림 편향이라 그 행만 2계층 폴백(None).
             lstm_rows.append(None if e is None else {
                 "score": e["trade_score"],
                 "top_bias": e["top_bias"],
                 "top_bias_명": e.get("top_bias_명"),
                 "bias_scores": e["bias_scores"],
+                "evidence": e.get("evidence"),
             })
 
     ensemble = _build_ensemble(rule_result, stat_result, lstm_rows)
@@ -261,14 +266,17 @@ def run_pipeline_from_db(
     result["saved_path"] = save_detection_result(user_id, result)
 
     # ─ Phase 3: 쓰기 (새 트랜잭션)
+    # xai_result가 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
+    # 조회 라우터는 저장분을 그대로 반환하므로 여기 넣지 않으면 전달되지 않는다.
     for e in ensemble:
+        deep = e["deep"] or {}
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
             job_id      = job_id,
             rule_score  = e["rule"]["score"],
             stat_score  = e["stat"]["score"],
-            lstm_score  = e["deep"]["score"] if e["deep"] else None,
+            lstm_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None
             final_score = None,  # 가중합 폐기 — 컬럼 정리는 스키마 작업 때
             is_anomaly  = e["verdict"] == "이상",
             xai_result  = {
@@ -279,7 +287,10 @@ def run_pipeline_from_db(
                 "layers_available": e["layers_available"],
                 "triggered_rules": e["rule"]["triggered_rules"],
                 "mahalanobis": e["stat"]["mahalanobis"],
-                "top_bias": e["deep"]["top_bias"] if e["deep"] else None,
+                "top_bias": deep.get("top_bias"),
+                "top_bias_명": deep.get("top_bias_명"),
+                "bias_scores": deep.get("bias_scores"),  # 편향 4종 점수 (0~1)
+                "evidence": deep.get("evidence"),        # 편향별 판정 근거(XAI)
             },
         ))
     db.commit()
