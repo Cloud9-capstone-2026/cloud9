@@ -266,14 +266,17 @@ def run_pipeline_from_db(
     result["saved_path"] = save_detection_result(user_id, result)
 
     # ─ Phase 3: 쓰기 (새 트랜잭션)
+    # xai_result가 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
+    # 조회 라우터는 저장분을 그대로 반환하므로 여기 넣지 않으면 전달되지 않는다.
     for e in ensemble:
+        deep = e["deep"] or {}
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
             job_id      = job_id,
             rule_score  = e["rule"]["score"],
             stat_score  = e["stat"]["score"],
-            lstm_score  = e["deep"]["score"] if e["deep"] else None,
+            lstm_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None
             final_score = None,  # 가중합 폐기 — 컬럼 정리는 스키마 작업 때
             is_anomaly  = e["verdict"] == "이상",
             xai_result  = {
@@ -284,7 +287,10 @@ def run_pipeline_from_db(
                 "layers_available": e["layers_available"],
                 "triggered_rules": e["rule"]["triggered_rules"],
                 "mahalanobis": e["stat"]["mahalanobis"],
-                "top_bias": e["deep"]["top_bias"] if e["deep"] else None,
+                "top_bias": deep.get("top_bias"),
+                "top_bias_명": deep.get("top_bias_명"),
+                "bias_scores": deep.get("bias_scores"),  # 편향 4종 점수 (0~1)
+                "evidence": deep.get("evidence"),        # 편향별 판정 근거(XAI)
             },
         ))
     db.commit()
