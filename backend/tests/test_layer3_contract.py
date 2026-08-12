@@ -75,6 +75,58 @@ def test_account_metrics_for_distribution_check(fake_layer3, synthetic_trades,
     assert m["holding_days_mean"] is None or m["holding_days_mean"] > 0
 
 
+def test_per_trade_evidence_contract(fake_layer3, synthetic_trades,
+                                     price_df, index_df):
+    """XAI 근거(evidence) 계약 — 편향 4종 각각 기여율 분해 + 피처별 기여.
+
+    trade_share·context_share는 |현재 거래 기여|와 |과거 문맥 기여|의 비율
+    (합 1, 반올림 오차 허용). features는 값 채널 10개 전부 — 관측여부 채널은
+    결측 표현용 내부 구조라 미노출. 표시명 + 로짓 단위 기여도(부호 유지),
+    |기여| 내림차순.
+    """
+    out = fake_layer3.score_from_trades(
+        synthetic_trades, price_df=price_df, index_df=index_df
+    )
+    for e in out["per_trade"]:
+        ev = e["evidence"]
+        assert set(ev) == BIAS_PARAMS
+        for d in ev.values():
+            assert set(d) == {"trade_share", "context_share", "features"}
+            if d["trade_share"] is not None:
+                assert d["trade_share"] + d["context_share"] == \
+                    pytest.approx(1.0, abs=0.02)
+            feats = d["features"]
+            assert len(feats) == 10  # 값 채널 전부
+            assert all(set(f) == {"feature", "attribution"} for f in feats)
+            assert all("(관측)" not in f["feature"] for f in feats)
+            mags = [abs(f["attribution"]) for f in feats]
+            assert mags == sorted(mags, reverse=True)
+
+    # 시퀀스 첫 거래는 과거 문맥이 없다 — 기여율이 현재 거래 100%
+    first = out["per_trade"][0]
+    for d in first["evidence"].values():
+        assert d["context_share"] in (0.0, None)
+
+
+def test_no_market_data_trades_not_scored(fake_layer3, synthetic_trades,
+                                          price_df, index_df):
+    """시세가 전혀 없는 종목의 거래는 채점 제외 — "시세 조회 실패"라는 시스템
+    사정이 결측 신호로 점수에 들어가지 않도록. 제외 거래는 detect.py에서
+    2계층 판정으로 폴백되고, 나머지 거래는 정상 채점된다."""
+    partial = price_df[price_df["종목코드"] != "000030"]
+    out = fake_layer3.score_from_trades(
+        synthetic_trades, price_df=partial, index_df=index_df
+    )
+    tr = synthetic_trades.reset_index(drop=True)
+    dropped = set(tr.index[tr["종목코드"] == "000030"])
+    assert dropped, "픽스처에 000030 거래가 있어야 하는 테스트"
+
+    rows = {e["row"] for e in out["per_trade"]}
+    assert rows == set(range(len(tr))) - dropped
+    assert out["n_events"] == len(tr) - len(dropped)
+    assert all("evidence" in e for e in out["per_trade"])  # 채점분은 근거도 정상
+
+
 def test_score_from_trades_deterministic(fake_layer3, synthetic_trades,
                                          price_df, index_df):
     """같은 입력 → 같은 출력 (캐시 도입 후에도 유지돼야 하는 성질)."""

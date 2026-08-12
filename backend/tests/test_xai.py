@@ -79,7 +79,7 @@ def test_deterministic(model, x, attrs):
 
 
 def test_evidence_summary_contract():
-    """요약 규약: own/context 분해, |기여| 상위 정렬, 부호 유지."""
+    """요약 규약: own/context 분해, 전 채널 |기여| 내림차순, 부호 유지."""
     C = seqfeat.N_CHANNELS
     attr = torch.zeros(4, C)
     attr[0, 0] = 0.5                      # 과거 문맥 (t=2 기준)
@@ -87,14 +87,18 @@ def test_evidence_summary_contract():
     attr[2, 0] = 0.42                     # 자기 시점: side
     attr[2, 9] = -0.30                    # 자기 시점: hld (음수 — 점수를 깎음)
     attr[2, 2] = 0.05                     # 자기 시점: gap
-    out = evidence_summary(attr, t=2, top_k=2)
+    out = evidence_summary(attr, t=2)
 
     assert out["own_total"] == pytest.approx(0.42 - 0.30 + 0.05)
     assert out["context_total"] == pytest.approx(0.5 - 0.2)
-    # |기여| 상위 2개 = side(0.42), hld(-0.30) — 부호 그대로
-    assert [f["feature"] for f in out["features"]] == ["side", "hld"]
+    # 기본은 전 채널, |기여| 내림차순 — 부호 그대로
+    assert len(out["features"]) == C
+    assert [f["feature"] for f in out["features"][:3]] == ["side", "hld", "gap"]
     assert out["features"][1]["attribution"] == -0.3
     assert all(f["name"] == FEATURE_NAMES[f["feature"]] for f in out["features"])
+    # top_k 지정 시 상위만
+    top2 = evidence_summary(attr, t=2, top_k=2)["features"]
+    assert [f["feature"] for f in top2] == ["side", "hld"]
 
 
 def test_evidence_summary_first_trade_has_no_context():

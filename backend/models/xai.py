@@ -16,6 +16,7 @@ captum 없이 직접 구현 — IG는 (입력 − 기준선) × 경로 위 평�
 근사한다.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -27,7 +28,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 from ml import seqfeat
 
-IG_STEPS = 32     # 경로 적분 근사 스텝 (완전성 오차 대비 계산량 절충)
+# 경로 적분 근사 스텝 (완전성 오차 대비 계산량 절충). 서버 CPU가 느려 분석이
+# 오래 걸리면 환경변수로 16까지 낮춰 절반으로 줄일 수 있다(정밀도 소폭 희생).
+IG_STEPS = int(os.environ.get("CANARY_XAI_STEPS", "32"))
 BATCH_CAP = 1024  # 한 순전파에 넣는 (타깃 복사본 × 스텝) 상한 — 메모리 절충
 
 # 시퀀스 채널 순서 = seqfeat.build_sequences의 컬럼 순서 (기본 10 + 결측 마스크 7)
@@ -47,7 +50,7 @@ _BASE_NAMES = {
 }
 # 마스크 채널: 값이 아니라 "그 피처가 관측됐는지"가 모델 입력 — 표시명에 명시
 FEATURE_NAMES = {**_BASE_NAMES,
-                 **{f"m_{f}": f"{_BASE_NAMES[f]}(관측여부)"
+                 **{f"m_{f}": f"{_BASE_NAMES[f]}(관측)"
                     for f in seqfeat.MASKED_FEATURES}}
 
 
@@ -99,17 +102,21 @@ def trade_attributions(model, x: torch.Tensor, length: int,
     return attrs.detach()
 
 
-def evidence_summary(attr_tj: torch.Tensor, t: int, top_k: int = 5) -> dict:
+def evidence_summary(attr_tj: torch.Tensor, t: int,
+                     top_k: int | None = None) -> dict:
     """한 (거래 t, 편향 j) 기여도 [T, C] → 현재 거래/과거 문맥 요약.
 
     반환 (값은 전부 로짓 단위, 부호 유지):
       own_total      거래 t 자신의 전 채널 기여 합
       context_total  t 이전 시점 전체 기여 합
-      features       거래 t 자신의 채널별 기여 중 |기여| 상위 top_k —
+      features       거래 t 자신의 채널별 기여, |기여| 내림차순 —
                      [{"feature": 채널 코드, "name": 표시명, "attribution": 값}]
+                     기본은 전 채널, top_k 지정 시 상위 top_k만
     """
     own = attr_tj[t]                             # [C]
-    order = own.abs().argsort(descending=True)[:top_k]
+    order = own.abs().argsort(descending=True)
+    if top_k is not None:
+        order = order[:top_k]
     return {
         "own_total": round(float(own.sum()), 4),
         "context_total": round(float(attr_tj[:t].sum()), 4),

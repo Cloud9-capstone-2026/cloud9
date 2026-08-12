@@ -134,6 +134,18 @@ def test_ensemble_row_contract():
         "lottery_preference", "herd_sensitivity"}
 
 
+def test_deep_evidence_passthrough():
+    """layer3가 계산한 evidence(판정 근거)는 deep에 그대로 실린다 — 없으면 None."""
+    ev = {"disposition_strength": {
+        "trade_share": 0.62, "context_share": 0.38,
+        "features": [{"feature": "보유기간", "attribution": 0.42}]}}
+    rule = {"is_anomaly": False, "trade_results": [_rule_row(False)]}
+    stat = {"is_anomaly": False, "trade_results": [_stat_row(False)]}
+    e = _build_ensemble(rule, stat, [{**_deep_row(HI), "evidence": ev}])[0]
+    assert e["deep"]["evidence"] == ev
+    assert _one(False, False, HI)["deep"]["evidence"] is None  # 계산 실패 행
+
+
 def test_stat_flag_follows_zscore_definition(standard_trades):
     """stat flag는 zscore의 거래별 is_anomaly(마할라노비스>2.5)를 그대로 따른다."""
     rule = run_rule_based(standard_trades)

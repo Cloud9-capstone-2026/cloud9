@@ -6,16 +6,21 @@ ml/train/train_tagger.py가 저장한 아티팩트(ml/artifacts/tagger.pt, tagge
 ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 것이 sim-to-real 원칙.
 
 출력 (score_account) — 거래 우선(trade-first):
-  per_trade   거래별 판정 리스트(시퀀스 최근 max_len건). 각 항목 =
+  per_trade   거래별 판정 리스트(시퀀스 최근 max_len건 중 채점 가능분). 각 항목 =
               {row(입력 행 위치), bias_scores(편향별 귀속 확률 0~1 — 모델 sigmoid
-               출력 그대로), top_bias, trade_score(=최대 귀속 확률)}.
+               출력 그대로), top_bias, trade_score(=최대 귀속 확률),
+               evidence(편향별 판정 근거 — models.xai IG 분해: 이 거래 자신의
+               값 피처별 기여 전체 + 현재/과거 문맥 기여율. 계산 실패 시 키 부재)}.
               "이 거래는 ~편향 때문일 수도"의 지도학습 직접 추정 — 타깃이 생성기의
               거래별 인과 라벨이므로 1단계의 IG 프록시와 달리 의미가 정의상 일치.
+              시장 맥락이 전무한 거래(시세 조회 실패 등)는 제외 — 사유는
+              score_from_trades 본문 주석 참조.
   lstm_score  per_trade trade_score의 최댓값 (시퀀스 절단 밖 거래의 폴백용 요약)
   bias_mean   편향별 거래 평균 확률 (참고용 — 제품 출력 아님)
 
-실패 정책: 어떤 이유로든(아티팩트 부재·시세 조회 실패·torch 미설치) 채점을 못 하면
-None → 호출부(detect.py)는 2계층 가중으로 폴백.
+실패 정책: 어떤 이유로든(아티팩트 부재·시세 조회 전면 실패·torch 미설치) 채점을
+못 하면 None → 호출부(detect.py)는 2계층 가중으로 폴백. 일부 거래만 시장 맥락이
+없으면 그 거래만 per_trade에서 빠지고(위) 나머지는 정상 채점.
 
 알려진 한계: 유니버스(2020년 201종목) 밖 종목·기간의 LOTT 랭크는 결측(마스크) —
 학습 데이터에도 결측 구간이 있어 모델이 마스크 패턴을 학습한 상태다.
@@ -220,6 +225,43 @@ def _account_metrics(aggregates: pd.DataFrame) -> dict | None:
         return None
 
 
+def _attach_evidence(model, X, L, params, per_trade, positions) -> None:
+    """per_trade 각 항목에 evidence(XAI 근거) 부착 — 실패해도 채점은 유지.
+
+    positions: per_trade 각 항목의 시퀀스 내 위치. 시장 맥락 없는 거래 제외로
+    per_trade 인덱스와 시퀀스 위치가 어긋날 수 있어 명시적으로 받는다.
+
+    편향별 값 = {trade_share·context_share(현재 거래 대 과거 문맥의 기여
+    절댓값 비율 — 합 1), features(값 채널 10개 전부, |기여| 내림차순 —
+    feature는 표시명, attribution은 로짓 단위 부호 유지)}.
+    관측여부 채널은 결측 표현용 내부 구조라 features에서 제외한다 — 그 몫은
+    trade_share/context_share 총량에는 반영되어 있다.
+    """
+    try:
+        from models.xai import evidence_summary, trade_attributions
+
+        attrs = trade_attributions(model, torch.from_numpy(X[0]), L)
+        for entry, t in zip(per_trade, positions):
+            ev = {}
+            for j, p in enumerate(params):
+                s = evidence_summary(attrs[t, j], t)
+                own, ctx = abs(s["own_total"]), abs(s["context_total"])
+                denom = own + ctx
+                ev[p] = {
+                    "trade_share":
+                        round(own / denom, 2) if denom > 1e-9 else None,
+                    "context_share":
+                        round(ctx / denom, 2) if denom > 1e-9 else None,
+                    "features": [
+                        {"feature": f["name"], "attribution": f["attribution"]}
+                        for f in s["features"]
+                        if not f["feature"].startswith("m_")],
+                }
+            entry["evidence"] = ev
+    except Exception as e:  # noqa: BLE001 — 근거는 부가 정보, 채점을 막지 않음
+        logger.warning("XAI 근거 계산 실패 — evidence 없이 진행: %r", e)
+
+
 def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dict | None:
     """합성 스키마 거래(agent_id·종목코드 등 features.REQUIRED_COLUMNS)를 단일
     계좌로 보고 채점. price/index 미지정 시 pykrx에서 조회(테스트에서는 주입)."""
@@ -241,6 +283,18 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
         out = build_features(trades, price_df, index_df, windows=(None,))
         ev = seqfeat.attach_trade_rows(out["events"], trades)
         feat = seqfeat.event_features(ev)
+
+        # 시장 맥락(시세 기반 피처)이 전무한 거래는 채점 대상에서 제외 —
+        # "시세 조회 실패"라는 시스템 사정이 결측 신호로 둔갑해 점수에 스며드는
+        # 것을 차단한다. 이런 결측은 학습 데이터에 없던 원인이라 모델의 해석을
+        # 신뢰할 수 없다. (매수의 보유기간처럼 정의상 없는 구조적 결측은 학습이
+        # 아는 정당한 결측이라 그대로 채점한다.) 제외된 거래는 시퀀스 문맥으로는
+        # 남고, detect.py에서 deep 없이 2계층 판정된다(layers_available=2).
+        no_market = set(
+            feat.loc[feat[["abn", "r1", "r5"]].isna().all(axis=1), "_trade_row"]
+            .astype(int)
+        )
+
         ids, X, lengths, rows = seqfeat.build_sequences(
             feat, meta["norm_stats"], meta["max_len"], return_rows=True
         )
@@ -260,8 +314,11 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
                if "_src_row" in trades.columns else trades.index.to_numpy())
 
         per_trade = []
+        positions = []  # 각 per_trade 항목의 시퀀스 내 위치 (evidence 매칭용)
         for i in range(L):
             r = int(seq_rows[i])
+            if r in no_market:
+                continue
             row = trades.iloc[r]
             scores = {p: round(float(P[i, j]), 4) for j, p in enumerate(params)}
             top = max(scores, key=scores.get)
@@ -275,13 +332,19 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
                 "top_bias_명": BIAS_NAMES.get(top, top),
                 "trade_score": round(max(scores.values()), 4),
             })
+            positions.append(i)
+        if not per_trade:
+            logger.warning("전 거래 시장 맥락 결측 — layer3 스킵 (2계층 폴백)")
+            return None
+
+        _attach_evidence(model, X, L, params, per_trade, positions)
 
         return {
             "per_trade": per_trade,
             "lstm_score": round(max(e["trade_score"] for e in per_trade), 4),
-            "bias_mean": {p: round(float(P[:, j].mean()), 4)
+            "bias_mean": {p: round(float(P[positions, j].mean()), 4)
                           for j, p in enumerate(params)},
-            "n_events": L,
+            "n_events": len(per_trade),
             "account_metrics": _account_metrics(out["aggregates"]),
         }
     except Exception as e:
