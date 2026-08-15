@@ -48,12 +48,16 @@ class MappingError(Exception):
 # ─ LLM 호출부 (테스트에서 대체하는 이음새 · 모델 교체 지점) ─
 
 def _call_llm(prompt: str) -> str:
+    from pathlib import Path
+
     from dotenv import load_dotenv
     from google import genai
 
     # .env 로드는 여기(실호출 시점)에서만 — 모듈 import 시점에 하면 테스트
-    # 수집 단계에서 .env의 DATABASE_URL이 환경에 들어가 테스트 DB 격리가 깨진다
-    load_dotenv()
+    # 수집 단계에서 .env의 DATABASE_URL이 환경에 들어가 테스트 DB 격리가 깨진다.
+    # 경로 명시: .env는 backend/에 있는데 CWD는 실행 방식마다 달라서
+    # (레포 루트 pytest vs backend에서 uvicorn) 기본 탐색에 맡기지 않는다.
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     response = client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
     return response.text

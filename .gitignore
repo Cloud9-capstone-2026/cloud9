@@ -7,6 +7,8 @@ __pycache__/
 # 생성물 / 로컬 DB
 reports/
 *.db
+# 업로드 원본 파일 보관 (upload_store.py — 사용자 데이터, DB 이관 예정)
+backend/uploads/
 
 # synthetic_data pykrx 시세 캐시 (재생성 가능한 파생 데이터)
 synthetic_data/.cache/
