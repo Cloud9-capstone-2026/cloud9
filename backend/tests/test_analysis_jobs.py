@@ -1,13 +1,15 @@
 """
-비동기 전환 검증 — sqlite 인메모리 + TestClient, 외부 네트워크·실분석 0.
+비동기 전환 검증 — sqlite 인메모리 + TestClient, 외부 네트워크·실분석·실LLM 0.
 
-분석 파이프라인은 mock 카운터로 대체 — "몇 번 실행됐는가"를
-명시적으로 센다. TestClient는 BackgroundTasks를 응답 직후 동기로 실행하므로
-업로드 → worker 완주까지 한 요청 안에서 검증.
+분석 파이프라인은 mock 카운터로, CSV 매핑(LLM)은 표준 CSV를 그대로 읽는
+가짜 map_file로 대체. TestClient는 BackgroundTasks를 응답 직후 동기로
+실행하므로 업로드 → worker(매핑 → 거래 저장 → 분석) 완주까지 한 요청 안에서
+검증. 원본 파일 저장 위치는 tmp_path로 격리.
 """
 
 import io
 
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -16,8 +18,8 @@ from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture()
-def app_env(monkeypatch):
-    """인메모리 DB로 앱 구성 + worker 세션·파이프라인을 테스트용으로 주입."""
+def app_env(monkeypatch, tmp_path):
+    """인메모리 DB로 앱 구성 + worker 세션·파이프라인·매핑을 테스트용으로 주입."""
     import database
     from database import Base
 
@@ -31,6 +33,9 @@ def app_env(monkeypatch):
     Base.metadata.create_all(bind=engine)
 
     from pipeline import jobs as jobs_mod
+    from pipeline import upload_store
+
+    monkeypatch.setattr(upload_store, "UPLOAD_DIR", tmp_path / "uploads")
 
     session_count = {"n": 0}
 
@@ -39,6 +44,17 @@ def app_env(monkeypatch):
         return TestSession()
 
     monkeypatch.setattr(jobs_mod, "SessionLocal", counting_session)
+
+    map_calls = []
+
+    def fake_map(raw, filename):
+        """표준 CSV를 그대로 변환 결과로 — 실LLM 없이 매핑 단계 통과."""
+        map_calls.append(filename)
+        df = pd.read_csv(io.BytesIO(raw))
+        df["거래일자"] = pd.to_datetime(df["거래일자"])
+        return df
+
+    monkeypatch.setattr(jobs_mod, "map_file", fake_map)
 
     pipeline_calls = []
 
@@ -61,7 +77,8 @@ def app_env(monkeypatch):
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
     yield {"client": client, "Session": TestSession,
-           "pipeline_calls": pipeline_calls, "session_count": session_count}
+           "pipeline_calls": pipeline_calls, "session_count": session_count,
+           "map_calls": map_calls, "upload_store": upload_store}
     app.dependency_overrides.clear()
 
 
@@ -80,20 +97,81 @@ def _upload(client, body=CSV):
 
 def test_upload_contract_and_worker_completion(app_env):
     """202 + job_id 즉시 반환(status=pending), analysis 필드 없음.
-    TestClient가 백그라운드를 이어 돌리므로 최종적으로 job은 done."""
+    TestClient가 백그라운드를 이어 돌리므로 최종적으로 job은 done이고,
+    거래 저장은 업로드 응답이 아니라 worker(매핑 후)가 수행한다."""
     r = _upload(app_env["client"])
     assert r.status_code == 202
     body = r.json()
     assert set(body) >= {"upload_id", "job_id", "status", "message"}
-    assert body["status"] == "pending"  # 응답 시점 = 분석 시작 전
+    assert body["status"] == "pending"  # 응답 시점 = 매핑·분석 시작 전
     assert "analysis" not in body       # 구 계약 필드 제거
+    assert "건 저장" not in body["message"]  # 건수는 매핑 전이라 알 수 없음
 
-    assert app_env["pipeline_calls"] == [body["upload_id"]]  # 분석 정확히 1회
-    from orm import AnalysisJob
+    assert app_env["map_calls"] == [f"{body['upload_id']}.csv"]  # 매핑 1회
+    assert app_env["pipeline_calls"] == [body["upload_id"]]      # 분석 1회
+    from orm import AnalysisJob, CsvUpload, Trade
     db = app_env["Session"]()
     job = db.query(AnalysisJob).filter(AnalysisJob.id == body["job_id"]).one()
     assert job.status == "done"
     assert job.started_at is not None and job.finished_at is not None
+    assert db.query(Trade).count() == 2  # worker가 매핑 결과를 저장했음
+    up = db.query(CsvUpload).filter(CsvUpload.id == body["upload_id"]).one()
+    assert up.status == "done" and up.row_count == 2
+    db.close()
+
+
+def test_upload_saves_raw_file(app_env):
+    """원본 파일이 디스크에 그대로 남는다 — worker·재시도·실패 조사의 재료."""
+    r = _upload(app_env["client"])
+    uid = r.json()["upload_id"]
+    path = app_env["upload_store"].find_upload(uid)
+    assert path is not None
+    assert path.read_bytes() == CSV.encode("utf-8-sig")
+
+
+def test_upload_rejects_unknown_extension(app_env):
+    r = app_env["client"].post(
+        "/trades/upload",
+        files={"file": ("notes.txt", io.BytesIO(b"hello"), "text/plain")})
+    assert r.status_code == 400
+
+
+def test_mapping_failure_fails_job_without_trades(app_env, monkeypatch):
+    """매핑 실패 → job failed, 거래 미저장(전부 아니면 전무), 원본 파일 존치."""
+    from pipeline import jobs as jobs_mod
+    from pipeline.csv_mapper import MappingError
+
+    def bad_map(raw, filename):
+        raise MappingError("필수 필드 매핑 없음: ['거래일자']")
+
+    monkeypatch.setattr(jobs_mod, "map_file", bad_map)
+    r = _upload(app_env["client"])
+    body = r.json()
+
+    from orm import AnalysisJob, CsvUpload, Trade
+    db = app_env["Session"]()
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == body["job_id"]).one()
+    assert job.status == "failed"
+    assert "필수 필드" in job.error_reason           # 내부 기록
+    assert db.query(Trade).count() == 0              # 아무것도 저장 안 됨
+    up = db.query(CsvUpload).filter(CsvUpload.id == body["upload_id"]).one()
+    assert up.status == "failed"
+    db.close()
+    assert app_env["pipeline_calls"] == []           # 분석까지 안 감
+    assert app_env["upload_store"].find_upload(body["upload_id"]) is not None
+
+
+def test_reupload_skips_duplicate_trades(app_env):
+    """같은 파일 재업로드 — 5컬럼 중복 키로 전 행 스킵, 이중 저장 없음."""
+    from orm import CsvUpload, Trade
+
+    _upload(app_env["client"])
+    r2 = _upload(app_env["client"])
+    db = app_env["Session"]()
+    assert db.query(Trade).count() == 2  # 두 번 올려도 거래는 한 벌
+    up2 = db.query(CsvUpload).filter(
+        CsvUpload.id == r2.json()["upload_id"]).one()
+    assert up2.status == "done" and up2.row_count == 0  # 신규 0건
     db.close()
 
 
@@ -128,6 +206,8 @@ def test_conditional_claim_prevents_double_run(app_env):
     db.add(job)
     db.commit()
     jid = job.id
+    # worker가 읽을 원본 파일도 준비 (라우트를 거치지 않고 job을 만들었으므로)
+    app_env["upload_store"].save_upload(up.id, "x.csv", CSV.encode("utf-8-sig"))
     db.close()
 
     run_analysis_job(jid)                       # 정상 1회 실행 → done
