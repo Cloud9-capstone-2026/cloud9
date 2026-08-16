@@ -178,24 +178,56 @@ def _is_excel(filename: str) -> bool:
     return filename.lower().endswith((".xlsx", ".xls"))
 
 
+def _is_html(raw: bytes) -> bool:
+    """확장자가 아니라 내용으로 판별 — 국내 증권사 '.xls' 내보내기는 실제로는
+    HTML 문서인 경우가 많다(키움 등)."""
+    head = raw[:2000].lstrip()
+    return head[:1].startswith(b"<") or b"<html" in head.lower() or b"<table" in head.lower()
+
+
+def _load_html_grid(raw: bytes) -> pd.DataFrame:
+    """HTML 문서에서 가장 큰 표를 헤더 없는 격자로 추출.
+
+    인코딩은 read_html의 추정에 맡기지 않고 _decode로 직접 판별해 넘긴다
+    (charset 메타 없는 파일에서 한글이 깨지는 실측 문제)."""
+    tables = pd.read_html(io.StringIO(_decode(raw)), header=None)
+    if not tables:
+        raise MappingError("HTML에서 표를 찾지 못함")
+    return max(tables, key=lambda t: t.size).reset_index(drop=True)
+
+
+def _load_grid(raw: bytes, filename: str) -> pd.DataFrame | None:
+    """엑셀·HTML을 헤더 없는 격자로 반환. CSV(텍스트)는 None — 텍스트 경로 사용."""
+    if _is_html(raw):
+        return _load_html_grid(raw)
+    if _is_excel(filename):
+        return pd.read_excel(io.BytesIO(raw), header=None)
+    return None
+
+
 def _read_head(raw: bytes, filename: str) -> str:
     """LLM 패스 1에 보여줄 파일 앞부분 텍스트."""
-    if _is_excel(filename):
-        df = pd.read_excel(io.BytesIO(raw), header=None, nrows=HEAD_LINES)
-        return df.to_csv(index=False, header=False)
+    grid = _load_grid(raw, filename)
+    if grid is not None:
+        return grid.head(HEAD_LINES).to_csv(index=False, header=False)
     lines = _decode(raw).splitlines()[:HEAD_LINES]
     return "\n".join(lines)
 
 
 def _read_table(raw: bytes, filename: str, header_row: int) -> pd.DataFrame:
-    if _is_excel(filename):
-        df = pd.read_excel(io.BytesIO(raw), header=header_row)
+    grid = _load_grid(raw, filename)
+    if grid is not None:
+        # 격자에서 header_row 줄을 컬럼명으로, 그 아래를 데이터로
+        if header_row >= len(grid):
+            raise MappingError(f"header_row({header_row})가 표 범위 밖")
+        df = grid.iloc[header_row + 1:].reset_index(drop=True)
+        df.columns = [str(c).strip() for c in grid.iloc[header_row]]
     else:
         # skip_blank_lines=False: 빈 줄도 줄 번호에 포함시켜, LLM이 본 원문
         # 줄 번호(header_row)와 pandas의 셈이 어긋나지 않게 한다
         df = pd.read_csv(io.StringIO(_decode(raw)), header=header_row,
                          skip_blank_lines=False)
-    df.columns = [str(c).strip() for c in df.columns]
+        df.columns = [str(c).strip() for c in df.columns]
     return df.dropna(how="all").reset_index(drop=True)  # 완전 빈 줄 제거
 
 

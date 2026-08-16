@@ -259,6 +259,41 @@ def test_markdown_fenced_json_accepted(monkeypatch):
     assert len(out) == 2
 
 
+# ─ HTML 위장 엑셀 (키움 등 국내 증권사 .xls 내보내기의 실제 형식) ─
+
+HTML_XLS = """
+<html><body><table>
+<tr><td colspan="4">[키움증권]주식 거래내역</td></tr>
+<tr><td>거래일자</td><td>종목명</td><td>거래구분</td><td>거래수량</td><td>거래단가</td></tr>
+<tr><td>2025.08.20</td><td>삼성전자</td><td>배당금입금</td><td></td><td>0</td></tr>
+<tr><td>2025.09.01</td><td>삼성전자</td><td>매수</td><td>10</td><td>70,000</td></tr>
+<tr><td>2025.09.15</td><td>삼성전자</td><td>매도</td><td>10</td><td>75,000</td></tr>
+</table></body></html>
+""".encode("utf-8")
+
+MAP_HTML = {
+    "header_row": 1,  # 0행은 제목(colspan)
+    "columns": {"거래일자": "거래일자", "종목명": "종목명", "거래구분": "거래구분",
+                "거래수량": "거래수량", "거래단가": "거래단가"},
+    "date_format": "%Y.%m.%d",
+}
+
+
+def test_html_disguised_as_xls(monkeypatch):
+    """확장자는 .xls지만 내용이 HTML인 파일 — 내용 기반 판별로 표 추출."""
+    fake_llm(monkeypatch, [
+        j(MAP_HTML),
+        j({"배당금입금": None, "매수": "매수", "매도": "매도"}),
+    ])
+    out = map_file(HTML_XLS, "거래내역.xls")
+
+    assert len(out) == 2  # 배당 행은 버려짐
+    assert list(out["거래구분"]) == ["매수", "매도"]
+    assert out.loc[0, "거래일자"] == pd.Timestamp("2025-09-01")
+    assert out.loc[1, "거래단가"] == 75000
+    assert out.loc[1, "거래금액"] == 10 * 75000
+
+
 # ─ 엑셀 ─
 
 def test_excel_roundtrip(monkeypatch, tmp_path):

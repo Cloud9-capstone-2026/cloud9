@@ -9,6 +9,9 @@ reports/
 *.db
 # 업로드 원본 파일 보관 (upload_store.py — 사용자 데이터, DB 이관 예정)
 backend/uploads/
+# 실계좌 검증용 증권사 내보내기 파일 — 개인 거래내역, 커밋 금지
+data/*.xls
+data/*.xlsx
 
 # synthetic_data pykrx 시세 캐시 (재생성 가능한 파생 데이터)
 synthetic_data/.cache/
