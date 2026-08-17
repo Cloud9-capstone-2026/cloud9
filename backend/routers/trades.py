@@ -1,3 +1,10 @@
+"""
+[입력검증 보강 — 2026-08-17]
+기존엔 업로드 파일 크기 제한이 전혀 없었음 — 확장자만 확인하고 바로
+전체를 메모리로 읽어들여서(await file.read()), 큰 파일이 오면 서버 메모리를
+과도하게 잡아먹을 수 있었음. MAX_UPLOAD_SIZE로 상한선을 둠(기본 10MB —
+매매내역 CSV는 통상 수백KB~수MB 수준이라 충분히 넉넉함).
+"""
 from pathlib import Path
 
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, HTTPException,
@@ -10,6 +17,8 @@ from pipeline.jobs import run_analysis_job
 from pipeline.upload_store import ALLOWED_EXTS, save_upload
 
 router = APIRouter()
+
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 
 # GET /trades/uploads — 본인 업로드 히스토리만 조회
 @router.get("/uploads")
@@ -42,6 +51,8 @@ async def upload_trades(background_tasks: BackgroundTasks,
     contents = await file.read()
     if not contents:
         raise HTTPException(400, "빈 파일입니다")
+    if len(contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, f"파일이 너무 큽니다 (최대 {MAX_UPLOAD_SIZE // (1024*1024)}MB)")
 
     # 1. csv_uploads INSERT + 원본 파일 보관 (row_count는 매핑 후 worker가 채움)
     csv_upload = CsvUpload(file_name=file.filename, status="pending", user_id=current_user.id)
