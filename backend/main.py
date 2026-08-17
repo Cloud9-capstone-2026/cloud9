@@ -1,15 +1,10 @@
 """
-[/health 엔드포인트 추가 — 2026-08-17]
-단순히 "서버 프로세스가 살아있다"만 확인하면 오늘 겪은 것 같은 상황
-(uvicorn은 떴는데 DB 연결이나 설정 문제로 실제 요청은 다 실패하는 경우)을
-구분 못 함. 그래서 DB 연결까지 실제로 확인하도록 만듦.
-
-- DB 연결 성공: 200 + {"status": "ok", "db": "ok"}
-- DB 연결 실패: 503 + {"status": "degraded", "db": "error"} — 500이 아니라
-  503(Service Unavailable)을 쓰는 이유: 서버 코드 자체는 정상이고 의존
-  서비스(DB)만 문제인 상황이라, 모니터링/헬스체크 도구들이 관례적으로
-  503을 "일시적으로 이용 불가"로 해석하기 때문.
-- 인증 불필요 — 로드밸런서/모니터링이 토큰 없이 주기적으로 찔러보는 용도.
+[레이트리밋 추가 — 2026-08-17]
+/auth/login, /auth/signup이 지금까지 완전히 무방비였음 — 브루트포스
+비밀번호 시도나 스팸 가입을 막을 방법이 없었음. slowapi(IP 기준 카운트)로
+분당 요청 수를 제한. 실제 제한 값은 routers/auth.py에 엔드포인트별로
+붙어있고, 여기서는 앱 전역에 필요한 배선(limiter 등록, 초과 시 429 응답
+핸들러)만 한다.
 """
 from dotenv import load_dotenv
 import sys
@@ -22,8 +17,11 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from database import engine, Base, SessionLocal
+from rate_limit import limiter
 from routers import trades, analysis, jobs, auth
 import uvicorn
 import os
@@ -31,6 +29,9 @@ import os
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Canary API")
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
