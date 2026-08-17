@@ -2,10 +2,18 @@
 POST /auth/signup - 이메일+비밀번호+이름으로 가입
 POST /auth/login   - OAuth2PasswordRequestForm 사용 (username 필드에 이메일을 넣음).
                       이렇게 하면 Swagger UI의 "Authorize" 버튼이 그대로 동작함.
+
+[입력검증 보강 — 2026-08-17]
+기존 SignupRequest는 email 형식만 검증하고 password/name은 아무 문자열이나
+(빈 문자열 포함) 통과시켰다. 최소 길이 제약을 추가:
+- password: 8~72자. 72자 상한은 bcrypt 자체 제약(72바이트 초과 시 내부 에러)에
+  맞춘 것 — 프론트에서 방지 못한 값이 와도 서버가 먼저 400으로 막아줌.
+- name: 1~50자. DB 컬럼(String(50))과 일치시켜, DB 제약 위반으로 인한
+  500 대신 요청 단계에서 422로 명확히 거부되게 함.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from auth import create_access_token, get_password_hash, verify_password
@@ -17,8 +25,8 @@ router = APIRouter()
 
 class SignupRequest(BaseModel):
     email: EmailStr
-    password: str
-    name: str
+    password: str = Field(min_length=8, max_length=72)
+    name: str = Field(min_length=1, max_length=50)
 
 
 class TokenResponse(BaseModel):
