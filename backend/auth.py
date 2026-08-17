@@ -12,6 +12,12 @@ JWT 인증 핵심 로직.
   JWT_SECRET_KEY   - 32바이트 이상 랜덤 문자열. 예: python -c "import secrets; print(secrets.token_hex(32))"
   JWT_EXPIRE_MINUTES - 선택. 기본 10080(7일). 앱 특성상 자동 로그아웃 안 되게 넉넉히 설정.
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo 루트 (config/ 접근용)
+
+from config.settings import get
+
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -33,7 +39,7 @@ if not SECRET_KEY:
         ".env에 JWT_SECRET_KEY=<랜덤문자열>을 추가하세요."
     )
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "10080"))  # 기본 7일
+ACCESS_TOKEN_EXPIRE_MINUTES = int(get("auth.jwt_expire_minutes", 10080, env_override="JWT_EXPIRE_MINUTES"))
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
