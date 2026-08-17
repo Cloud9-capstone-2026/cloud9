@@ -5,6 +5,12 @@
 가짜 map_file로 대체. TestClient는 BackgroundTasks를 응답 직후 동기로
 실행하므로 업로드 → worker(매핑 → 거래 저장 → 분석) 완주까지 한 요청 안에서
 검증. 원본 파일 저장 위치는 tmp_path로 격리.
+
+[JWT 도입 관련 수정 — 2026-08-17]
+get_db와 같은 방식으로 get_current_user도 override한다. 실제 로그인 플로우를
+타지 않고 고정된 가짜 유저(app_env["current_user_id"]로 조작 가능)를 반환 —
+이 파일이 검증하려는 건 업로드→worker 완주, job 소유권 로직이지 인증 로직
+자체가 아니므로 이 방식이 적절함.
 """
 
 import io
@@ -66,6 +72,7 @@ def app_env(monkeypatch, tmp_path):
 
     from main import app
     from database import get_db
+    from auth import get_current_user
 
     def override_get_db():
         db = TestSession()
@@ -74,11 +81,25 @@ def app_env(monkeypatch, tmp_path):
         finally:
             db.close()
 
+    # [JWT 도입] 기본 로그인 유저 id=1. current_user_id["id"]를 바꾸면
+    # 다음 요청부터 다른 유저로 인증된 것처럼 동작 (소유권 테스트용).
+    current_user_id = {"id": 1}
+
+    class _FakeUser:
+        @property
+        def id(self):
+            return current_user_id["id"]
+
+    def override_get_current_user():
+        return _FakeUser()
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
     client = TestClient(app)
     yield {"client": client, "Session": TestSession,
            "pipeline_calls": pipeline_calls, "session_count": session_count,
-           "map_calls": map_calls, "upload_store": upload_store}
+           "map_calls": map_calls, "upload_store": upload_store,
+           "current_user_id": current_user_id}
     app.dependency_overrides.clear()
 
 
@@ -286,7 +307,17 @@ def test_get_job_polling_contract(app_env):
 
 
 def test_get_job_owner_mismatch_404(app_env):
-    """user_id가 설정된 job은 소유자 불일치 시 404 (존재 여부도 숨김)."""
+    """job은 소유자와 다른 로그인 유저로 조회 시 404 (존재 여부도 숨김),
+    본인으로 조회 시 200.
+
+    [JWT 도입 후 수정] 예전엔 ?user_id= 쿼리 파라미터로 신원을 흉내냈지만,
+    이제 신원은 JWT(여기서는 override된 get_current_user)로만 정해진다.
+    그래서 쿼리 파라미터 대신 app_env["current_user_id"]를 바꿔서
+    "다른 사람으로 로그인한 상태"를 흉내낸다. 완전 미인증(토큰 없음) 시
+    401이 나는 것은 get_current_user 자체의 책임이라 override로 대체된
+    이 테스트 스위트에서는 검증하지 않는다 — auth.py 자체 유닛테스트에서
+    다뤄야 할 영역.
+    """
     from orm import AnalysisJob, CsvUpload, User
 
     db = app_env["Session"]()
@@ -303,6 +334,9 @@ def test_get_job_owner_mismatch_404(app_env):
     db.close()
 
     c = app_env["client"]
-    assert c.get(f"/jobs/{jid}").status_code == 404                    # 미인증
-    assert c.get(f"/jobs/{jid}?user_id={oid + 1}").status_code == 404  # 타인
-    assert c.get(f"/jobs/{jid}?user_id={oid}").status_code == 200      # 본인
+
+    app_env["current_user_id"]["id"] = oid + 1
+    assert c.get(f"/jobs/{jid}").status_code == 404  # 타인으로 로그인 → 존재 숨김
+
+    app_env["current_user_id"]["id"] = oid
+    assert c.get(f"/jobs/{jid}").status_code == 200  # 본인으로 로그인 → 정상 조회

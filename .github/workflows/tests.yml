@@ -25,4 +25,8 @@ jobs:
         run: pip install -r requirements.lock
 
       - name: 빠른 층 테스트
+        env:
+          # JWT 인증 도입 후 auth.py가 모듈 로드 시점에 이 값을 요구함.
+          # 실제 배포 시크릿과 무관한 테스트 전용 값 — CI에서만 쓰임.
+          JWT_SECRET_KEY: test-only-secret-not-used-in-production-ci
         run: pytest -q
