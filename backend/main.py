@@ -1,4 +1,9 @@
 from dotenv import load_dotenv
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config.settings import get
 load_dotenv()
 
 from fastapi import FastAPI
@@ -29,5 +34,5 @@ def root():
     return {"message": "Canary API 작동 중"}
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
+    port = int(get("app.port", 8080, env_override="PORT"))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
