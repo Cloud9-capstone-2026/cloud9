@@ -1,12 +1,12 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
-from routers import trades, analysis, jobs
+from routers import trades, analysis, jobs, auth
 import uvicorn
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 Base.metadata.create_all(bind=engine)
 
@@ -19,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(trades.router, prefix="/trades", tags=["trades"])
 app.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
 app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])

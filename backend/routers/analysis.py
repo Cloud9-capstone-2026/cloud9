@@ -1,8 +1,22 @@
+"""
+routers/analysis.py 전체 교체본.
+
+변경 사항:
+- GET /analysis: JWT 인증 추가, 본인 결과만 필터링 (trades.py와 동일 패턴).
+- POST /analysis: 실제 운영 흐름에서는 안 쓰임을 확인함 —
+  pipeline/detect.py가 백그라운드 job 안에서 AnalysisResult를 직접 저장하고,
+  이 엔드포인트를 HTTP로 호출하는 코드는 어디에도 없음 (C파트 로직이
+  routers를 거치지 않고 파이프라인에 완전히 통합돼 있음).
+  삭제 대신 일단 남겨두되 "테스트/디버그 전용"이라고 명시하고 JWT는 걸지 않음
+  (운영 트래픽에 안 쓰이므로 인증 우선순위 낮음). 필요 없다고 판단되면
+  다음 정리 때 완전히 삭제해도 무방.
+"""
 import re
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from auth import get_current_user
 from database import get_db
-from orm import AnalysisResult
+from orm import AnalysisResult, User
 
 router = APIRouter()
 
@@ -14,7 +28,10 @@ def _parse_user_id(raw) -> int | None:
     return int(match.group(1)) if match else None
 
 
-# POST /analysis — C파트 분석 결과 받아서 거래별 1행씩 저장
+# POST /analysis — [테스트/디버그 전용] 운영 흐름에서는 미사용.
+# pipeline/detect.py가 백그라운드 job 안에서 AnalysisResult를 직접 저장하므로
+# 이 엔드포인트를 거칠 필요가 없음. Swagger/Postman으로 임의 데이터 저장해
+# 프론트/DB 확인용으로 쓸 때만 사용.
 @router.post("/")
 def save_analysis(data: dict, db: Session = Depends(get_db)):
     user_id = _parse_user_id(data.get("user_id"))
@@ -42,10 +59,16 @@ def save_analysis(data: dict, db: Session = Depends(get_db)):
         )
         db.add(row)
     db.commit()
-    return {"message": "분석 결과 저장 완료", "saved_count": len(ensemble)}
+    return {"message": "분석 결과 저장 완료 (테스트용 엔드포인트)", "saved_count": len(ensemble)}
 
-# GET /analysis — A파트에 분석 결과 전달
+
+# GET /analysis — 본인 분석 결과만 조회 (프론트 리포트 화면이 실제로 쓰는 엔드포인트)
 @router.get("/")
-def get_analysis(db: Session = Depends(get_db)):
-    results = db.query(AnalysisResult).all()
+def get_analysis(db: Session = Depends(get_db),
+                  current_user: User = Depends(get_current_user)):
+    results = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.user_id == current_user.id)
+        .all()
+    )
     return results

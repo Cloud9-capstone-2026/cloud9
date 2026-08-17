@@ -1,5 +1,7 @@
 ﻿# requirements.lock - pip freeze 스냅샷 (2026-07-30, 단계 1a; 2026-08-05 pytest,
-# 2026-08-15 openpyxl(엑셀 업로드 — backend/requirements.txt에는 있었으나 누락) 추가)
+# 2026-08-15 openpyxl(엑셀 업로드 — backend/requirements.txt에는 있었으나 누락) 추가,
+# 2026-08-17 JWT 인증 패키지 추가: bcrypt, dnspython, ecdsa, email-validator,
+# passlib, python-jose, rsa)
 # Python 3.12.7 / 단일 venv - backend + ml + synthetic_data 공용
 # 재현: pip install -r requirements.lock  (아래 index 지시문 포함 — 단독 설치 가능)
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -8,6 +10,7 @@ annotated-types==0.7.0
 anthropic==0.103.1
 anyio==4.13.0
 attrs==26.1.0
+bcrypt==4.0.1
 cattrs==26.1.0
 certifi==2026.2.25
 cffi==2.0.0
@@ -19,8 +22,11 @@ cryptography==48.0.0
 cycler==0.12.1
 Deprecated==1.3.1
 distro==1.9.0
+dnspython==2.8.0
 docstring_parser==0.18.0
 dotenv==0.9.9
+ecdsa==0.19.2
+email-validator==2.3.0
 et-xmlfile==2.0.0
 fastapi==0.135.3
 filelock==3.29.0
@@ -53,6 +59,7 @@ numpy==2.4.4
 openpyxl==3.1.5
 packaging==26.0
 pandas==2.3.3
+passlib==1.7.4
 pillow==12.2.0
 platformdirs==4.9.6
 pluggy==1.6.0
@@ -72,10 +79,12 @@ pypdf==6.14.2
 pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
+python-jose==3.5.0
 python-multipart==0.0.29
 pytz==2026.2
 PyYAML==6.0.3
 requests==2.33.1
+rsa==4.9.1
 scikit-learn==1.9.0
 scipy==1.17.1
 setuptools==82.0.1

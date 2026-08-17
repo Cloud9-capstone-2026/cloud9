@@ -5,9 +5,11 @@ from database import Base
 class User(Base):
     __tablename__ = "users"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    name       = Column(String(50), nullable=False)
-    created_at = Column(TIMESTAMP, server_default=func.now())
+    id              = Column(Integer, primary_key=True, index=True)
+    name            = Column(String(50), nullable=False)
+    email           = Column(String(255), unique=True, nullable=True)   # 추가
+    hashed_password = Column(String(255), nullable=True)                 # 추가
+    created_at      = Column(TIMESTAMP, server_default=func.now())
 
 class CsvUpload(Base):
     __tablename__ = "csv_uploads"
