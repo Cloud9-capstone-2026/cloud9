@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, BigInteger, Float, Boolean, JSON, TIMESTAMP, ForeignKey
+from sqlalchemy import Column, Integer, String, Date, BigInteger, Float, Boolean, JSON, TIMESTAMP, ForeignKey, UniqueConstraint
 from sqlalchemy.sql import func
 from database import Base
 
@@ -9,7 +9,16 @@ class User(Base):
     name            = Column(String(50), nullable=False)
     email           = Column(String(255), unique=True, nullable=True)   # 추가
     hashed_password = Column(String(255), nullable=True)                 # 추가
+    # 소셜로그인/이메일인증 대비 (2026-08-18, 옵션A: 컬럼 확장 방식).
+    # provider: 'local' | 'google' | 'kakao' | 'naver'. 계정당 로그인수단 1개 고정.
+    provider        = Column(String(20), nullable=True)
+    provider_id     = Column(String(255), nullable=True)
+    email_verified  = Column(Boolean, nullable=False, default=False)
     created_at      = Column(TIMESTAMP, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint('provider', 'provider_id', name='uq_users_provider_provider_id'),
+    )
 
 class CsvUpload(Base):
     __tablename__ = "csv_uploads"

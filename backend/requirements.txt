@@ -19,3 +19,7 @@ bcrypt==4.0.1
 email-validator
 PyYAML
 slowapi
+# 소셜로그인(2026-08-18) — 둘 다 requirements.lock에 이미 존재(다른 파트
+# 의존성으로 유입됨)하지만 backend가 직접 import하므로 명시적으로 추가.
+google-auth
+httpx

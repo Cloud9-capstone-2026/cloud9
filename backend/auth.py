@@ -63,6 +63,34 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+# --- 이메일 인증 토큰 (2026-08-18) -----------------------------------------
+# access_token과 같은 SECRET_KEY로 서명하지만 용도가 다르므로 반드시
+# "purpose" claim으로 구분한다. 이게 없으면 로그인 access_token을 이메일
+# 인증 링크에 재사용하거나, 반대로 인증 토큰으로 API 인증을 시도하는
+# 토큰 혼동(token confusion) 공격이 가능해진다.
+EMAIL_VERIFY_EXPIRE_MINUTES = 60 * 24  # 24시간 — 인증 메일은 access_token보다 짧게
+
+
+def create_email_verification_token(email: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=EMAIL_VERIFY_EXPIRE_MINUTES)
+    to_encode = {"sub": email, "purpose": "email_verify", "exp": expire}
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_email_verification_token(token: str) -> str:
+    """유효하면 검증 대상 email을 반환. 아니면 400을 던진다."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 인증 링크입니다")
+    if payload.get("purpose") != "email_verify":
+        raise HTTPException(status_code=400, detail="유효하지 않은 토큰입니다")
+    email = payload.get("sub")
+    if not email:
+        raise HTTPException(status_code=400, detail="유효하지 않은 토큰입니다")
+    return email
+
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),

@@ -1,5 +1,5 @@
 """
-인증·API 소유권 파트 최소 테스트.
+B파트(인증·API 소유권) 최소 테스트.
 
 기존 test_analysis_jobs.py는 get_current_user를 가짜 유저로 override해서
 job 소유권 로직만 검증하고, "auth.py 자체는 별도 유닛테스트 영역"이라고
@@ -90,6 +90,26 @@ def test_signup_duplicate_email_rejected(client):
     _signup(client, email="dup@test.com")
     r2 = _signup(client, email="dup@test.com")
     assert r2.status_code == 400
+
+
+def test_signup_sets_local_provider_and_unverified_email(client):
+    """소셜로그인 스키마(2026-08-18, 옵션A) 도입 후 회원가입 계약 고정.
+
+    이메일/비번 가입은 provider='local'로 명시 기록되고, email_verified는
+    아직 이메일 인증 발송 플로우가 없으므로 기본값 False로 남아야 한다.
+    """
+    from orm import User
+
+    _signup(client, email="localprovider@test.com")
+
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "localprovider@test.com").one()
+    assert user.provider == "local"
+    assert user.provider_id is None
+    assert user.email_verified is False
+    db.close()
 
 
 def test_signup_password_too_short_rejected(client):
@@ -241,3 +261,141 @@ def test_health_endpoint_reports_ok(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# 이메일 인증 (2026-08-18)
+# ---------------------------------------------------------------------------
+
+def test_signup_sends_verification_email(client, monkeypatch):
+    """가입 시 send_verification_email이 정확히 1회, 본인 이메일로 호출되는지."""
+    sent = []
+    import routers.auth as auth_router_mod
+    monkeypatch.setattr(
+        auth_router_mod, "send_verification_email",
+        lambda to_email, token: sent.append((to_email, token)),
+    )
+    _signup(client, email="verifyme@test.com")
+    assert len(sent) == 1
+    assert sent[0][0] == "verifyme@test.com"
+
+
+def test_verify_email_with_valid_token_marks_verified(client):
+    from auth import create_email_verification_token
+    from orm import User
+
+    _signup(client, email="tobeverified@test.com")
+
+    token = create_email_verification_token("tobeverified@test.com")
+    r = client.post("/auth/verify-email", json={"token": token})
+    assert r.status_code == 200
+
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "tobeverified@test.com").one()
+    assert user.email_verified is True
+    db.close()
+
+
+def test_verify_email_rejects_access_token_reuse(client):
+    """로그인용 access_token을 인증 토큰으로 재사용 못 하게 막는지 (토큰 혼동 방지)."""
+    token = _signup(client, email="confusion@test.com").json()["access_token"]
+    r = client.post("/auth/verify-email", json={"token": token})
+    assert r.status_code == 400
+
+
+def test_verify_email_rejects_garbage_token(client):
+    r = client.post("/auth/verify-email", json={"token": "not-a-real-token"})
+    assert r.status_code == 400
+
+
+def test_resend_verification_does_not_leak_account_existence(client, monkeypatch):
+    """존재하지 않는 이메일이든 이미 인증된 이메일이든 응답 메시지가 동일해야 함."""
+    sent = []
+    import routers.auth as auth_router_mod
+    monkeypatch.setattr(
+        auth_router_mod, "send_verification_email",
+        lambda to_email, token: sent.append(to_email),
+    )
+    _signup(client, email="resendme@test.com")
+    sent.clear()  # 가입 시 자동 발송된 것은 이 검증 대상이 아니므로 리셋
+
+    r_unknown = client.post("/auth/verify-email/resend", json={"email": "ghost2@test.com"})
+    assert r_unknown.status_code == 200
+    assert sent == []  # 존재하지 않으니 발송 안 됨
+
+    r_known = client.post("/auth/verify-email/resend", json={"email": "resendme@test.com"})
+    assert sent == ["resendme@test.com"]  # 존재+미인증이니 실제로는 발송됨
+    assert r_known.json() == r_unknown.json()  # 그런데도 응답 형태로는 존재 여부 유추 불가
+
+
+# ---------------------------------------------------------------------------
+# 소셜로그인 (2026-08-18) — 아직 provider 앱 등록 전이라 verifier를 mock으로 대체
+# ---------------------------------------------------------------------------
+
+def test_social_login_creates_new_user(client, monkeypatch):
+    from social_auth import VERIFIERS
+
+    monkeypatch.setitem(VERIFIERS, "google", lambda token: {
+        "provider_id": "google-uid-123",
+        "email": "social1@test.com",
+        "name": "소셜유저",
+        "email_verified": True,
+    })
+
+    r = client.post("/auth/social/google", json={"token": "fake-id-token"})
+    assert r.status_code == 200
+    assert r.json()["token_type"] == "bearer"
+
+    from orm import User
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.provider_id == "google-uid-123").one()
+    assert user.provider == "google"
+    assert user.email == "social1@test.com"
+    assert user.email_verified is True
+    db.close()
+
+
+def test_social_login_existing_user_logs_in_without_duplicate(client, monkeypatch):
+    from social_auth import VERIFIERS
+
+    fake_verify = lambda token: {
+        "provider_id": "naver-uid-999", "email": "social2@test.com",
+        "name": "네이버유저", "email_verified": True,
+    }
+    monkeypatch.setitem(VERIFIERS, "naver", fake_verify)
+
+    r1 = client.post("/auth/social/naver", json={"token": "t1"})
+    r2 = client.post("/auth/social/naver", json={"token": "t2"})  # 매번 새 토큰이어도 동일 유저
+    assert r1.status_code == 200 and r2.status_code == 200
+
+    from orm import User
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    count = db.query(User).filter(User.provider_id == "naver-uid-999").count()
+    assert count == 1  # 중복 계정 생성 안 됨
+    db.close()
+
+
+def test_social_login_rejects_email_already_used_by_local_account(client, monkeypatch):
+    """계정당 로그인수단 1개 고정(옵션A) — 이미 로컬로 가입된 이메일과
+    같은 이메일로 소셜로그인 시도하면 자동 연동하지 않고 409로 거부."""
+    from social_auth import VERIFIERS
+
+    _signup(client, email="alreadylocal@test.com")
+
+    monkeypatch.setitem(VERIFIERS, "naver", lambda token: {
+        "provider_id": "naver-uid-1", "email": "alreadylocal@test.com",
+        "name": "네이버유저", "email_verified": True,
+    })
+    r = client.post("/auth/social/naver", json={"token": "t"})
+    assert r.status_code == 409
+
+
+def test_social_login_unknown_provider_rejected(client):
+    r = client.post("/auth/social/facebook", json={"token": "t"})
+    assert r.status_code == 400
