@@ -19,7 +19,14 @@ bcrypt==4.0.1
 email-validator
 PyYAML
 slowapi
-# 소셜로그인(2026-08-18) — 둘 다 requirements.lock에 이미 존재(다른 파트
-# 의존성으로 유입됨)하지만 backend가 직접 import하므로 명시적으로 추가.
+# 소셜로그인(2026-08-18) — 아래 3개 모두 requirements.lock에 이미 존재
+# (다른 파트 의존성으로 유입됨)하지만 backend가 직접/간접 import하므로
+# 명시적으로 추가. requests는 google-auth 내부(google.auth.transport.requests)가
+# 요구하는 숨은 의존성 — httpx만으로는 대체 안 됨(google-auth 라이브러리
+# 자체가 requests를 직접 import하는 구조라서). requirements.lock만 쓰던
+# 로컬/CI 환경에서는 다른 패키지가 requests를 끌고 와서 문제가 안 드러났다가,
+# EC2 배포(deploy.yml이 backend/requirements.txt로만 설치)에서
+# ModuleNotFoundError로 처음 드러남 (2026-08-18).
 google-auth
 httpx
+requests
