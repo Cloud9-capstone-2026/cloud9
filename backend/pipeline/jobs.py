@@ -108,6 +108,56 @@ def _mark_upload_failed(db, upload_id: int) -> None:
         db.rollback()
 
 
+def recover_stale_jobs() -> int:
+    """서버 기동 시 1회(main.py) — 이전 프로세스가 남긴 미완료 job 정리.
+
+    분석은 웹서버 프로세스 안(BackgroundTasks)에서 돌므로 재시작하면 실행
+    중이던 작업(running)도, 대기열에 있던 작업(pending — 대기열 자체가 죽은
+    프로세스 메모리)도 함께 증발한다. 그런데 DB 상태는 남아서 폴링이 영영
+    done/failed 신호를 못 받는다. 기동 직후에는 실제로 도는 분석이 있을 수
+    없으므로(요청받기 전 + 분석은 이 프로세스에서만) 남은 running·pending은
+    전부 고아 — failed로 정리해 사용자가 재업로드하게 한다.
+
+    이때 그 업로드가 만들다 만 중간 산출물(저장된 거래·분석 결과)도 함께
+    지운다 — "전부 아니면 전무"를 재시작 실패에도 적용. 남겨두면 재업로드가
+    전 행을 중복으로 걸러 신규 0건이 되고, 저장만 되고 판정은 영영 없는
+    거래가 생긴다. 지우면 죽은 시점과 무관하게 재업로드가 깨끗한 첫
+    업로드처럼 저장→분석 전 과정을 다시 돈다. 원본 파일은 디스크에 남아
+    재업로드·원인 조사가 가능하다.
+
+    정리 실패가 서버 기동을 막으면 안 되므로 전체를 예외로 감싼다."""
+    try:
+        db = SessionLocal()
+        try:
+            stale = (db.query(AnalysisJob)
+                       .filter(AnalysisJob.status.in_(["running", "pending"]))
+                       .all())
+            for job in stale:
+                job.status = "failed"
+                job.error_reason = "서버 재시작으로 중단됨"  # 내부 기록만
+                job.finished_at = datetime.now()
+                db.query(Trade).filter(
+                    Trade.upload_id == job.upload_id
+                ).delete(synchronize_session=False)
+                db.query(AnalysisResult).filter(
+                    AnalysisResult.upload_id == job.upload_id
+                ).delete(synchronize_session=False)
+                upload = db.query(CsvUpload).filter(
+                    CsvUpload.id == job.upload_id).first()
+                if upload:
+                    upload.status = "failed"
+                    upload.row_count = None  # 지웠으므로 건수도 무효
+            db.commit()
+            if stale:
+                logger.warning("재시작으로 중단된 job %d건 실패 처리", len(stale))
+            return len(stale)
+        finally:
+            db.close()
+    except Exception as e:  # noqa: BLE001 — 정리 실패해도 기동은 계속
+        logger.warning("stale job 정리 실패 — 기동 계속: %r", e)
+        return 0
+
+
 def run_analysis_job(job_id: int) -> None:
     db = SessionLocal()
     try:
