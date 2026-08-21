@@ -183,9 +183,17 @@ def run_pipeline_from_db(
     """
     parsed_uid = _parse_user_id(user_id)
 
-    # ─ Phase 1: 읽기 (이번 업로드 + 이전 업로드 전체를 baseline으로)
+    # ─ Phase 1: 읽기 (이번 업로드 + 같은 사용자의 이전 업로드를 baseline으로)
     trades = db.query(Trade).filter(Trade.upload_id == upload_id).all()
-    prev_trades = db.query(Trade).filter(Trade.upload_id < upload_id).all()
+    # 이전 거래는 이 업로드 주인의 것만 — 남의 거래가 신규 추출 기준·2계층
+    # baseline·3계층 시퀀스 문맥에 섞이지 않게 (저장 쪽 _store_trades의 사용자
+    # 범위 중복 체크와 대칭). 주인 없는 레거시 행(user_id NULL)은 NULL끼리
+    # 매칭해 단일 사용자 시절 동작 유지.
+    owner_id = trades[0].user_id if trades else None
+    owner_filter = (Trade.user_id == owner_id) if owner_id is not None \
+        else Trade.user_id.is_(None)
+    prev_trades = db.query(Trade).filter(
+        Trade.upload_id < upload_id, owner_filter).all()
     db.commit()  # 읽기 트랜잭션 닫기 — 분석 동안 idle in transaction 회피
 
     base_payload = {"user_id": user_id, "upload_id": upload_id}

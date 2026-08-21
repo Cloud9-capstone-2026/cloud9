@@ -209,6 +209,59 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert r.upload_id == 1
 
 
+def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
+                                                  standard_trades):
+    """분석 기준선(이전 거래)은 업로드 주인 것만 본다.
+
+    사용자 A가 올린 것과 동일한 거래를 사용자 B가 올려도 B에게는 전부
+    신규여야 한다 — 스코핑이 없으면 타인 거래에 걸려 신규 0건이 된다
+    (저장 쪽 사용자 범위 중복 체크와 대칭인, 읽기 쪽 회귀 감시).
+    같은 사용자의 재업로드 중복 스킵은 그대로 유지되는지도 함께 확인."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import orm
+    from database import Base
+    from pipeline import detect
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine)()
+
+    def add_upload(upload_id, user_id):
+        db.add(orm.CsvUpload(id=upload_id, file_name=f"{upload_id}.csv",
+                             user_id=user_id))
+        for _, r in standard_trades.iterrows():
+            db.add(orm.Trade(
+                upload_id=upload_id, user_id=user_id,
+                거래일자=r["날짜"].date(), 종목명=r["종목명"],
+                거래구분=r["매매구분"], 거래수량=int(r["체결수량"]),
+                거래단가=int(r["체결단가"]), 거래금액=int(r["총거래금액"]),
+                수수료=0, 거래세=0, 정산금액=int(r["총거래금액"]),
+            ))
+        db.commit()
+
+    add_upload(1, user_id=1)  # 사용자 A
+    add_upload(2, user_id=2)  # 사용자 B — A와 완전히 동일한 거래
+
+    monkeypatch.setattr(detect, "layer3_score", None)  # 신규 추출만 검증
+    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
+
+    out_b = detect.run_pipeline_from_db(db, upload_id=2, Trade=orm.Trade,
+                                        AnalysisResult=orm.AnalysisResult,
+                                        user_id="user_002")
+    assert out_b["new_trades_count"] == len(standard_trades)  # 전부 B의 신규
+
+    add_upload(3, user_id=1)  # 사용자 A가 같은 내용을 재업로드
+    out_a = detect.run_pipeline_from_db(db, upload_id=3, Trade=orm.Trade,
+                                        AnalysisResult=orm.AnalysisResult,
+                                        user_id="user_001")
+    assert out_a["new_trades_count"] == 0  # 본인 이력에는 걸림 — 중복 스킵 유지
+    db.close()
+
+
 def test_stat_flag_follows_zscore_definition(standard_trades):
     """stat flag는 zscore의 거래별 is_anomaly(마할라노비스>2.5)를 그대로 따른다."""
     rule = run_rule_based(standard_trades)
