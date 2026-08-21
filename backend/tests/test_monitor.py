@@ -113,6 +113,17 @@ def test_all_inside_not_excluded(fake_ref):
     assert check_distribution(INSIDE)["deep_excluded"] is False
 
 
+@pytest.mark.parametrize("bad", ["", "abc", "0", "-1"])
+def test_trigger_invalid_env_falls_back_to_default(fake_ref, monkeypatch, bad):
+    """설정 실수(빈 값·비숫자·0 이하)는 기본 기준 2로 폴백 — 분석이 예외로
+    죽거나 이탈 없이 전 계좌가 제외되는 일이 없어야 한다."""
+    metrics = {**INSIDE, "turnover_annual": 2000.0}  # 이탈 1개
+    monkeypatch.setenv("CANARY_DIST_TRIGGER", bad)
+    out = check_distribution(metrics)
+    assert out["status"] == "out_of_range"
+    assert out["deep_excluded"] is False  # 기본 2 기준 — 1개로는 미발동
+
+
 def test_trigger_threshold_env_override(fake_ref, monkeypatch):
     """CANARY_DIST_TRIGGER로 발동 기준 조정 — 재시작만으로 튜닝 가능해야 한다."""
     metrics = {**INSIDE, "turnover_annual": 2000.0}  # 이탈 1개

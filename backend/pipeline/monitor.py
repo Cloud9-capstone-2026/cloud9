@@ -43,6 +43,10 @@ _ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifact
 def _load_ref() -> dict | None:
     path = _ART_DIR / "distribution_ref.json"
     if not path.exists():
+        # 조용히 unavailable로 가면 딥러닝 제외 게이트가 우회돼도 아무도 모른다
+        # — 서버 점검 때 보이도록 흔적을 남긴다.
+        logger.warning("distribution_ref.json 없음(%s) — 분포 점검 unavailable, "
+                       "학습 범위 밖 계좌 제외가 작동하지 않음", _ART_DIR)
         return None
     try:
         with open(path, encoding="utf-8") as fp:
@@ -50,6 +54,21 @@ def _load_ref() -> dict | None:
     except Exception as e:  # noqa: BLE001 — 손상 파일은 부재와 동일 취급
         logger.warning("distribution_ref.json 손상 — 분포 점검 생략: %r", e)
         return None
+
+
+def _trigger_threshold() -> int:
+    """발동 기준(이탈 지표 최소 개수) — 호출 시점에 환경변수를 읽어 재시작만으로
+    조정 가능. 양의 정수만 허용: 빈 값·비숫자는 분석 전체를 죽이고 0 이하는
+    이탈이 없어도 전 계좌를 제외하게 되므로, 무효 값은 경고 후 기본값 2."""
+    raw = os.environ.get("CANARY_DIST_TRIGGER", "2")
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 0
+    if n < 1:
+        logger.warning("CANARY_DIST_TRIGGER 값 무효(%r) — 기본값 2 사용", raw)
+        return 2
+    return n
 
 
 def check_distribution(account_metrics: dict | None) -> dict:
@@ -75,8 +94,7 @@ def check_distribution(account_metrics: dict | None) -> dict:
             out_of_range[name] = {
                 "value": round(float(value), 6), "ref_p1": p1, "ref_p99": p99}
 
-    # 발동 기준은 호출 시점에 읽음 — 서버 재시작만으로 조정 가능
-    n_trigger = int(os.environ.get("CANARY_DIST_TRIGGER", "2"))
+    n_trigger = _trigger_threshold()
     return {
         "status": "out_of_range" if out_of_range else "ok",
         "checked": checked,

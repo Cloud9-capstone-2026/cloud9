@@ -463,6 +463,14 @@ def account_metrics(standard_df: pd.DataFrame, user_id: str = "user",
     채점을 아예 생략할 수 있게 한다(분포 점검 v2). 변환·피처 계산을 채점
     경로(_to_synthetic → _prepare_features)와 공유하므로 산식이 어긋날 수 없다.
     실패는 None — pipeline.monitor가 unavailable로 처리."""
+    # 분포 기준(distribution_ref.json)은 모델과 같은 릴리스 번들로 내려오는데,
+    # 점검이 채점보다 먼저 돌므로 확보를 여기서 시도해 둔다 — 새 서버의 첫
+    # 분석부터 기준 파일이 준비되게. 실패(태그 미설정 등)해도 지표 산출은
+    # 계속한다: 모델 없는 2계층 모드 서버는 정상 운영 상태다.
+    try:
+        _ensure_artifacts()
+    except Exception:  # noqa: BLE001
+        pass
     try:
         trades = _to_synthetic(standard_df, user_id)
         if trades is None:
