@@ -312,6 +312,11 @@ def run_pipeline_from_db(
                 "top_bias_명": deep.get("top_bias_명"),
                 "bias_scores": deep.get("bias_scores"),  # 편향 4종 점수 (0~1)
                 "evidence": deep.get("evidence"),        # 편향별 판정 근거(XAI)
+                # 분포 점검 발동 여부 — true면 이 계좌는 학습 범위 밖이라
+                # 딥러닝 판정이 제외된 것(deep 계열 전부 null). 프론트가 주의
+                # 문구를 띄우는 유일한 신호라 행마다 싣는다(계좌 단위 값이지만
+                # GET /analysis/가 행 단위 계약이라 여기에 넣어야 전달된다).
+                "deep_excluded": dist_check["deep_excluded"],
             },
         ))
     db.commit()

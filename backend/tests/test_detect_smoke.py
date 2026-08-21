@@ -207,6 +207,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert set(x["bias_scores"]) == {"disposition_strength", "overconfidence",
                                          "lottery_preference", "herd_sensitivity"}
         assert x["evidence"] == EVID
+        assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
         assert r.lstm_score == 0.9
         assert r.upload_id == 1
 
@@ -314,7 +315,10 @@ def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
     for e in result["detection_result"]["ensemble"]:
         assert e["deep"] is None            # 거래별 딥러닝 판정 없음
         assert e["layers_available"] == 2   # 규칙+통계만
-    assert all(r.lstm_score is None for r in db.query(orm.AnalysisResult).all())
+    for r in db.query(orm.AnalysisResult).all():
+        assert r.lstm_score is None
+        # 프론트가 주의 문구를 띄울 유일한 신호 — 행마다 저장돼야 한다
+        assert r.xai_result["deep_excluded"] is True
     db.close()
 
 
