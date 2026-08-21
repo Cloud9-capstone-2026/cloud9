@@ -86,6 +86,25 @@ def test_account_metrics_standalone_matches_scoring_path(
     assert metrics == scored["account_metrics"]
 
 
+def test_account_metrics_attempts_artifact_fetch(no_network_layer3, monkeypatch,
+                                                 standard_trades):
+    """지표 산출이 기준 파일 확보(_ensure_artifacts)를 먼저 시도한다 — 분포
+    기준이 모델과 같은 릴리스 번들로 오는데 점검이 채점보다 먼저 돌므로,
+    새 서버의 첫 분석부터 게이트가 작동하는 조건. 확보 실패는 산출을 안 막는다."""
+    from models import layer3
+
+    calls = []
+
+    def failing_ensure():
+        calls.append(1)
+        raise RuntimeError("태그 미설정")
+
+    monkeypatch.setattr(layer3, "_ensure_artifacts", failing_ensure)
+    m = layer3.account_metrics(standard_trades, user_id="tester")
+    assert calls                                      # 확보를 시도했고
+    assert m is not None and m["n_trades"] == len(standard_trades)  # 실패해도 산출
+
+
 def test_account_metrics_needs_no_model(no_network_layer3, monkeypatch,
                                         standard_trades):
     """account_metrics는 모델 아티팩트 없이 동작 — 모델 미설정 서버에서도
