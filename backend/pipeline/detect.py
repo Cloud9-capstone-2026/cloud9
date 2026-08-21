@@ -36,9 +36,11 @@ from models.zscore import run_zscore
 from pipeline.monitor import check_distribution
 
 try:  # 3계층 — 의존성(torch)·아티팩트가 없으면 2계층으로 폴백
+    from models.layer3 import account_metrics as layer3_metrics
     from models.layer3 import score_account as layer3_score
 except Exception:  # noqa: BLE001
     layer3_score = None
+    layer3_metrics = None
 
 # backend/pipeline/detect.py → backend/
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -202,7 +204,8 @@ def run_pipeline_from_db(
         result = {**base_payload, "new_trades_count": 0,
                   "account_verdict": "정상",
                   "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
-                  "distribution_check": {"status": "unavailable"},
+                  "distribution_check": {"status": "unavailable",
+                                         "deep_excluded": False},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
         result["saved_path"] = save_detection_result(user_id, result)
         return result
@@ -216,7 +219,8 @@ def run_pipeline_from_db(
         result = {**base_payload, "new_trades_count": 0,
                   "account_verdict": "정상",
                   "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
-                  "distribution_check": {"status": "unavailable"},
+                  "distribution_check": {"status": "unavailable",
+                                         "deep_excluded": False},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
         result["saved_path"] = save_detection_result(user_id, result)
         return result
@@ -226,11 +230,20 @@ def run_pipeline_from_db(
 
     # 3계층: 전체 이력(이전 + 이번 업로드) 시퀀스로 채점 후 거래별 매칭.
     # full_history 행 위치 = len(baseline) + std_df 내 위치 → per_trade["row"]와 대응.
+    #
+    # 채점(XAI 포함, 분 단위)에 앞서 계좌 지표만 먼저 계산(수 초, 모델 불필요)해
+    # 학습 분포와 대조한다(분포 점검 v2). 발동(deep_excluded)이면 채점을 아예
+    # 생략 — 학습 범위 밖 계좌의 딥러닝 판정은 외삽이라 내보내지 않기로 한 회의
+    # 결정이고, 버릴 결과에 XAI 비용을 쓰지 않는 효과도 있다. 이때 거래별 deep는
+    # 전부 null(기존 2계층 폴백 규약 그대로 — 프론트는 문구 처리 완비).
     layer3_result = None
     lstm_rows = None
+    dist_check = {"status": "unavailable", "deep_excluded": False}
     if layer3_score is not None:
         full_history = pd.concat([baseline, std_df], ignore_index=True)
-        layer3_result = layer3_score(full_history, user_id=user_id)
+        dist_check = check_distribution(layer3_metrics(full_history, user_id=user_id))
+        if not dist_check["deep_excluded"]:
+            layer3_result = layer3_score(full_history, user_id=user_id)
     if layer3_result:
         by_row = {e["row"]: e for e in layer3_result.get("per_trade", [])}
         lstm_rows = []
@@ -260,10 +273,10 @@ def run_pipeline_from_db(
         "new_trades_count": len(new_trades),
         "account_verdict": account_verdict,
         "verdict_counts": counts,
-        # 학습 분포 대비 이탈 점검(v1 — 플래그만, 판정 불변). out_of_range면
-        # 이 계좌의 딥러닝 판정은 학습 범위 밖 외삽이라 신뢰도 주의.
-        "distribution_check": check_distribution(
-            (layer3_result or {}).get("account_metrics")),
+        # 학습 분포 대비 이탈 점검(v2). deep_excluded=True면 위에서 3계층을
+        # 생략했으므로 거래별 deep는 전부 null — 프론트는 이 플래그만 보고
+        # 주의 문구를 띄우면 된다(상세 out_of_range는 내부 진단·튜닝용).
+        "distribution_check": dist_check,
         "detection_result": {
             "rule": rule_result,
             "stat": stat_result,
@@ -299,6 +312,11 @@ def run_pipeline_from_db(
                 "top_bias_명": deep.get("top_bias_명"),
                 "bias_scores": deep.get("bias_scores"),  # 편향 4종 점수 (0~1)
                 "evidence": deep.get("evidence"),        # 편향별 판정 근거(XAI)
+                # 분포 점검 발동 여부 — true면 이 계좌는 학습 범위 밖이라
+                # 딥러닝 판정이 제외된 것(deep 계열 전부 null). 프론트가 주의
+                # 문구를 띄우는 유일한 신호라 행마다 싣는다(계좌 단위 값이지만
+                # GET /analysis/가 행 단위 계약이라 여기에 넣어야 전달된다).
+                "deep_excluded": dist_check["deep_excluded"],
             },
         ))
     db.commit()

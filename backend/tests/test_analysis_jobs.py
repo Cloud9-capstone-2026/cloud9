@@ -261,6 +261,58 @@ def test_invalid_transition_rejected(app_env):
     db.close()
 
 
+def test_recover_stale_jobs_cleans_orphans(app_env):
+    """서버 재시작 시나리오 — 기동 정리(recover_stale_jobs)가 running·pending
+    잔존 job을 failed로 바꾸고, 그 업로드가 만들다 만 산출물(거래·분석 결과)을
+    지워 재업로드가 첫 업로드처럼 돌게 한다. done 업로드는 전부 불변."""
+    from datetime import date
+
+    from pipeline.jobs import recover_stale_jobs
+    from orm import AnalysisJob, AnalysisResult, CsvUpload, Trade
+
+    def _trade(uid):
+        return Trade(upload_id=uid, 거래일자=date(2020, 6, 1), 종목명="테스트A",
+                     거래구분="매수", 거래수량=1, 거래단가=100, 거래금액=100,
+                     수수료=0, 거래세=0, 정산금액=100)
+
+    db = app_env["Session"]()
+    ids = {}
+    for status in ("running", "pending", "done"):
+        up = CsvUpload(file_name=f"{status}.csv", row_count=1)
+        db.add(up)
+        db.flush()
+        db.add(AnalysisJob(upload_id=up.id, status=status))
+        # 저장까지 진행된 흔적 — running은 지워져야, done은 남아야 한다
+        db.add(_trade(up.id))
+        db.add(AnalysisResult(upload_id=up.id, xai_result={}))
+        db.commit()
+        ids[status] = up.id
+    db.close()
+
+    assert recover_stale_jobs() == 2  # running + pending만
+
+    db = app_env["Session"]()
+    for status in ("running", "pending"):
+        uid = ids[status]
+        job = db.query(AnalysisJob).filter(AnalysisJob.upload_id == uid).one()
+        assert job.status == "failed"
+        assert "재시작" in job.error_reason      # 내부 기록
+        assert job.finished_at is not None
+        up = db.query(CsvUpload).filter(CsvUpload.id == uid).one()
+        assert up.status == "failed"
+        assert up.row_count is None              # 산출물 제거로 건수 무효
+        assert db.query(Trade).filter(Trade.upload_id == uid).count() == 0
+        assert db.query(AnalysisResult).filter(
+            AnalysisResult.upload_id == uid).count() == 0
+    done_uid = ids["done"]
+    assert db.query(AnalysisJob).filter(
+        AnalysisJob.upload_id == done_uid).one().status == "done"
+    assert db.query(Trade).filter(Trade.upload_id == done_uid).count() == 1
+    assert db.query(AnalysisResult).filter(
+        AnalysisResult.upload_id == done_uid).count() == 1
+    db.close()
+
+
 def test_worker_uses_own_session(app_env):
     """worker는 요청 세션이 아니라 SessionLocal로 자체 세션을 연다."""
     before = app_env["session_count"]["n"]

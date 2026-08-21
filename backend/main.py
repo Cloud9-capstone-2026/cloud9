@@ -28,6 +28,11 @@ import os
 
 Base.metadata.create_all(bind=engine)
 
+# 이전 프로세스가 남긴 미완료 분석 job 정리 — 재시작으로 끊긴 작업이 running/
+# pending으로 남으면 폴링이 영영 완료 신호를 못 받는다. (pipeline/jobs.py 참조)
+from pipeline.jobs import recover_stale_jobs
+recover_stale_jobs()
+
 app = FastAPI(title="Canary API")
 
 app.state.limiter = limiter
