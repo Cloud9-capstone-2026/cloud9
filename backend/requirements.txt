@@ -7,6 +7,9 @@ python-multipart
 python-dotenv
 scipy
 openpyxl
+# CSV 업로드 자동 매핑(단계 5) — LLM 호출 + HTML 위장 .xls(키움 등) 파싱
+google-genai
+lxml
 # 3계층 GRU 추론용 torch — CPU 휠 강제 (아래 extra-index-url을 pip이 requirements
 # 안에서 직접 읽으므로 Railway 등 자동 빌드에서도 CUDA 포함 기본 휠(수 GB) 대신
 # CPU 휠이 설치된다. 로컬 수동 설치도 pip install -r 로 동일.)
