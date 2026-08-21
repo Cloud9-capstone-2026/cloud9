@@ -191,6 +191,8 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         }
 
     monkeypatch.setattr(detect, "layer3_score", fake_layer3)
+    # 지표 계산은 실코드가 시세 조회를 타므로 차단 — 점검 unavailable 경로로
+    monkeypatch.setattr(detect, "layer3_metrics", lambda df, user_id="u": None)
     monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)  # 리포트 파일은 임시로
 
     detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
@@ -259,6 +261,84 @@ def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
                                         AnalysisResult=orm.AnalysisResult,
                                         user_id="user_001")
     assert out_a["new_trades_count"] == 0  # 본인 이력에는 걸림 — 중복 스킵 유지
+    db.close()
+
+
+def _pipeline_env(monkeypatch, tmp_path, standard_trades):
+    """sqlite + 단일 사용자 업로드 1건 — 분포 점검 v2 배선 테스트 공용 준비."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import orm
+    from database import Base
+    from pipeline import detect
+
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    db = sessionmaker(bind=engine)()
+    db.add(orm.CsvUpload(id=1, file_name="t.csv", user_id=1))
+    for _, r in standard_trades.iterrows():
+        db.add(orm.Trade(
+            upload_id=1, user_id=1, 거래일자=r["날짜"].date(), 종목명=r["종목명"],
+            거래구분=r["매매구분"], 거래수량=int(r["체결수량"]),
+            거래단가=int(r["체결단가"]), 거래금액=int(r["총거래금액"]),
+            수수료=0, 거래세=0, 정산금액=int(r["총거래금액"]),
+        ))
+    db.commit()
+    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
+    return db, orm, detect
+
+
+def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
+                                                 standard_trades):
+    """분포 점검 발동(deep_excluded) 계좌 — 3계층 채점(XAI 포함)이 호출조차
+    되지 않고, 전 거래가 2계층 판정(deep null), 플래그가 응답·DB에 실린다."""
+    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+
+    monkeypatch.setattr(detect, "layer3_metrics",
+                        lambda df, user_id="u": {"turnover_annual": 99999.0})
+    monkeypatch.setattr(detect, "check_distribution", lambda m: {
+        "status": "out_of_range", "deep_excluded": True,
+        "out_of_range": {"turnover_annual": {"value": 99999.0}}})
+
+    def never_called(*a, **k):
+        raise AssertionError("발동 계좌에서 3계층 채점이 호출되면 안 됨")
+    monkeypatch.setattr(detect, "layer3_score", never_called)
+
+    result = detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                         AnalysisResult=orm.AnalysisResult,
+                                         user_id="user_001")
+    assert result["distribution_check"]["deep_excluded"] is True
+    for e in result["detection_result"]["ensemble"]:
+        assert e["deep"] is None            # 거래별 딥러닝 판정 없음
+        assert e["layers_available"] == 2   # 규칙+통계만
+    assert all(r.lstm_score is None for r in db.query(orm.AnalysisResult).all())
+    db.close()
+
+
+def test_distribution_ok_proceeds_to_deep(monkeypatch, tmp_path, standard_trades):
+    """미발동 계좌 — 3계층 채점이 정확히 1회 호출된다 (게이트 통과 회귀)."""
+    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+
+    monkeypatch.setattr(detect, "layer3_metrics",
+                        lambda df, user_id="u": {"n_trades": 8.0})
+    monkeypatch.setattr(detect, "check_distribution", lambda m: {
+        "status": "ok", "deep_excluded": False, "out_of_range": {}})
+
+    calls = []
+
+    def spy_score(df, user_id="u"):
+        calls.append(len(df))
+        return None  # 채점 실패 폴백 경로 — 여기서는 호출 여부만 검증
+
+    monkeypatch.setattr(detect, "layer3_score", spy_score)
+    result = detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                         AnalysisResult=orm.AnalysisResult,
+                                         user_id="user_001")
+    assert calls == [len(standard_trades)]  # 전체 이력으로 1회 채점
+    assert result["distribution_check"]["deep_excluded"] is False
     db.close()
 
 

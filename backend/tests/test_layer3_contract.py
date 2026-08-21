@@ -75,6 +75,31 @@ def test_account_metrics_for_distribution_check(fake_layer3, synthetic_trades,
     assert m["holding_days_mean"] is None or m["holding_days_mean"] > 0
 
 
+def test_account_metrics_standalone_matches_scoring_path(
+        fake_layer3, no_network_layer3, standard_trades):
+    """분포 점검 v2 — 채점 전에 지표만 뽑는 account_metrics()가 채점 경로의
+    account_metrics와 완전히 일치해야 한다. 같은 변환·피처 코드를 공유하므로
+    산식이 갈라지면 여기서 걸린다."""
+    scored = fake_layer3.score_account(standard_trades, user_id="tester")
+    metrics = fake_layer3.account_metrics(standard_trades, user_id="tester")
+    assert scored is not None and metrics is not None
+    assert metrics == scored["account_metrics"]
+
+
+def test_account_metrics_needs_no_model(no_network_layer3, monkeypatch,
+                                        standard_trades):
+    """account_metrics는 모델 아티팩트 없이 동작 — 모델 미설정 서버에서도
+    분포 점검(v2 발동 판단)이 가능해야 한다."""
+    from models import layer3
+
+    def no_model():
+        raise AssertionError("account_metrics가 모델을 로드하면 안 됨")
+
+    monkeypatch.setattr(layer3, "_load_artifacts", no_model)
+    m = layer3.account_metrics(standard_trades, user_id="tester")
+    assert m is not None and m["n_trades"] == len(standard_trades)
+
+
 def test_per_trade_evidence_contract(fake_layer3, synthetic_trades,
                                      price_df, index_df):
     """XAI 근거(evidence) 계약 — 편향 4종 각각 기여율 분해 + 피처별 기여.

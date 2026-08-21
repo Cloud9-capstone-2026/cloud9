@@ -1,9 +1,11 @@
 """
-분포 점검 v1 검증 — 가짜 기준 분포 주입, 파일·네트워크·모델 비의존.
+분포 점검 v2 검증 — 가짜 기준 분포 주입, 파일·네트워크·모델 비의존.
 
 계약: check_distribution(account_metrics) →
-  {"status": ok|out_of_range|unavailable, "checked": [...], "out_of_range": {...}}
+  {"status": ok|out_of_range|unavailable, "checked": [...], "out_of_range": {...},
+   "deep_excluded": bool}
 [p1, p99] 밖 지표만 이탈로 기록, None 지표는 점검 제외, 재료 없으면 unavailable.
+deep_excluded = 이탈 지표 수 >= CANARY_DIST_TRIGGER(기본 2) — 항상 존재.
 """
 
 import json
@@ -71,17 +73,51 @@ def test_none_metric_skipped_not_flagged(fake_ref):
     assert "holding_days_mean" not in out["checked"]
 
 
+UNAVAILABLE = {"status": "unavailable", "deep_excluded": False}
+
+
 def test_no_metrics_is_unavailable(fake_ref):
-    assert check_distribution(None) == {"status": "unavailable"}
-    assert check_distribution({}) == {"status": "unavailable"}
+    assert check_distribution(None) == UNAVAILABLE
+    assert check_distribution({}) == UNAVAILABLE
 
 
 def test_missing_ref_is_unavailable(tmp_path, monkeypatch):
     monkeypatch.setattr(monitor, "_ART_DIR", tmp_path)  # 빈 디렉터리
-    assert check_distribution(INSIDE) == {"status": "unavailable"}
+    assert check_distribution(INSIDE) == UNAVAILABLE
 
 
 def test_corrupted_ref_is_unavailable(tmp_path, monkeypatch):
     (tmp_path / "distribution_ref.json").write_text("{부서짐", encoding="utf-8")
     monkeypatch.setattr(monitor, "_ART_DIR", tmp_path)
-    assert check_distribution(INSIDE) == {"status": "unavailable"}
+    assert check_distribution(INSIDE) == UNAVAILABLE
+
+
+# ─ v2: 발동(deep_excluded) 판정 ─
+
+def test_one_metric_out_does_not_exclude(fake_ref):
+    """이탈 1개는 기록만 — 발동 아님 (기본 기준 2개)."""
+    out = check_distribution({**INSIDE, "turnover_annual": 2000.0})
+    assert out["status"] == "out_of_range"
+    assert out["deep_excluded"] is False
+
+
+def test_two_metrics_out_excludes_deep(fake_ref):
+    """이탈 2개부터 발동 — 3계층 판정 제외 신호."""
+    out = check_distribution({**INSIDE, "turnover_annual": 2000.0,
+                              "holding_days_mean": 400.0})
+    assert out["status"] == "out_of_range"
+    assert out["deep_excluded"] is True
+
+
+def test_all_inside_not_excluded(fake_ref):
+    assert check_distribution(INSIDE)["deep_excluded"] is False
+
+
+def test_trigger_threshold_env_override(fake_ref, monkeypatch):
+    """CANARY_DIST_TRIGGER로 발동 기준 조정 — 재시작만으로 튜닝 가능해야 한다."""
+    metrics = {**INSIDE, "turnover_annual": 2000.0}  # 이탈 1개
+    monkeypatch.setenv("CANARY_DIST_TRIGGER", "1")
+    assert check_distribution(metrics)["deep_excluded"] is True
+    monkeypatch.setenv("CANARY_DIST_TRIGGER", "3")
+    assert check_distribution({**metrics, "holding_days_mean": 400.0}
+                              )["deep_excluded"] is False

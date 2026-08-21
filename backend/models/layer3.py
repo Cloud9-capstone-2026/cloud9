@@ -303,25 +303,32 @@ def _attach_evidence(model, M, W, params, per_trade, positions) -> None:
         logger.warning("XAI 근거 계산 실패 — evidence 없이 진행: %r", e)
 
 
+def _prepare_features(trades: pd.DataFrame, price_df=None, index_df=None):
+    """합성 스키마 거래 → 피처 테이블(build_features 출력)까지의 준비 단계.
+
+    채점(score_from_trades)과 지표 산출(account_metrics)이 공유 — 계좌 지표의
+    산식이 채점 경로와 어긋날 수 없게 한 곳으로 모은다. 시세 미지정 시 조회."""
+    from synthetic_data.features import build_features
+
+    trades = trades.reset_index(drop=True).copy()
+    trades["거래일자"] = pd.to_datetime(trades["거래일자"]).dt.date
+    if price_df is None:
+        real = sorted({t for t in trades["종목코드"].unique()
+                       if not str(t).startswith("NM_")})
+        price_df = _fetch_price_df(
+            real, trades["거래일자"].min(), trades["거래일자"].max()
+        )
+    if index_df is None:
+        index_df = _fetch_index_df(price_df)
+    return trades, build_features(trades, price_df, index_df, windows=(None,))
+
+
 def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dict | None:
     """합성 스키마 거래(agent_id·종목코드 등 features.REQUIRED_COLUMNS)를 단일
     계좌로 보고 채점. price/index 미지정 시 pykrx에서 조회(테스트에서는 주입)."""
     try:
-        from synthetic_data.features import build_features
-
         model, meta = _load_artifacts()
-        trades = trades.reset_index(drop=True).copy()
-        trades["거래일자"] = pd.to_datetime(trades["거래일자"]).dt.date
-        if price_df is None:
-            real = sorted({t for t in trades["종목코드"].unique()
-                           if not str(t).startswith("NM_")})
-            price_df = _fetch_price_df(
-                real, trades["거래일자"].min(), trades["거래일자"].max()
-            )
-        if index_df is None:
-            index_df = _fetch_index_df(price_df)
-
-        out = build_features(trades, price_df, index_df, windows=(None,))
+        trades, out = _prepare_features(trades, price_df, index_df)
         ev = seqfeat.attach_trade_rows(out["events"], trades)
         feat = seqfeat.event_features(ev)
 
@@ -393,49 +400,75 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
         return None
 
 
-def score_account(standard_df: pd.DataFrame, user_id: str = "user") -> dict | None:
-    """백엔드 표준 컬럼(날짜·종목명·매매구분·체결수량·체결단가·총거래금액) 입력.
+def _to_synthetic(standard_df: pd.DataFrame, user_id: str = "user") -> pd.DataFrame | None:
+    """백엔드 표준 컬럼(날짜·종목명·매매구분·체결수량·체결단가·총거래금액) →
+    합성 스키마 변환. score_account와 account_metrics가 공유.
 
-    종목명 → 종목코드 매핑(feature_eng.get_ticker_code) 후 합성 스키마로 변환해
-    score_from_trades에 위임. 매핑 실패 종목은 가짜 코드("NM_종목명")로 남겨
-    포지션 추적은 유지하되 시장 컨텍스트만 결측(마스크) 처리되게 한다.
+    종목명 → 종목코드 매핑(feature_eng.get_ticker_code) — 매핑 실패 종목은
+    가짜 코드("NM_종목명")로 남겨 포지션 추적은 유지하되 시장 컨텍스트만
+    결측(마스크) 처리되게 한다. 유효 행이 없으면 None."""
+    from pipeline.feature_eng import get_ticker_code
+
+    df = standard_df.reset_index(drop=True).copy()
+    name_map = {}
+    for name in df["종목명"].dropna().unique():
+        try:
+            code = get_ticker_code(str(name))
+        except Exception:
+            code = None
+        name_map[name] = code if code else f"NM_{name}"
+
+    qty = pd.to_numeric(df["체결수량"], errors="coerce")
+    price = pd.to_numeric(df["체결단가"], errors="coerce")
+    if "총거래금액" in df.columns:
+        value = pd.to_numeric(df["총거래금액"], errors="coerce")
+    else:  # 컬럼 자체가 없는 CSV — 수량×단가로 재구성
+        value = pd.Series(np.nan, index=df.index)
+    trades = pd.DataFrame({
+        "거래일자": pd.to_datetime(df["날짜"]).dt.date,
+        "agent_id": str(user_id),
+        "종목코드": df["종목명"].map(name_map),
+        "거래구분": np.where(
+            df["매매구분"].astype(str).str.contains("매수"), "매수", "매도"
+        ),
+        "거래수량": qty,
+        "거래단가": price,
+        "거래금액": value.fillna(qty * price),
+    })
+    trades["_src_row"] = df.index  # 표준 입력의 행 위치 (per_trade 매칭용)
+    trades = trades.dropna(subset=["거래수량", "거래단가"])
+    return None if trades.empty else trades
+
+
+def score_account(standard_df: pd.DataFrame, user_id: str = "user") -> dict | None:
+    """백엔드 표준 컬럼 입력 → 합성 스키마 변환 후 score_from_trades에 위임.
 
     반환의 per_trade[i]["row"]는 standard_df의 행 위치(0-base, 원래 순서 기준)
     — 호출부(detect.py)가 거래별 점수를 자기 행에 매칭할 때 쓴다."""
     try:
-        from pipeline.feature_eng import get_ticker_code
-
-        df = standard_df.reset_index(drop=True).copy()
-        name_map = {}
-        for name in df["종목명"].dropna().unique():
-            try:
-                code = get_ticker_code(str(name))
-            except Exception:
-                code = None
-            name_map[name] = code if code else f"NM_{name}"
-
-        qty = pd.to_numeric(df["체결수량"], errors="coerce")
-        price = pd.to_numeric(df["체결단가"], errors="coerce")
-        if "총거래금액" in df.columns:
-            value = pd.to_numeric(df["총거래금액"], errors="coerce")
-        else:  # 컬럼 자체가 없는 CSV — 수량×단가로 재구성
-            value = pd.Series(np.nan, index=df.index)
-        trades = pd.DataFrame({
-            "거래일자": pd.to_datetime(df["날짜"]).dt.date,
-            "agent_id": str(user_id),
-            "종목코드": df["종목명"].map(name_map),
-            "거래구분": np.where(
-                df["매매구분"].astype(str).str.contains("매수"), "매수", "매도"
-            ),
-            "거래수량": qty,
-            "거래단가": price,
-            "거래금액": value.fillna(qty * price),
-        })
-        trades["_src_row"] = df.index  # 표준 입력의 행 위치 (per_trade 매칭용)
-        trades = trades.dropna(subset=["거래수량", "거래단가"])
-        if trades.empty:
+        trades = _to_synthetic(standard_df, user_id)
+        if trades is None:
             return None
         return score_from_trades(trades)
     except Exception as e:
         logger.warning("layer3 입력 변환 실패 — 2계층 폴백: %r", e)
+        return None
+
+
+def account_metrics(standard_df: pd.DataFrame, user_id: str = "user",
+                    price_df=None, index_df=None) -> dict | None:
+    """분포 점검용 계좌 지표만 산출 — 채점보다 훨씬 싸고 모델 아티팩트 불필요.
+
+    detect.py가 3계층 채점(XAI 포함, 분 단위) 전에 호출해, 학습 분포 밖 계좌는
+    채점을 아예 생략할 수 있게 한다(분포 점검 v2). 변환·피처 계산을 채점
+    경로(_to_synthetic → _prepare_features)와 공유하므로 산식이 어긋날 수 없다.
+    실패는 None — pipeline.monitor가 unavailable로 처리."""
+    try:
+        trades = _to_synthetic(standard_df, user_id)
+        if trades is None:
+            return None
+        _, out = _prepare_features(trades, price_df, index_df)
+        return _account_metrics(out["aggregates"])
+    except Exception as e:
+        logger.warning("계좌 지표 산출 실패 — 분포 점검 생략: %r", e)
         return None
