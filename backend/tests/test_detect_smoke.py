@@ -346,6 +346,29 @@ def test_distribution_ok_proceeds_to_deep(monkeypatch, tmp_path, standard_trades
     db.close()
 
 
+def test_pipeline_applies_user_ruleset(monkeypatch, tmp_path, standard_trades):
+    """사용자 등록 규칙이 파이프라인 끝까지 흐른다 — ensemble의
+    triggered_rules와 DB 저장(xai_result)에 사용자 규칙명이 실린다."""
+    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+    monkeypatch.setattr(detect, "layer3_score", None)  # 3계층 무관
+    # 사용자가 "1회 매수금액 상한 1원"을 등록한 상황 — 모든 매수가 걸린다
+    monkeypatch.setattr(detect, "load_ruleset",
+                        lambda db_, uid: [("single_buy_cap", 1)])
+
+    result = detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                         AnalysisResult=orm.AnalysisResult,
+                                         user_id="user_001")
+    ens = result["detection_result"]["ensemble"]
+    buys = [e for e in ens if "매수금액_상한" in e["rule"]["triggered_rules"]]
+    assert buys  # 매수 거래들이 사용자 규칙에 걸림
+    for e in ens:
+        assert "일중_반복매매" not in e["rule"]["triggered_rules"]  # 기본 조합 미사용
+    stored = [r.xai_result["triggered_rules"]
+              for r in db.query(orm.AnalysisResult).all()]
+    assert any("매수금액_상한" in t for t in stored)  # 프론트 경로까지 도달
+    db.close()
+
+
 def test_stat_flag_follows_zscore_definition(standard_trades):
     """stat flag는 zscore의 거래별 is_anomaly(마할라노비스>2.5)를 그대로 따른다."""
     rule = run_rule_based(standard_trades)

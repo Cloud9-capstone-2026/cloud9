@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
 from pipeline.monitor import check_distribution
+from pipeline.user_rules import load_ruleset
 
 try:  # 3계층 — 의존성(torch)·아티팩트가 없으면 2계층으로 폴백
     from models.layer3 import account_metrics as layer3_metrics
@@ -196,6 +197,9 @@ def run_pipeline_from_db(
         else Trade.user_id.is_(None)
     prev_trades = db.query(Trade).filter(
         Trade.upload_id < upload_id, owner_filter).all()
+    # 사용자 등록 규칙 조합(미설정이면 기본 조합) — 분석 시점에 읽으므로
+    # 규칙 수정은 다음 업로드 분석부터 적용된다(소급 없음).
+    ruleset = load_ruleset(db, parsed_uid)
     db.commit()  # 읽기 트랜잭션 닫기 — 분석 동안 idle in transaction 회피
 
     base_payload = {"user_id": user_id, "upload_id": upload_id}
@@ -225,11 +229,18 @@ def run_pipeline_from_db(
         result["saved_path"] = save_detection_result(user_id, result)
         return result
 
-    rule_result = run_rule_based(new_trades)
+    # 전체 이력(이전 + 이번) — 1계층 규칙과 3계층이 문맥으로 공유.
+    # full_history 행 위치 = len(baseline) + std_df 내 위치.
+    full_history = pd.concat([baseline, std_df], ignore_index=True)
+
+    # 1계층: 전체 이력을 문맥으로 신규 거래만 판정 — 손실 후 재진입처럼
+    # 과거 업로드의 거래가 문맥인 템플릿 때문(기존 2종은 하루 안 판정이라
+    # 신규만으로 충분했음). 판정 대상 범위는 신규 거래 그대로.
+    rule_positions = [len(baseline) + int(p) for p in new_pos]
+    rule_result = run_rule_based(full_history, rule_positions, ruleset)
     stat_result = run_zscore(new_trades, baseline)
 
-    # 3계층: 전체 이력(이전 + 이번 업로드) 시퀀스로 채점 후 거래별 매칭.
-    # full_history 행 위치 = len(baseline) + std_df 내 위치 → per_trade["row"]와 대응.
+    # 3계층: 전체 이력 시퀀스로 채점 후 거래별 매칭 (per_trade["row"] 대응).
     #
     # 채점(XAI 포함, 분 단위)에 앞서 계좌 지표만 먼저 계산(수 초, 모델 불필요)해
     # 학습 분포와 대조한다(분포 점검 v2). 발동(deep_excluded)이면 채점을 아예
@@ -240,7 +251,6 @@ def run_pipeline_from_db(
     lstm_rows = None
     dist_check = {"status": "unavailable", "deep_excluded": False}
     if layer3_score is not None:
-        full_history = pd.concat([baseline, std_df], ignore_index=True)
         dist_check = check_distribution(layer3_metrics(full_history, user_id=user_id))
         if not dist_check["deep_excluded"]:
             layer3_result = layer3_score(full_history, user_id=user_id)
