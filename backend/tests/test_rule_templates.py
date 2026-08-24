@@ -160,6 +160,53 @@ def test_daily_total_cap_uses_총거래금액_when_present():
     assert _run("daily_total_cap", df, param=5_000_000).all()
 
 
+# ─ run_rule_based: 이력 문맥 + 사용자 조합 실행 ─
+
+def test_run_rule_based_cross_upload_context():
+    """손실 매도는 과거 업로드, 재매수는 신규 — 이력 문맥으로 잡히고
+    반환은 신규 거래 수만큼만."""
+    from models.rule_based import run_rule_based
+
+    full = _df([
+        ("2020-06-01", "A", "매수", 10, 1000),   # ← 과거 업로드
+        ("2020-06-02", "A", "매도", 10, 900),    # ← 과거 업로드 (손실)
+        ("2020-06-04", "A", "매수", 5, 950),     # ← 신규 (재진입 2일째)
+    ])
+    out = run_rule_based(full, new_positions=[2],
+                         ruleset=[("reentry_after_loss", 5)])
+    assert len(out["trade_results"]) == 1              # 신규만 반환
+    assert out["trade_results"][0]["triggered_rules"] == ["손실후_재진입"]
+    assert out["is_anomaly"] is True
+
+
+def test_run_rule_based_combined_score():
+    """2중 위반 시 결합식 1−(1−0.7)² = 0.91 유지."""
+    from models.rule_based import run_rule_based
+
+    full = _df([
+        ("2020-06-01", "A", "매수", 10, 1000),
+        ("2020-06-01", "A", "매도", 10, 990),    # 당일 왕복 + 최소보유 위반
+    ])
+    out = run_rule_based(full, ruleset=[("same_day_roundtrip", None),
+                                        ("min_holding", 3)])
+    sell = out["trade_results"][1]
+    assert sorted(sell["triggered_rules"]) == ["당일_왕복매매", "최소_보유기간"]
+    assert sell["rule_score"] == 0.91
+
+
+def test_run_rule_based_empty_ruleset_no_flags():
+    """전부 꺼둔 사용자 — 위반 없음, 점수 전부 0."""
+    from models.rule_based import run_rule_based
+
+    full = _df([
+        ("2020-06-01", "A", "매수", 10, 1000),
+        ("2020-06-01", "A", "매도", 10, 990),
+    ])
+    out = run_rule_based(full, ruleset=[])
+    assert out["is_anomaly"] is False
+    assert all(t["rule_score"] == 0.0 for t in out["trade_results"])
+
+
 # ─ 레지스트리 계약 ─
 
 def test_default_ruleset_is_v1():

@@ -1,37 +1,36 @@
 """
 rule_based/__init__.py
-Rule-based 탐지 — 거래별 점수 산출 (1계층 v1: 2026-07-25 동결)
+1계층 — 사용자 정의 규칙 템플릿 조합으로 거래별 판정.
 
-규칙 셋 v1 (전부 표준 컬럼만으로 계산 — 포지션 재생 불필요):
-  R1 일중_반복매매  같은 종목 하루 4회 이상 매매 (rules/daily_frequency)
-  R2 당일_왕복매매  동일 종목 같은 날 매수+매도   (rules/same_day_roundtrip)
-손익 기반 규칙(손실 직후 재진입·물타기 반복)은 포지션 재생 인프라 필요 → v2 이월.
+정체성: "사용자가 스스로 정한(동의한) 절제 규칙 위반". 템플릿 정의와 기본
+조합은 templates.py(레지스트리), 사용자별 조합 로드는 pipeline.user_rules.
 
-점수화: rule_score = 1 − Π(1 − wᵢ)  (위반한 규칙들의 가중 결합)
-  - 규칙이 추가돼도 [0,1] 유지 — 앙상블 스케일 불변
-  - wᵢ = 규칙별 심각도의 제품 판단값(유형 C — 데이터 캘리브레이션 대상 아님:
-    bright line 임계값을 데이터로 정하면 2계층과 역할이 겹침)
-  - v1: w=0.7 공통 → 1개 위반 0.7, 2개 위반 0.91
+판정 구도(3계층과 동일): 전체 이력을 문맥으로 계산하되 결과는 신규 거래만
+반환 — 손실 후 재진입처럼 과거 업로드의 거래가 문맥인 템플릿 때문. 판정
+대상 범위는 신규 거래 그대로라 소급 재판정은 없다.
 
-★ 앙상블 가중치·임계값 캘리브레이션은 이 정의 동결 위에서 수행 —
-  규칙 추가·변경 시 재캘리브레이션 필요 (PROCESS.md 2026-07-25).
+점수화: rule_score = 1 − Π(1 − w), w=0.7 공통(v1 동결값 승계 — templates.
+DEFAULT_WEIGHT). 표시용 점수이며 판정(verdict)은 flag 개수 기반이라
+템플릿이 추가·변경돼도 재캘리브레이션이 필요 없다.
 """
 
 import pandas as pd
 
-from models.rule_based.rules.daily_frequency import check_daily_trade_frequency
-from models.rule_based.rules.same_day_roundtrip import check_same_day_roundtrip
-
-# (규칙명, 가중치 w, 판정 함수) — 함수는 df와 같은 인덱스의 bool Series 반환
-RULES = [
-    ("일중_반복매매", 0.7, check_daily_trade_frequency),
-    ("당일_왕복매매", 0.7, check_same_day_roundtrip),
-]
+from models.rule_based.positions import replay_positions
+from models.rule_based.templates import (DEFAULT_RULESET, DEFAULT_WEIGHT,
+                                         TEMPLATES)
 
 
-def run_rule_based(df: pd.DataFrame) -> dict:
-    """
-    반환: {
+def run_rule_based(df: pd.DataFrame, new_positions=None, ruleset=None) -> dict:
+    """전체 이력 df 중 신규 거래(new_positions 행 번호)만 판정.
+
+    new_positions 생략 = 전체가 판정 대상, ruleset 생략 = 기본 조합 —
+    기존 호출 run_rule_based(신규 거래 df)가 지금까지와 동일하게 동작한다.
+
+    ruleset: [(template_id, param)] — pipeline.user_rules.load_ruleset 산출.
+    빈 조합(사용자가 전부 끔)이면 위반 없음으로 처리된다.
+
+    반환(기존과 동일): {
         "is_anomaly": bool,
         "trade_results": [
             {"날짜", "종목명", "rule_score": float 0~1, "triggered_rules": [...]}, ...
@@ -42,15 +41,27 @@ def run_rule_based(df: pd.DataFrame) -> dict:
         return {"is_anomaly": False, "trade_results": []}
 
     df = df.reset_index(drop=True)
-    flags = {name: fn(df) for name, _w, fn in RULES}
+    if new_positions is None:
+        new_positions = range(len(df))
+    if ruleset is None:
+        ruleset = DEFAULT_RULESET
+
+    active = [(TEMPLATES[tid], param) for tid, param in ruleset
+              if tid in TEMPLATES]
+    # 포지션 재생은 필요한 템플릿이 있을 때만, 전체 이력으로 1회
+    pos = (replay_positions(df)
+           if any(t.needs_positions for t, _p in active) else None)
+
+    flags = {t.표시명: t.fn(df, pos, param) for t, param in active}
 
     trade_results = []
-    for i, row in df.iterrows():
-        triggered = [name for name, _w, _fn in RULES if flags[name].iloc[i]]
+    for i in new_positions:
+        i = int(i)
+        row = df.iloc[i]
+        triggered = [name for name, s in flags.items() if bool(s.iloc[i])]
         score = 1.0
-        for name, w, _fn in RULES:
-            if name in triggered:
-                score *= 1.0 - w
+        for _ in triggered:
+            score *= 1.0 - DEFAULT_WEIGHT
         score = round(1.0 - score, 4)
 
         trade_results.append({
