@@ -85,6 +85,8 @@ def _month_lott(
     t1, t2 = caps_all.quantile(1 / 3), caps_all.quantile(2 / 3)  # 규모 3분위
     ivol, iskew = {}, {}
     for t in tickers:
+        if t not in ret_wide.columns:
+            continue  # 기간 내 거래가 없어 시세 열 자체가 없는 종목 (거래정지 등)
         sub = pd.concat([ret_wide[t].loc[window], fwin], axis=1).dropna()
         if len(sub) < 15:  # 3요인 4파라미터 — 최소 관측 확보
             continue
