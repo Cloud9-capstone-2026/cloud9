@@ -32,3 +32,5 @@ ml/artifacts/
 
 # 작업 프로세스 로그 — 로컬 전용
 PROCESS.md
+# 복권성 순위표 — make_lott_table.py 산출물, Release 자산으로 배포
+data/lott_ranks.csv

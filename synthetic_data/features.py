@@ -20,7 +20,8 @@
 - abn_vol   : 전일 거래량 / 그 이전 ATTN_VOL_AVG_DAYS일 평균 (shift로 look-ahead 차단)
 - prior_ret1/5 : 전일 기준 최근 1일/ATTN_RET_DAYS일 누적 수익률
 - driver    : '전일에 끝난' 지수 수익률 (model._index_ret와 동일 shift(1) 규약)
-- lott_rank : lott.compute_monthly_lott의 직전 달 계산치를 적용월에 매핑, 월별 pct 랭크
+- lott_rank : 시장 전체 월별 순위표(lott_table, 적용월 기준 pct 랭크)에서 조회.
+              표가 없으면 lott.compute_monthly_lott로 입력 종목만 그 자리 계산(옛 경로)
 
 측정 주의: 회전율·보유평가액(MTM)은 'CSV-관측 가능' 버전이다 — 조회기간 이전
 취득분(합성의 기초보유)은 볼 수 없어 분모가 과소평가된다. 실계좌도 동일한 편향을
@@ -116,8 +117,13 @@ def load_trades_csv(path):
     return df, labels
 
 
-def _market_context(price_df, index_df, d_min, d_max):
-    """시장 컨텍스트 테이블 일괄 구축 (모듈 docstring의 정의 그대로)."""
+def _market_context(price_df, index_df, d_min, d_max, lott_table=None):
+    """시장 컨텍스트 테이블 일괄 구축 (모듈 docstring의 정의 그대로).
+
+    lott_table: {(적용연, 적용월): Series(종목코드 -> 랭크)} — 시장 전체 순위표
+    (ml/train/make_lott_table.py 산출, lott.load_lott_table). 주어지면 그대로 쓰고,
+    None이면 price_df 종목만으로 그 자리에서 계산(모집단이 입력 종목뿐인 옛 경로 —
+    테스트·골든 유지용)."""
     span = price_df[(price_df["거래일자"] >= d_min) & (price_df["거래일자"] <= d_max)]
     trading_days = sorted(span["거래일자"].unique())
 
@@ -153,7 +159,10 @@ def _market_context(price_df, index_df, d_min, d_max):
     driver_map = dict(zip(idx["거래일자"], idx_ret.shift(1)))
 
     tickers = sorted(price_df["종목코드"].unique())
-    lott_rank = apply_month_rank(compute_monthly_lott(price_df, index_df, tickers))
+    if lott_table is not None:
+        lott_rank = lott_table
+    else:
+        lott_rank = apply_month_rank(compute_monthly_lott(price_df, index_df, tickers))
 
     return {
         "trading_days": trading_days,
@@ -167,7 +176,7 @@ def _market_context(price_df, index_df, d_min, d_max):
     }
 
 
-def build_features(trades, price_df, index_df, windows=(None, 63, 21)):
+def build_features(trades, price_df, index_df, windows=(None, 63, 21), lott_table=None):
     """거래 CSV → {"events", "account_days", "aggregates"} 3테이블.
 
     events       : 거래 1건=1행 (3계층 시퀀스 입력). 매도는 원가 확인 여부(basis) 포함.
@@ -177,7 +186,7 @@ def build_features(trades, price_df, index_df, windows=(None, 63, 21)):
                    직전 N거래일(None=전체) — 실서비스의 '최근 N일 조회'와 정합.
     """
     d_min, d_max = trades["거래일자"].min(), trades["거래일자"].max()
-    ctx = _market_context(price_df, index_df, d_min, d_max)
+    ctx = _market_context(price_df, index_df, d_min, d_max, lott_table)
     calendar = sorted(set(ctx["trading_days"]) | set(trades["거래일자"].unique()))
     day_index = {d: i for i, d in enumerate(calendar)}
 

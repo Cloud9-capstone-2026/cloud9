@@ -49,7 +49,7 @@ if str(_REPO_ROOT) not in sys.path:
 # (_ensure_artifacts — CANARY_MODEL_RELEASE 태그 필요, 사설 레포는 GITHUB_TOKEN).
 _ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifacts"))
 _RELEASE_ASSETS = ("tagger.pt", "tagger_meta.json", "distribution_ref.json",
-                   "hashes.json")
+                   "hashes.json", "lott_ranks.csv")  # lott_ranks.csv: 복권성 순위표(선택)
 logger = logging.getLogger(__name__)
 
 try:
@@ -320,7 +320,9 @@ def _prepare_features(trades: pd.DataFrame, price_df=None, index_df=None):
         )
     if index_df is None:
         index_df = _fetch_index_df(price_df)
-    return trades, build_features(trades, price_df, index_df, windows=(None,))
+    from lott_table import get_lott_table  # 시장 전체 복권성 순위표 (없으면 None → 옛 경로)
+    return trades, build_features(trades, price_df, index_df, windows=(None,),
+                                  lott_table=get_lott_table())
 
 
 def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dict | None:

@@ -33,6 +33,7 @@ sys.path.insert(0, _REPO)
 from synthetic_data import config  # noqa: E402
 from synthetic_data.core import model as model_mod  # noqa: E402
 from synthetic_data.core.params import BehaviorParams  # noqa: E402
+from synthetic_data.market.lott import load_lott_table  # noqa: E402
 from synthetic_data.features import build_features, load_trades_csv  # noqa: E402
 from synthetic_data.market_data import get_index_data, get_price_data  # noqa: E402
 
@@ -73,7 +74,8 @@ def main(seed: int = 7):
         df.to_csv(p, index=False, encoding="utf-8-sig")
         trades, _ = load_trades_csv(p)
     out = build_features(trades, get_price_data(config.UNIVERSE_TICKERS),
-                         get_index_data(), windows=(None,))
+                         get_index_data(), windows=(None,),
+                         lott_table=load_lott_table(config.LOTT_TABLE_PATH))
     ag = out["aggregates"]
     ag = ag[(ag["window"] == "full") & (ag["n_buys"] > 0)].copy()
     ag["hs"] = ag["agent_id"].astype(str).map(hs_by_agent)

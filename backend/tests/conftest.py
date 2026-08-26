@@ -174,3 +174,10 @@ def fake_layer3(monkeypatch):
     model.eval()
     monkeypatch.setattr(layer3, "_load_artifacts", lambda: (model, meta))
     return layer3
+
+
+@pytest.fixture(autouse=True)
+def _no_local_lott_table(monkeypatch, tmp_path):
+    """로컬 data/lott_ranks.csv(미커밋 산출물)에 테스트가 의존하지 않게 — 기본은 '표 없음'.
+    표가 필요한 테스트는 CANARY_LOTT_TABLE을 직접 설정한다(test_lott_table.py)."""
+    monkeypatch.setenv("CANARY_LOTT_TABLE", str(tmp_path / "no_lott_table.csv"))

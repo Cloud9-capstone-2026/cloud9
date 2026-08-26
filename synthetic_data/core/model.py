@@ -12,7 +12,7 @@ import pandas as pd
  
 from .. import config
 from .agent import InvestorAgent
-from ..market.lott import compute_monthly_lott
+from ..market.lott import load_lott_table
 from ..market_data import get_index_data, get_price_data
 from .params import sample_investor_group, sample_investor_params
 from .schema import Trade
@@ -244,10 +244,12 @@ class MarketModel(mesa.Model):
         return self._index_ret.get(self.current_date)
 
     def get_lott_scores(self, current_date) -> dict:
-        """current_date가 속한 달에 적용할 LOTT 합성값(직전 달에 사전계산). 없으면 빈 dict."""
-        y, m = current_date.year, current_date.month
-        py, pm = (y - 1, 12) if m == 1 else (y, m - 1)
-        return self._monthly_lott.get((py, pm), {})
+        """current_date가 속한 달에 적용할 LOTT 순위 {ticker: [0,1] 랭크}. 없으면 빈 dict.
+
+        시장 전체 월별 순위표(config.LOTT_TABLE_PATH)를 조회한다. 표는 이미 '직전 달
+        계산 → 이 달 적용' 매핑이 끝난 적용월 기준이라 (연, 월) 그대로 찾는다."""
+        s = self._lott_table.get((current_date.year, current_date.month))
+        return {} if s is None else s.to_dict()
 
     def _prepare_market(self, tickers: list[str]):
         """코스피 지수 수익률과 월별 LOTT 합성값(고유변동성+주가, 둘 다 월말 고정)을 미리 계산.
@@ -275,8 +277,13 @@ class MarketModel(mesa.Model):
             d: (None if pd.isna(r) else float(r)) for d, r in prev_ret.items()
         }
 
-        # LOTT 월별 합성값 (lott.py로 추출 — FF3 요인 회귀·EISKEW 포함)
-        self._monthly_lott: dict = compute_monthly_lott(self.price_data, idx, tickers)
+        # LOTT: 시장 전체 월별 순위표 조회 (예전엔 유니버스 201종목만으로 그 자리 계산 —
+        # 실계좌 추론과 모집단·재료가 달라져 표로 통일, 2026-08-26). 표가 없으면 생성 불가.
+        self._lott_table: dict = load_lott_table(config.LOTT_TABLE_PATH)
+        missing = [ym for ym in {(d.year, d.month) for d in self.trading_days}
+                   if ym not in self._lott_table]
+        if missing:
+            raise RuntimeError(f"복권성 순위표에 시뮬 기간 달이 없음: {sorted(missing)}")
 
         close_ffill = close_wide.ffill()  # attention 수익률 성분용 (정지일 직전가 대체)
 

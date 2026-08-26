@@ -353,6 +353,9 @@ TRADE_LABELS_CSV_PATH = "synthetic_trade_labels.csv"
 
 # pykrx 시세 캐시 디렉터리 (재생성 가능한 파생 데이터 — .gitignore 대상)
 PRICE_CACHE_DIR = "synthetic_data/.cache"
+# 시장 전체 월별 복권성 순위표 (ml/train/make_lott_table.py 산출, 미커밋) — 생성기·학습 피처·
+# 실계좌 추론이 같은 표를 쓴다(학습·추론 동일 방식). 레포 최상위 기준 경로.
+LOTT_TABLE_PATH = "data/lott_ranks.csv"
  
  
 @dataclass
