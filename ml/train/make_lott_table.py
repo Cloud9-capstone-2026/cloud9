@@ -9,7 +9,8 @@
 자료 출처 (전부 공식 API — KRX 웹사이트 자동 조회는 약관 위반·IP 차단이라 쓰지 않음):
 - KRX Open API (openapi.krx.co.kr, .env KRX_API_KEY): 유가증권·코스닥 일별매매정보
   (종가·거래량·시총), 종목기본정보(주식종류·증권그룹·소속부), 코스피 지수. 일 1만 콜.
-- OpenDART (.env OPENDART_API_KEY): 자본총계 → PBR = 시총/자본총계  [L-2b에서 연결]
+- OpenDART (.env OPENDART_API_KEY): 분기 재무상태표 자본총계 → PBR = 월말 시총/자본총계.
+  분기 종료 후 3개월 뒤 월말부터 적용(공시 시차, 룩어헤드 방지). 일 1만 콜.
 
 실행:  python ml/train/make_lott_table.py --start 2020-01 [--end 2026-08]
 운영:  매월 초 1회 실행 → 새로 끝난 달이 추가된 CSV를 커밋. 받은 자료는 전부
@@ -25,9 +26,12 @@
 """
 
 import argparse
+import io
 import os
 import sys
 import time
+import xml.etree.ElementTree as ET
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
@@ -45,6 +49,7 @@ from synthetic_data.market.lott import apply_month_rank, compute_monthly_lott  #
 CACHE = _REPO / "ml" / "cache" / "lott_raw"
 OUT = _REPO / "data" / "lott_ranks.csv"
 KRX_API = "https://data-dbg.krx.co.kr/svc/apis/"
+DART_API = "https://opendart.fss.or.kr/api/"
 PACE_SEC = 0.2  # 호출 간격 (일 1만 콜 한도와 별개로 서버 부담 완화)
 WORKERS = 4  # 캐시 채우기 동시 요청 수
 
@@ -134,9 +139,72 @@ def base_info(d: date) -> pd.DataFrame:
     return _cached("krx_base", _ymd(d), fetch)
 
 
+def _dart(path: str, **params) -> requests.Response:
+    r = requests.get(DART_API + path, params={"crtfc_key": os.environ["OPENDART_API_KEY"], **params}, timeout=60)
+    r.raise_for_status()
+    return r
+
+
+def corp_codes() -> dict:
+    """종목코드 -> DART 고유번호(corp_code). 상장사만. 1회 받아 캐시."""
+    def fetch():
+        z = zipfile.ZipFile(io.BytesIO(_dart("corpCode.xml").content))
+        root = ET.fromstring(z.read(z.namelist()[0]))
+        rows = [(c.findtext("stock_code", "").strip(), c.findtext("corp_code", "").strip())
+                for c in root.iter("list")]
+        return pd.DataFrame([r for r in rows if r[0]], columns=["종목코드", "corp_code"])
+    df = _cached("dart", "corp_codes", fetch)
+    return dict(zip(df["종목코드"], df["corp_code"]))
+
+
+# 분기말 월 -> 보고서 코드 (1분기·반기·3분기·사업보고서)
+_REPRT = {3: "11013", 6: "11012", 9: "11014", 12: "11011"}
+
+
+def equity_by_quarter(year: int, qmonth: int, codes: list[str]) -> pd.Series:
+    """분기말 (year, qmonth) 재무상태표 자본총계 {corp_code -> 원}. 연결(CFS) 우선, 없으면 개별(OFS).
+
+    OpenDART 다중회사 주요계정 API — 회사 100개씩 1콜. 미공시·비12월결산 회사는 결측.
+    """
+    def fetch():
+        out = {}
+        for i in range(0, len(codes), 100):
+            chunk = codes[i:i + 100]
+            j = _dart("fnlttMultiAcnt.json", corp_code=",".join(chunk), bsns_year=str(year),
+                      reprt_code=_REPRT[qmonth]).json()
+            if j.get("status") not in ("000", "013"):  # 013 = 조회 결과 없음
+                raise RuntimeError(f"DART {j.get('status')}: {j.get('message')}")
+            for row in j.get("list", []):
+                if row.get("sj_div") != "BS" or row.get("account_nm") != "자본총계":
+                    continue
+                key = (row["corp_code"], 0 if row.get("fs_div") == "CFS" else 1)
+                out[key] = row.get("thstrm_amount", "")
+            time.sleep(PACE_SEC)
+        best = {}
+        for (c, pri), v in sorted(out.items(), key=lambda kv: kv[0][1], reverse=True):
+            best[c] = v  # CFS(0)가 마지막에 덮어써 우선
+        return pd.DataFrame({"corp_code": list(best), "자본총계": _num(pd.Series(list(best.values())))})
+    df = _cached("dart_equity", f"{year}{qmonth:02d}", fetch)
+    return df.set_index("corp_code")["자본총계"]
+
+
+def _latest_quarter(d: date) -> tuple[int, int]:
+    """월말 d에 공시돼 있다고 볼 수 있는 최근 분기말 (연, 월) — 분기 종료 후 3개월 뒤 월말부터 적용.
+    (1분기 보고서 제출기한 45일, 사업보고서 90일 — 둘 다 덮는 보수적 규칙, 룩어헤드 방지)"""
+    y, m = _add_months(d.year, d.month, -3)
+    qm = (m // 3) * 3  # 그 시점 이전 마지막 분기말 월
+    return (y - 1, 12) if qm == 0 else (y, qm)
+
+
 def month_pbr(d: date, tickers: list[str], caps: pd.Series) -> pd.Series:
-    """월말 d 기준 PBR = 시총 / 공시된 최근 분기 자본총계. [L-2b: OpenDART 연결 예정]"""
-    return pd.Series(float("nan"), index=tickers)
+    """월말 d 기준 PBR = 시총 / 공시된 최근 분기 자본총계. 자본총계 결측·0 이하는 NaN(요인 구축 제외)."""
+    cmap = corp_codes()
+    codes = sorted(set(cmap.values()))  # 상장사 전체 — 분기 캐시가 그 달 유니버스에 묶이지 않게
+    y, qm = _latest_quarter(d)
+    eq = equity_by_quarter(y, qm, codes)
+    book = pd.Series([eq.get(cmap.get(t), float("nan")) for t in tickers], index=tickers, dtype=float)
+    pbr = caps.reindex(tickers) / book
+    return pbr.where(book > 0)
 
 
 def main():
