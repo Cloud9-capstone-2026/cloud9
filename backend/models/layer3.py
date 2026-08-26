@@ -60,14 +60,9 @@ try:
 except Exception as e:  # torch 미설치 등 — score는 None 폴백
     _IMPORT_ERROR = e
 
-# pykrx가 requests에 timeout을 안 걸어 KRX 무응답 시 무한 행 위험 —
-# 전역 기본 timeout 패치는 synthetic_data.net 한 곳으로 통합 (idempotent).
-# requests 자체는 아래 Release 다운로드(_ensure_artifacts)가 직접 쓴다.
+# requests는 아래 Release 다운로드(_ensure_artifacts)가 직접 쓴다.
+# 시세·지수·종목명은 2026-08-26부터 KRX Open API(synthetic_data.market.krx_api) 경유.
 import requests
-
-from synthetic_data.net import ensure_timeout_patch
-
-ensure_timeout_patch()
 
 # 시세 룩백 버퍼: abn_vol 기준선(60거래일)·LOTT 창 확보용 (캘린더 일수)
 _PRICE_LOOKBACK_DAYS = 150
@@ -157,7 +152,7 @@ def _load_artifacts():
 
 def _fetch_price_df(tickers, d_min, d_max) -> pd.DataFrame:
     """계좌 종목들의 OHLCV → market_data 스키마. price_cache 경유 —
-    커버된 구간은 네트워크 없음, 부족 구간만 pykrx 증분 조회.
+    커버된 구간은 네트워크 없음, 부족 구간만 KRX Open API 증분 조회.
     실패 종목은 건너뜀(해당 종목 시장 컨텍스트는 결측 → 마스크)."""
     from price_cache import get_ohlcv  # 지연 import (모듈 로드 의존 최소화)
 
@@ -169,29 +164,16 @@ def _fetch_price_df(tickers, d_min, d_max) -> pd.DataFrame:
 
 
 def _fetch_index_df(price_df) -> pd.DataFrame:
-    """코스피 지수 종가. 로그인 필요 API라 실패할 수 있음 — 실패 시 NaN 지수
-    (driver 피처 결측 → 마스크)로 진행한다."""
+    """코스피 지수 종가 — KRX Open API 날짜별 캐시(krx_api.index_close). 시세 조회가
+    같은 날짜들을 이미 캐시했으므로 보통 네트워크 없음. 실패 시 NaN 지수(driver 피처
+    결측 → 마스크)로 진행한다."""
     days = sorted(price_df["거래일자"].unique())
     try:
-        from synthetic_data.market_data import get_index_data
-        idx = get_index_data()  # 로컬 캐시 적중 시 네트워크 없음
-        idx = idx[idx["거래일자"].isin(set(days))]
-        if len(idx) >= max(2, len(days) // 2):  # 기간 커버가 충분할 때만 사용
-            return idx
+        from synthetic_data.market import krx_api
+        return pd.DataFrame({"거래일자": days,
+                             "종가": [krx_api.index_close(d) for d in days]})
     except Exception:
-        pass
-    try:
-        from pykrx import stock
-        df = stock.get_index_ohlcv(
-            days[0].strftime("%Y%m%d"), days[-1].strftime("%Y%m%d"), "1001"
-        )
-        if df is not None and not df.empty:
-            return pd.DataFrame({
-                "거래일자": pd.to_datetime(df.index).date,
-                "종가": df["종가"].astype(float).values,
-            })
-    except Exception:
-        pass
+        logger.warning("코스피 지수 조회 실패 — driver 피처 결측으로 진행", exc_info=True)
     return pd.DataFrame({"거래일자": days, "종가": [np.nan] * len(days)})
 
 
@@ -327,7 +309,7 @@ def _prepare_features(trades: pd.DataFrame, price_df=None, index_df=None):
 
 def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dict | None:
     """합성 스키마 거래(agent_id·종목코드 등 features.REQUIRED_COLUMNS)를 단일
-    계좌로 보고 채점. price/index 미지정 시 pykrx에서 조회(테스트에서는 주입)."""
+    계좌로 보고 채점. price/index 미지정 시 KRX Open API에서 조회(테스트에서는 주입)."""
     try:
         model, meta = _load_artifacts()
         trades, out = _prepare_features(trades, price_df, index_df)

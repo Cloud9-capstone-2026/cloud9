@@ -7,14 +7,15 @@
 합성 생성기 모두 (적용연, 적용월, 종목코드)로 찾기만 한다(학습·추론 동일 방식).
 
 자료 출처 (전부 공식 API — KRX 웹사이트 자동 조회는 약관 위반·IP 차단이라 쓰지 않음):
-- KRX Open API (openapi.krx.co.kr, .env KRX_API_KEY): 유가증권·코스닥 일별매매정보
-  (종가·거래량·시총), 종목기본정보(주식종류·증권그룹·소속부), 코스피 지수. 일 1만 콜.
+- KRX Open API (synthetic_data/market/krx_api.py, .env KRX_API_KEY): 유가증권·코스닥
+  일별매매정보(수정주가는 krx_api.adjust_prices로 보정)·종목기본정보·코스피 지수.
+  날짜별 캐시 ml/cache/krx/ 는 생성기 시세(market_data)·실계좌 시세(price_cache)와 공유.
 - OpenDART (.env OPENDART_API_KEY): 분기 재무상태표 자본총계 → PBR = 월말 시총/자본총계.
   분기 종료 후 3개월 뒤 월말부터 적용(공시 시차, 룩어헤드 방지). 일 1만 콜.
 
 실행:  python ml/train/make_lott_table.py --start 2020-01 [--end 2026-08]
-운영:  매월 초 1회 실행 → 새로 끝난 달이 추가된 CSV를 커밋. 받은 자료는 전부
-       ml/cache/lott_raw/ 에 날짜별로 캐시되므로 재실행 시 새 날짜만 요청한다.
+운영:  매월 초 1회 실행 → 새로 끝난 달이 추가된 CSV를 모델 Release 자산으로 교체
+       (표는 커밋하지 않음). 받은 자료는 전부 캐시되므로 재실행 시 새 날짜만 요청한다.
        KRX Open API 서비스 승인에는 이용 기간이 있어 만료 시 재신청.
 
 계산 규약은 synthetic_data.market.lott 와 동일(창 60거래일, 모멘텀 252/21, 창 내
@@ -22,10 +23,8 @@
 "SPAC 및 코넥스 제외, 유가증권·코스닥 보통주 및 우선주" — 소속부 SPAC만 걸러낸다
 (코넥스는 주식 API에 없음). 실계좌의 우선주도 그대로 표에서 조회된다. 참고 옵션:
 표에 없는 우선주가 생기면 같은 회사 보통주 순위로 대체하는 방법도 가능(미구현).
-표는 커밋하지 않고 모델 Release 번들 자산으로 배포한다(월 갱신 = 자산 교체).
-근사: 전종목 일별 시세는 수정주가가 아니라 액면분할·증자일의 수익률이 튄다. KRX
-    가격제한폭(±30%)으로 그런 날은 드물고 해당 종목의 그 달 전후 변동성만 과대
-    평가되므로 보정 없이 둔다.
+근사: 수정주가 보정은 분할·무상증자만(유상증자 권리락 이론가 미보정), 장부가는 분기
+갱신, 비12월 결산 법인은 분기 매핑이 어긋날 수 있음(소수).
 """
 
 import argparse
@@ -41,55 +40,20 @@ from pathlib import Path
 
 import pandas as pd
 import requests
-from dotenv import load_dotenv
 
 _REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO))
-load_dotenv(_REPO / ".env")
 
+from synthetic_data.market import krx_api  # noqa: E402  (.env 로드 포함)
 from synthetic_data.market.lott import apply_month_rank, compute_monthly_lott  # noqa: E402
 
-CACHE = _REPO / "ml" / "cache" / "lott_raw"
 OUT = _REPO / "data" / "lott_ranks.csv"
-KRX_API = "https://data-dbg.krx.co.kr/svc/apis/"
 DART_API = "https://opendart.fss.or.kr/api/"
-PACE_SEC = 0.2  # 호출 간격 (일 1만 콜 한도와 별개로 서버 부담 완화)
-WORKERS = 4  # 캐시 채우기 동시 요청 수
+PACE_SEC = 0.2
+WORKERS = 4
 
-
-def _cached(kind: str, key: str, fetch):
-    """kind/key.parquet 이 있으면 읽고 없으면 fetch()로 받아 저장. 실패는 백오프 재시도."""
-    path = CACHE / kind / f"{key}.parquet"
-    if path.exists():
-        return pd.read_parquet(path)
-    for wait in (10, 30, 60, 180, None):
-        try:
-            df = fetch()
-            break
-        except Exception as e:  # noqa: BLE001 — 네트워크·JSON·한도 초과 등
-            if wait is None:
-                raise
-            print(f"  {kind}/{key} 실패({type(e).__name__}: {e}) — {wait}초 후 재시도", flush=True)
-            time.sleep(wait)
-    time.sleep(PACE_SEC)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(path)
-    return df
-
-
-def _krx(path: str, bas_dd: str) -> list[dict]:
-    r = requests.get(KRX_API + path, params={"basDd": bas_dd},
-                     headers={"AUTH_KEY": os.environ["KRX_API_KEY"]}, timeout=30)
-    r.raise_for_status()
-    return r.json()["OutBlock_1"]
-
-
-def _num(s: pd.Series) -> pd.Series:
-    return pd.to_numeric(s.astype(str).str.replace(",", ""), errors="coerce")
-
-
-def _ymd(d: date) -> str:
-    return d.strftime("%Y%m%d")
+_cached = krx_api._cached  # 날짜/분기별 parquet 캐시 + 백오프 재시도 (ml/cache/krx/{kind}/)
+_num = krx_api._num
 
 
 def _month_end(y: int, m: int) -> date:
@@ -101,46 +65,7 @@ def _add_months(y: int, m: int, k: int):
     return n // 12, n % 12 + 1
 
 
-def daily_prices(d: date) -> pd.DataFrame:
-    """코스피+코스닥 전 종목 그날 시세. 휴장일이면 빈 DataFrame(캐시됨 — 캘린더 역할)."""
-    def fetch():
-        s = _ymd(d)
-        rows = _krx("sto/stk_bydd_trd", s) + _krx("sto/ksq_bydd_trd", s)
-        if not rows:
-            return pd.DataFrame(columns=["종목코드", "종가", "거래량", "시가총액"])
-        raw = pd.DataFrame(rows)
-        return pd.DataFrame({
-            "종목코드": raw["ISU_CD"].astype(str),
-            "종가": _num(raw["TDD_CLSPRC"]),
-            "거래량": _num(raw["ACC_TRDVOL"]),
-            "시가총액": _num(raw["MKTCAP"]),
-        })
-    return _cached("krx_daily", _ymd(d), fetch)
-
-
-def index_close(d: date) -> float:
-    def fetch():
-        rows = [r for r in _krx("idx/kospi_dd_trd", _ymd(d)) if r["IDX_NM"] == "코스피"]
-        if not rows:
-            raise RuntimeError(f"{d} 코스피 지수 행 없음")
-        return pd.DataFrame({"종가": [float(str(rows[0]["CLSPRC_IDX"]).replace(",", ""))]})
-    return float(_cached("krx_index", _ymd(d), fetch)["종가"].iloc[0])
-
-
-def base_info(d: date) -> pd.DataFrame:
-    """그날의 종목기본정보(월말 스냅샷용): 종목코드·보통주·주권·스팩·코스닥 (필터는 스팩만 사용)."""
-    def fetch():
-        s = _ymd(d)
-        raw = pd.DataFrame(_krx("sto/stk_isu_base_info", s) + _krx("sto/ksq_isu_base_info", s))
-        return pd.DataFrame({
-            "종목코드": raw["ISU_SRT_CD"].astype(str),
-            "보통주": raw["KIND_STKCERT_TP_NM"] == "보통주",
-            "주권": raw["SECUGRP_NM"] == "주권",
-            "스팩": raw["SECT_TP_NM"].astype(str).str.contains("SPAC"),
-            "코스닥": raw["MKT_TP_NM"] == "KOSDAQ",
-        })
-    return _cached("krx_base", _ymd(d), fetch)
-
+# ─────────────────────────── OpenDART (장부가) ───────────────────────────
 
 def _dart(path: str, **params) -> requests.Response:
     r = requests.get(DART_API + path, params={"crtfc_key": os.environ["OPENDART_API_KEY"], **params}, timeout=60)
@@ -186,7 +111,7 @@ def equity_by_quarter(year: int, qmonth: int, codes: list[str]) -> pd.Series:
         best = {}
         for (c, pri), v in sorted(out.items(), key=lambda kv: kv[0][1], reverse=True):
             best[c] = v  # CFS(0)가 마지막에 덮어써 우선
-        return pd.DataFrame({"corp_code": list(best), "자본총계": _num(pd.Series(list(best.values())))})
+        return pd.DataFrame({"corp_code": list(best), "자본총계": _num(list(best.values()))})
     df = _cached("dart_equity", f"{year}{qmonth:02d}", fetch)
     return df.set_index("corp_code")["자본총계"]
 
@@ -210,6 +135,8 @@ def month_pbr(d: date, tickers: list[str], caps: pd.Series) -> pd.Series:
     return pbr.where(book > 0)
 
 
+# ─────────────────────────── 본체 ───────────────────────────
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--start", default="2020-01", help="순위표 첫 적용월 YYYY-MM")
@@ -226,65 +153,44 @@ def main():
     fetch_start = _month_end(*_add_months(cy, cm, -20))
     fetch_end = min(_month_end(*_add_months(ey, em, -1)), today - timedelta(days=1))
 
-    # 평일마다 시세 요청 — 빈 응답이면 휴장일. 거래일 캘린더는 여기서 나온다.
-    # 호출당 1~2초라 캐시 채우기는 스레드 4개로 (한도는 일 콜 수 기준, 동시성 제한 없음).
-    weekdays = [fetch_start + timedelta(days=i) for i in range((fetch_end - fetch_start).days + 1)]
-    weekdays = [d for d in weekdays if d.weekday() < 5]
-
-    def fill(d):
-        if len(daily_prices(d)):
-            index_close(d)
-        return d
-
-    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        for i, _ in enumerate(ex.map(fill, weekdays), 1):
-            if i % 100 == 0:
-                print(f"  수집 {i}/{len(weekdays)}일", flush=True)
-
-    frames, days, idx_rows = [], [], []
-    for d in weekdays:
-        df = daily_prices(d)
-        if len(df):
-            days.append(d)
-            df = df[df["거래량"] > 0]  # 거래정지일 제거 (market_data.py와 동일 규약)
-            frames.append(df.assign(거래일자=d))
-            idx_rows.append({"거래일자": d, "종가": index_close(d)})
-    price = pd.concat(frames, ignore_index=True)
-    index_df = pd.DataFrame(idx_rows)
+    days = krx_api.prefetch(fetch_start, fetch_end)  # 캐시 채우기(4스레드) + 거래일 캘린더
+    raw = krx_api.load_daily(days)
+    price = krx_api.adjust_prices(raw)  # 분할·무상증자 보정 (실계좌·생성기와 같은 규약)
+    price = price[price["거래량"] > 0][["종목코드", "거래일자", "종가", "시가총액"]]
+    index_df = pd.DataFrame({"거래일자": days, "종가": [krx_api.index_close(d) for d in days]})
     print(f"거래일 {len(days)}일 ({days[0]} ~ {days[-1]})")
 
     # 계산 대상 달 = 시작월-1 ~ 종료월-1 중 끝난 달. 월말 스냅샷 = 그 달 마지막 거래일.
     month_last = {}
     for d in days:
         month_last[(d.year, d.month)] = d
-    # DART 분기 자본총계를 먼저 병렬로 캐시 (분기당 약 40콜 × 30분기 — 순차면 12분).
     calc_months = []
     y, m = cy, cm
     while (y, m) in month_last and _month_end(y, m) <= fetch_end:
         calc_months.append((y, m))
         y, m = _add_months(y, m, 1)
+    if not calc_months:
+        sys.exit("계산할 달이 없습니다 (--start/--end 확인)")
+
+    # DART 분기 자본총계를 먼저 병렬로 캐시 (분기당 약 40콜 × 30분기 — 순차면 12분).
     all_codes = sorted(set(corp_codes().values()))
     quarters = sorted({_latest_quarter(month_last[ym]) for ym in calc_months})
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
         list(ex.map(lambda q: equity_by_quarter(q[0], q[1], all_codes), quarters))
 
     snapshots, universe_by_month = {}, {}
-    y, m = cy, cm
-    while (y, m) in month_last and _month_end(y, m) <= fetch_end:
+    for (y, m) in calc_months:
         d = month_last[(y, m)]
-        info = base_info(d)
-        ok = ~info["스팩"]  # KCMI 정의: SPAC만 제외 (보통주+우선주, 리츠·외국주권 포함)
+        info = krx_api.base_info(d)
+        ok = ~info["소속부"].str.contains("SPAC")  # KCMI 정의: SPAC만 제외 (보통주+우선주, 리츠·외국주권 포함)
         tickers = info.loc[ok, "종목코드"].tolist()
-        kosdaq = set(info.loc[ok & info["코스닥"], "종목코드"])
+        kosdaq = set(info.loc[ok & (info["시장"] == "KOSDAQ"), "종목코드"])
         caps = price[price["거래일자"] == d].set_index("종목코드")["시가총액"].reindex(tickers)
         snapshots[(y, m)] = (caps, month_pbr(d, tickers, caps), kosdaq)
         universe_by_month[(y, m)] = tickers
-        y, m = _add_months(y, m, 1)
-    if not snapshots:
-        sys.exit("계산할 달이 없습니다 (--start/--end 확인)")
     print(f"계산 달 {len(snapshots)}개: {min(snapshots)} ~ {max(snapshots)}")
     if all(s[1].isna().all() for s in snapshots.values()):
-        print("경고: PBR 없음 — HML 요인 없이 계산됨 (L-2b 전 트라이얼 전용)")
+        print("경고: PBR 없음 — HML 요인 없이 계산됨")
 
     all_tickers = sorted({t for ts in universe_by_month.values() for t in ts})
     price = price[price["종목코드"].isin(all_tickers)]
