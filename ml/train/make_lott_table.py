@@ -18,8 +18,11 @@
        KRX Open API 서비스 승인에는 이용 기간이 있어 만료 시 재신청.
 
 계산 규약은 synthetic_data.market.lott 와 동일(창 60거래일, 모멘텀 252/21, 창 내
-관측 15일 미만 종목은 그 달 결측). 순위 모집단 = 그 달 코스피+코스닥의
-주식종류 '보통주' ∧ 증권그룹 '주권' ∧ 소속부 SPAC 아님(우선주·리츠·외국주권·코넥스 제외).
+관측 15일 미만 종목은 그 달 결측). 순위 모집단 = KCMI 22-02 p.24 정의 그대로
+"SPAC 및 코넥스 제외, 유가증권·코스닥 보통주 및 우선주" — 소속부 SPAC만 걸러낸다
+(코넥스는 주식 API에 없음). 실계좌의 우선주도 그대로 표에서 조회된다. 참고 옵션:
+표에 없는 우선주가 생기면 같은 회사 보통주 순위로 대체하는 방법도 가능(미구현).
+표는 커밋하지 않고 모델 Release 번들 자산으로 배포한다(월 갱신 = 자산 교체).
 근사: 전종목 일별 시세는 수정주가가 아니라 액면분할·증자일의 수익률이 튄다. KRX
     가격제한폭(±30%)으로 그런 날은 드물고 해당 종목의 그 달 전후 변동성만 과대
     평가되므로 보정 없이 둔다.
@@ -125,7 +128,7 @@ def index_close(d: date) -> float:
 
 
 def base_info(d: date) -> pd.DataFrame:
-    """그날의 종목기본정보(월말 스냅샷용): 종목코드·보통주·주권·스팩·코스닥."""
+    """그날의 종목기본정보(월말 스냅샷용): 종목코드·보통주·주권·스팩·코스닥 (필터는 스팩만 사용)."""
     def fetch():
         s = _ymd(d)
         raw = pd.DataFrame(_krx("sto/stk_isu_base_info", s) + _krx("sto/ksq_isu_base_info", s))
@@ -254,12 +257,23 @@ def main():
     month_last = {}
     for d in days:
         month_last[(d.year, d.month)] = d
+    # DART 분기 자본총계를 먼저 병렬로 캐시 (분기당 약 40콜 × 30분기 — 순차면 12분).
+    calc_months = []
+    y, m = cy, cm
+    while (y, m) in month_last and _month_end(y, m) <= fetch_end:
+        calc_months.append((y, m))
+        y, m = _add_months(y, m, 1)
+    all_codes = sorted(set(corp_codes().values()))
+    quarters = sorted({_latest_quarter(month_last[ym]) for ym in calc_months})
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        list(ex.map(lambda q: equity_by_quarter(q[0], q[1], all_codes), quarters))
+
     snapshots, universe_by_month = {}, {}
     y, m = cy, cm
     while (y, m) in month_last and _month_end(y, m) <= fetch_end:
         d = month_last[(y, m)]
         info = base_info(d)
-        ok = info["보통주"] & info["주권"] & ~info["스팩"]
+        ok = ~info["스팩"]  # KCMI 정의: SPAC만 제외 (보통주+우선주, 리츠·외국주권 포함)
         tickers = info.loc[ok, "종목코드"].tolist()
         kosdaq = set(info.loc[ok & info["코스닥"], "종목코드"])
         caps = price[price["거래일자"] == d].set_index("종목코드")["시가총액"].reindex(tickers)
