@@ -20,6 +20,7 @@ import pandas as pd
 
 from synthetic_data import config
 from synthetic_data.features import build_features, load_trades_csv
+from synthetic_data.market.lott import load_lott_table
 from synthetic_data.market_data import get_index_data, get_price_data
 
 CACHE_DIR = os.path.join("ml", "cache")
@@ -37,7 +38,8 @@ def prepare_one(name: str, price_df, index_df, force: bool = False):
         print(f"{name}: 캐시 존재 — 스킵", flush=True)
         return
     trades, _ = load_trades_csv(config.dataset_path(name, "trades"))
-    out = build_features(trades, price_df, index_df, windows=(None,))
+    out = build_features(trades, price_df, index_df, windows=(None,),
+                         lott_table=load_lott_table(config.LOTT_TABLE_PATH))  # 생성기·추론과 같은 표
     ev = out["events"].copy()
     ev["거래일자"] = pd.to_datetime(ev["거래일자"])  # date → datetime64 (parquet 호환)
     ev.to_parquet(ev_path, index=False)

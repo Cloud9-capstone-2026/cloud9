@@ -15,6 +15,7 @@ import pandas as pd
 
 from .. import config
 from ..features import build_features, load_trades_csv
+from ..market.lott import load_lott_table
 from ..market_data import get_index_data, get_price_data
 
 # 7-1d/7-2 확정 시점의 스모크 기준값 (자연 모드 canonical, 시드 7) — 큰 폭 하락 시 회귀 의심.
@@ -49,7 +50,8 @@ def main(csv_path: str, labels_path: str | None = None):
 
     price_df = get_price_data(config.UNIVERSE_TICKERS)
     index_df = get_index_data()
-    out = build_features(trades, price_df, index_df, windows=(None, 63, 21))
+    out = build_features(trades, price_df, index_df, windows=(None, 63, 21),
+                         lott_table=load_lott_table(config.LOTT_TABLE_PATH))
     agg = out["aggregates"]
 
     # (1) 하네스 교차검증: 풀드 PGR/PLR
