@@ -14,6 +14,11 @@ class User(Base):
     provider        = Column(String(20), nullable=True)
     provider_id     = Column(String(255), nullable=True)
     email_verified  = Column(Boolean, nullable=False, default=False)
+    # 이메일 인증 6자리 코드 (2026-08-24, 딥링크 방식에서 전환).
+    # 원문 코드는 저장하지 않고 HMAC 해시만 저장한다. 재발송 시 이 두 값을
+    # 덮어써서 이전 코드를 자동 무효화한다(별도 "무효화" 로직 불필요).
+    verification_code_hash       = Column(String(64), nullable=True)
+    verification_code_expires_at = Column(TIMESTAMP, nullable=True)
     created_at      = Column(TIMESTAMP, server_default=func.now())
 
     __table_args__ = (

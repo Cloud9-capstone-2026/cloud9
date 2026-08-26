@@ -273,40 +273,65 @@ def test_signup_sends_verification_email(client, monkeypatch):
     import routers.auth as auth_router_mod
     monkeypatch.setattr(
         auth_router_mod, "send_verification_email",
-        lambda to_email, token: sent.append((to_email, token)),
+        lambda to_email, code: sent.append((to_email, code)),
     )
     _signup(client, email="verifyme@test.com")
     assert len(sent) == 1
     assert sent[0][0] == "verifyme@test.com"
+    assert len(sent[0][1]) == 6 and sent[0][1].isdigit()
 
 
-def test_verify_email_with_valid_token_marks_verified(client):
-    from auth import create_email_verification_token
-    from orm import User
-
+def test_verify_email_with_valid_code_marks_verified(client, monkeypatch):
+    sent = []
+    import routers.auth as auth_router_mod
+    monkeypatch.setattr(
+        auth_router_mod, "send_verification_email",
+        lambda to_email, code: sent.append((to_email, code)),
+    )
     _signup(client, email="tobeverified@test.com")
+    code = sent[0][1]
 
-    token = create_email_verification_token("tobeverified@test.com")
-    r = client.post("/auth/verify-email", json={"token": token})
+    r = client.post("/auth/verify-email", json={"email": "tobeverified@test.com", "code": code})
     assert r.status_code == 200
 
     from database import get_db
     from main import app
+    from orm import User
     db = next(app.dependency_overrides[get_db]())
     user = db.query(User).filter(User.email == "tobeverified@test.com").one()
     assert user.email_verified is True
+    assert user.verification_code_hash is None  # 검증 성공 후 재사용 방지로 무효화됨
     db.close()
 
 
-def test_verify_email_rejects_access_token_reuse(client):
-    """로그인용 access_token을 인증 토큰으로 재사용 못 하게 막는지 (토큰 혼동 방지)."""
-    token = _signup(client, email="confusion@test.com").json()["access_token"]
-    r = client.post("/auth/verify-email", json={"token": token})
+def test_verify_email_rejects_wrong_code(client, monkeypatch):
+    monkeypatch.setattr(
+        "routers.auth.send_verification_email", lambda to_email, code: None,
+    )
+    _signup(client, email="wrongcode@test.com")
+    r = client.post("/auth/verify-email", json={"email": "wrongcode@test.com", "code": "000000"})
     assert r.status_code == 400
 
 
-def test_verify_email_rejects_garbage_token(client):
-    r = client.post("/auth/verify-email", json={"token": "not-a-real-token"})
+def test_verify_email_code_is_single_use(client, monkeypatch):
+    """한 번 성공한 코드는 재사용할 수 없어야 함(replay 방지)."""
+    sent = []
+    monkeypatch.setattr(
+        "routers.auth.send_verification_email",
+        lambda to_email, code: sent.append((to_email, code)),
+    )
+    _signup(client, email="singleuse@test.com")
+    code = sent[0][1]
+
+    r1 = client.post("/auth/verify-email", json={"email": "singleuse@test.com", "code": code})
+    assert r1.status_code == 200
+
+    r2 = client.post("/auth/verify-email", json={"email": "singleuse@test.com", "code": code})
+    assert r2.status_code == 400
+
+
+def test_verify_email_rejects_unknown_email(client):
+    r = client.post("/auth/verify-email", json={"email": "ghost@test.com", "code": "123456"})
     assert r.status_code == 400
 
 
@@ -316,7 +341,7 @@ def test_resend_verification_does_not_leak_account_existence(client, monkeypatch
     import routers.auth as auth_router_mod
     monkeypatch.setattr(
         auth_router_mod, "send_verification_email",
-        lambda to_email, token: sent.append(to_email),
+        lambda to_email, code: sent.append(to_email),
     )
     _signup(client, email="resendme@test.com")
     sent.clear()  # 가입 시 자동 발송된 것은 이 검증 대상이 아니므로 리셋
@@ -328,6 +353,27 @@ def test_resend_verification_does_not_leak_account_existence(client, monkeypatch
     r_known = client.post("/auth/verify-email/resend", json={"email": "resendme@test.com"})
     assert sent == ["resendme@test.com"]  # 존재+미인증이니 실제로는 발송됨
     assert r_known.json() == r_unknown.json()  # 그런데도 응답 형태로는 존재 여부 유추 불가
+
+
+def test_resend_invalidates_previous_code(client, monkeypatch):
+    """재발송하면 이전 코드는 더 이상 통하지 않아야 함."""
+    sent = []
+    monkeypatch.setattr(
+        "routers.auth.send_verification_email",
+        lambda to_email, code: sent.append(code),
+    )
+    _signup(client, email="resendinvalidate@test.com")
+    old_code = sent[0]
+
+    client.post("/auth/verify-email/resend", json={"email": "resendinvalidate@test.com"})
+    new_code = sent[1]
+    assert old_code != new_code
+
+    r_old = client.post("/auth/verify-email", json={"email": "resendinvalidate@test.com", "code": old_code})
+    assert r_old.status_code == 400
+
+    r_new = client.post("/auth/verify-email", json={"email": "resendinvalidate@test.com", "code": new_code})
+    assert r_new.status_code == 200
 
 
 # ---------------------------------------------------------------------------

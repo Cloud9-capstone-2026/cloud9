@@ -21,9 +21,8 @@
 경고 로그로 대체한다 — 조용히 아무 일도 안 일어나면 "왜 메일이 안 오지"
 하고 헤매게 되므로, 눈에 띄게 warning으로 남긴다.
 
-인증 링크의 verify_link는 아직 임시 플레이스홀더. React Native 앱의 실제
-딥링크 스킴(예: canary://verify-email?token=...)이 정해지면 교체해야 함 —
-도경과 협의 필요.
+[2026-08-24] 딥링크 방식 → 6자리 숫자 코드 방식으로 전환(도경과 협의 완료).
+프론트는 인증코드 입력 화면만 있으면 되고, 도메인/딥링크 설정 불필요.
 """
 import logging
 import os
@@ -36,9 +35,7 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
 
-def send_verification_email(to_email: str, token: str) -> None:
-    verify_link = f"https://api.canary.example/auth/verify-email?token={token}"
-
+def send_verification_email(to_email: str, code: str) -> None:
     gmail_user = os.getenv("GMAIL_USER")
     gmail_password = os.getenv("GMAIL_APP_PASSWORD")
     if gmail_password:
@@ -49,14 +46,14 @@ def send_verification_email(to_email: str, token: str) -> None:
     if not gmail_user or not gmail_password:
         logger.warning(
             "GMAIL_USER/GMAIL_APP_PASSWORD 미설정 — 실제 발송 대신 로그로 대체. "
-            "[DEV-STUB] %s 앞 인증 링크: %s", to_email, verify_link,
+            "[DEV-STUB] %s 앞 인증 코드: %s", to_email, code,
         )
         return
 
     msg = MIMEText(
         "Canary 이메일 인증을 완료해주세요.\n\n"
-        f"아래 링크를 눌러 인증을 마쳐주세요:\n{verify_link}\n\n"
-        "이 링크는 24시간 동안 유효합니다.",
+        f"아래 6자리 인증 코드를 앱에 입력해주세요:\n{code}\n\n"
+        "이 코드는 발급 후 일정 시간 동안만 유효합니다.",
         "plain", "utf-8",
     )
     msg["Subject"] = "[Canary] 이메일 인증을 완료해주세요"

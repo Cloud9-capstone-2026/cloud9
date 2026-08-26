@@ -18,7 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo 루트 (
 
 from config.settings import get
 
+import hmac
+import hashlib
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, status
@@ -63,32 +66,37 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# --- 이메일 인증 토큰 (2026-08-18) -----------------------------------------
-# access_token과 같은 SECRET_KEY로 서명하지만 용도가 다르므로 반드시
-# "purpose" claim으로 구분한다. 이게 없으면 로그인 access_token을 이메일
-# 인증 링크에 재사용하거나, 반대로 인증 토큰으로 API 인증을 시도하는
-# 토큰 혼동(token confusion) 공격이 가능해진다.
-EMAIL_VERIFY_EXPIRE_MINUTES = 60 * 24  # 24시간 — 인증 메일은 access_token보다 짧게
+# --- 이메일 인증 코드 (2026-08-24, 딥링크 방식에서 전환) --------------------
+# 배경: 커스텀 스키마는 Gmail 인앱브라우저에서 링크가 안 눌리는 경우가 있고,
+# 유니버설 링크는 도메인+apple-app-site-association/assetlinks.json 설정이
+# 필요한 데다 Expo Go 개발 중엔 딥링크 자체가 테스트 불가 → 6자리 숫자 코드로
+# 대체(도메인 의존성 없음, 프론트는 입력 화면만 있으면 됨).
+#
+# 코드 원문은 DB에 저장하지 않고 HMAC-SHA256 해시만 저장한다. 코드가 6자리라
+# bcrypt처럼 느린 해시를 쓸 필요는 없고(경우의 수가 100만 개뿐이라 느린 해시가
+# 안전성을 크게 높이지 않음), 대신 브루트포스는 verify-email 엔드포인트의
+# 레이트리밋으로 막는다.
+EMAIL_VERIFY_CODE_EXPIRE_MINUTES = int(
+    get("auth.email_verify_code_expire_minutes", 10, env_override="EMAIL_VERIFY_CODE_EXPIRE_MINUTES")
+)
 
 
-def create_email_verification_token(email: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=EMAIL_VERIFY_EXPIRE_MINUTES)
-    to_encode = {"sub": email, "purpose": "email_verify", "exp": expire}
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+def generate_verification_code() -> str:
+    """000000~999999 사이 6자리 코드를 문자열로 반환(앞자리 0 유지).
+
+    random 모듈이 아닌 secrets를 쓰는 이유: random은 예측 가능한 PRNG라
+    보안 목적(인증 코드 생성)에는 부적합.
+    """
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 
-def decode_email_verification_token(token: str) -> str:
-    """유효하면 검증 대상 email을 반환. 아니면 400을 던진다."""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 인증 링크입니다")
-    if payload.get("purpose") != "email_verify":
-        raise HTTPException(status_code=400, detail="유효하지 않은 토큰입니다")
-    email = payload.get("sub")
-    if not email:
-        raise HTTPException(status_code=400, detail="유효하지 않은 토큰입니다")
-    return email
+def hash_verification_code(code: str) -> str:
+    return hmac.new(SECRET_KEY.encode(), code.encode(), hashlib.sha256).hexdigest()
+
+
+def verify_verification_code(code: str, code_hash: str) -> bool:
+    """타이밍 공격 방지를 위해 hmac.compare_digest로 비교."""
+    return hmac.compare_digest(hash_verification_code(code), code_hash)
 
 
 def get_current_user(
