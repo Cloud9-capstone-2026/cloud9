@@ -11,6 +11,8 @@ anthropic==0.103.1
 anyio==4.13.0
 attrs==26.1.0
 bcrypt==4.0.1
+boto3==1.43.80
+botocore==1.43.80
 cattrs==26.1.0
 certifi==2026.2.25
 cffi==2.0.0
@@ -43,6 +45,7 @@ idna==3.11
 iniconfig==2.3.0
 Jinja2==3.1.6
 jiter==0.15.0
+jmespath==1.0.1
 joblib==1.5.3
 kiwisolver==1.5.0
 lisaconstants==2.0.2
@@ -86,6 +89,7 @@ pytz==2026.2
 PyYAML==6.0.3
 requests==2.33.1
 rsa==4.9.1
+s3transfer==0.1.0
 scikit-learn==1.9.0
 scipy==1.17.1
 setuptools==82.0.1

@@ -13,6 +13,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from dotenv import load_dotenv  # noqa: E402
 load_dotenv()
 
+# main.py와 동일한 이유로 여기서도 필요 — alembic은 FastAPI 앱과 별개
+# 프로세스로 실행되므로 이 파일에서도 독립적으로 호출해야 한다.
+from secrets_loader import load_secrets_into_env  # noqa: E402
+load_secrets_into_env()
+
 from database import DATABASE_URL, Base  # noqa: E402
 import orm  # noqa: E402,F401
 
