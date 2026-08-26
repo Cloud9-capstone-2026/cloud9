@@ -200,8 +200,7 @@ class AnalysisResult(Base):
     job_id      = Column(Integer, ForeignKey("analysis_jobs.id"), nullable=True)
     rule_score  = Column(Float)
     stat_score  = Column(Float)
-    lstm_score  = Column(Float)
-    final_score = Column(Float)
+    deep_score  = Column(Float)  # 3계층(GRU 태거) 거래 점수 — 옛 이름 lstm_score (2026-08-27 개명)
     is_anomaly  = Column(Boolean)
-    xai_result  = Column(JSON)
+    detail      = Column(JSON)   # 거래별 상세 전부(판정·flags·규칙·마할라노비스·3계층 근거·분포 점검) — 옛 이름 xai_result
     analyzed_at = Column(TIMESTAMP, server_default=func.now())

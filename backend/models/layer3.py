@@ -16,7 +16,7 @@ ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 
               거래별 인과 라벨이므로 1단계의 IG 프록시와 달리 의미가 정의상 일치.
               시장 맥락이 전무한 거래(시세 조회 실패 등)는 제외 — 사유는
               score_from_trades 본문 주석 참조.
-  lstm_score  per_trade trade_score의 최댓값 (계좌 요약 참고용)
+  deep_score  per_trade trade_score의 최댓값 (계좌 요약 참고용, 옛 이름 lstm_score)
   bias_mean   편향별 거래 평균 확률 (참고용 — 제품 출력 아님)
 
 실패 정책: 어떤 이유로든(아티팩트 부재·시세 조회 전면 실패·torch 미설치) 채점을
@@ -383,7 +383,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
 
         return {
             "per_trade": per_trade,
-            "lstm_score": round(max(e["trade_score"] for e in per_trade), 4),
+            "deep_score": round(max(e["trade_score"] for e in per_trade), 4),
             "bias_mean": {p: round(float(P[positions, j].mean()), 4)
                           for j, p in enumerate(params)},
             "n_events": len(per_trade),

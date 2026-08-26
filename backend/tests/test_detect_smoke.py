@@ -147,7 +147,7 @@ def test_deep_evidence_passthrough():
 
 
 def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
-    """DB 저장(xai_result)에 딥러닝 상세가 포함된다 — top_bias_명·bias_scores·
+    """DB 저장(detail)에 딥러닝 상세가 포함된다 — top_bias_명·bias_scores·
     evidence. 조회 라우터(GET /analysis/)는 저장분을 그대로 반환하므로 이
     계약이 곧 프론트가 받는 형태다. sqlite 인메모리 + 가짜 3계층."""
     from sqlalchemy import create_engine
@@ -186,7 +186,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
                                 "lottery_preference": 0.1, "herd_sensitivity": 0.1},
                 "evidence": EVID,
             } for i in range(len(df))],
-            "lstm_score": 0.9, "bias_mean": {}, "n_events": len(df),
+            "deep_score": 0.9, "bias_mean": {}, "n_events": len(df),
             "account_metrics": None,
         }
 
@@ -202,13 +202,13 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
     rows = db.query(orm.AnalysisResult).all()
     assert len(rows) == len(standard_trades)
     for r in rows:
-        x = r.xai_result
+        x = r.detail
         assert x["top_bias_명"] == "처분효과"
         assert set(x["bias_scores"]) == {"disposition_strength", "overconfidence",
                                          "lottery_preference", "herd_sensitivity"}
         assert x["evidence"] == EVID
         assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
-        assert r.lstm_score == 0.9
+        assert r.deep_score == 0.9
         assert r.upload_id == 1
 
 
@@ -316,9 +316,9 @@ def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
         assert e["deep"] is None            # 거래별 딥러닝 판정 없음
         assert e["layers_available"] == 2   # 규칙+통계만
     for r in db.query(orm.AnalysisResult).all():
-        assert r.lstm_score is None
+        assert r.deep_score is None
         # 프론트가 주의 문구를 띄울 유일한 신호 — 행마다 저장돼야 한다
-        assert r.xai_result["deep_excluded"] is True
+        assert r.detail["deep_excluded"] is True
     db.close()
 
 
@@ -348,7 +348,7 @@ def test_distribution_ok_proceeds_to_deep(monkeypatch, tmp_path, standard_trades
 
 def test_pipeline_applies_user_ruleset(monkeypatch, tmp_path, standard_trades):
     """사용자 등록 규칙이 파이프라인 끝까지 흐른다 — ensemble의
-    triggered_rules와 DB 저장(xai_result)에 사용자 규칙명이 실린다."""
+    triggered_rules와 DB 저장(detail)에 사용자 규칙명이 실린다."""
     db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
     monkeypatch.setattr(detect, "layer3_score", None)  # 3계층 무관
     # 사용자가 "1회 매수금액 상한 1원"을 등록한 상황 — 모든 매수가 걸린다
@@ -363,7 +363,7 @@ def test_pipeline_applies_user_ruleset(monkeypatch, tmp_path, standard_trades):
     assert buys  # 매수 거래들이 사용자 규칙에 걸림
     for e in ens:
         assert "일중_반복매매" not in e["rule"]["triggered_rules"]  # 기본 조합 미사용
-    stored = [r.xai_result["triggered_rules"]
+    stored = [r.detail["triggered_rules"]
               for r in db.query(orm.AnalysisResult).all()]
     assert any("매수금액_상한" in t for t in stored)  # 프론트 경로까지 도달
     db.close()

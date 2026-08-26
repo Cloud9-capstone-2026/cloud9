@@ -297,7 +297,7 @@ def run_pipeline_from_db(
     result["saved_path"] = save_detection_result(user_id, result)
 
     # ─ Phase 3: 쓰기 (새 트랜잭션)
-    # xai_result가 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
+    # detail이 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
     # 조회 라우터는 저장분을 그대로 반환하므로 여기 넣지 않으면 전달되지 않는다.
     for e in ensemble:
         deep = e["deep"] or {}
@@ -307,10 +307,9 @@ def run_pipeline_from_db(
             job_id      = job_id,
             rule_score  = e["rule"]["score"],
             stat_score  = e["stat"]["score"],
-            lstm_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None
-            final_score = None,  # 가중합 폐기 — 컬럼 정리는 스키마 작업 때
+            deep_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None
             is_anomaly  = e["verdict"] == "이상",
-            xai_result  = {
+            detail      = {
                 "날짜": e["날짜"],
                 "종목명": e["종목명"],
                 "verdict": e["verdict"],
