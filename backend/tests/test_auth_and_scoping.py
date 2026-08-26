@@ -56,9 +56,9 @@ def client(monkeypatch):
     app.dependency_overrides.clear()
 
 
-def _signup(client, email="a@test.com", password="password123", name="테스터"):
+def _signup(client, email="a@test.com", password="password123", name="테스터", agreed_terms=True):
     return client.post("/auth/signup", json={
-        "email": email, "password": password, "name": name,
+        "email": email, "password": password, "name": name, "agreed_terms": agreed_terms,
     })
 
 
@@ -116,9 +116,37 @@ def test_signup_password_too_short_rejected(client):
     # SignupRequest.password는 Field(min_length=8) — Pydantic이 라우터
     # 진입 전에 422로 거부해야 함
     r = client.post("/auth/signup", json={
-        "email": "short@test.com", "password": "1234567", "name": "테스터",
+        "email": "short@test.com", "password": "1234567", "name": "테스터", "agreed_terms": True,
     })
     assert r.status_code == 422
+
+
+def test_signup_requires_agreed_terms(client):
+    """agreed_terms가 false면 400 — 이용약관 동의 없이는 가입 불가."""
+    r = _signup(client, email="noagree@test.com", agreed_terms=False)
+    assert r.status_code == 400
+
+
+def test_signup_missing_agreed_terms_field_rejected(client):
+    """agreed_terms 필드 자체를 안 보내면 Pydantic이 422로 거부해야 함."""
+    r = client.post("/auth/signup", json={
+        "email": "missingfield@test.com", "password": "password123", "name": "테스터",
+    })
+    assert r.status_code == 422
+
+
+def test_signup_records_agreed_terms_timestamp(client):
+    from orm import User
+
+    _signup(client, email="agreetime@test.com")
+
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "agreetime@test.com").one()
+    assert user.agreed_terms is True
+    assert user.agreed_terms_at is not None
+    db.close()
 
 
 # ---------------------------------------------------------------------------

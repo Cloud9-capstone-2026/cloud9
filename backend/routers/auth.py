@@ -1,7 +1,7 @@
 """
-POST /auth/signup  - 이메일+비밀번호+이름으로 가입. 가입 즉시 이메일 인증
-                      메일을 발송한다(현재는 email_service가 로그 출력만 함
-                      — 2026-08-18, 이메일 발송 수단 미정).
+POST /auth/signup  - 이메일+비밀번호+이름+이용약관동의로 가입. 가입 즉시 이메일
+                      인증 메일을 발송한다. agreed_terms가 false/누락이면 400.
+                      (2026-08-26, 도경과 협의 후 필드 추가)
 POST /auth/login    - OAuth2PasswordRequestForm 사용 (username 필드에 이메일을 넣음).
                       이렇게 하면 Swagger UI의 "Authorize" 버튼이 그대로 동작함.
                       [주의] email_verified 여부로 로그인을 막지 않는다 —
@@ -58,6 +58,10 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
     name: str = Field(min_length=1, max_length=50)
+    # 이용약관/개인정보처리방침 동의 (2026-08-26 추가). 반드시 true여야 가입
+    # 가능 — false를 명시적으로 보내는 것과 필드를 아예 안 보내는 것 둘 다
+    # 막아야 하므로 Optional로 두지 않고 필수 필드로 강제한다.
+    agreed_terms: bool
 
 
 class TokenResponse(BaseModel):
@@ -81,6 +85,9 @@ class SocialLoginRequest(BaseModel):
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=TokenResponse)
 @limiter.limit("3/minute")
 def signup(request: Request, payload: SignupRequest, db: Session = Depends(get_db)):
+    if not payload.agreed_terms:
+        raise HTTPException(status_code=400, detail="이용약관 및 개인정보처리방침에 동의해야 가입할 수 있습니다")
+
     existing = db.query(User).filter(User.email == payload.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="이미 가입된 이메일입니다")
@@ -90,6 +97,8 @@ def signup(request: Request, payload: SignupRequest, db: Session = Depends(get_d
         name=payload.name,
         hashed_password=get_password_hash(payload.password),
         provider="local",
+        agreed_terms=True,
+        agreed_terms_at=datetime.now(timezone.utc),
         # email_verified는 컬럼 기본값(False) 그대로 — 아래에서 인증 메일 발송.
     )
     db.add(user)
