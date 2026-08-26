@@ -252,15 +252,14 @@ class MarketModel(mesa.Model):
         return {} if s is None else s.to_dict()
 
     def _prepare_market(self, tickers: list[str]):
-        """코스피 지수 수익률과 월별 LOTT 합성값(고유변동성+주가, 둘 다 월말 고정)을 미리 계산.
+        """코스피 지수 수익률·복권성 순위표·attention 스코어를 미리 준비.
 
         - get_prev_market_return용: 날짜 -> '전일에 끝난' 지수 수익률 (shift(1)).
           당일 종가 수익률을 그대로 쓰면 장중 매수 판단에 당일 종가가 새는 look-ahead.
-          단, 아래 요인 회귀는 종목-요인 '동시점' 정렬이 맞으므로 shift 안 한 원본을 쓴다.
-        - LOTT용: FF3 잔차 고유변동성+주가+EISKEW 랭크 합 — 계산은 7-3-1에서
-          lott.compute_monthly_lott로 추출(동작 불변, 생성기와 피처 빌더가 공유.
-          상세 주석은 lott.py 참조). '이번 달 계산 → 다음 달 적용'(get_lott_scores가
-          직전 달을 조회)으로 룩어헤드를 구조적으로 차단.
+        - LOTT용: 시장 전체 월별 순위표(config.LOTT_TABLE_PATH, ml/train/make_lott_table.py
+          산출 — FF3 잔차 고유변동성+주가+EISKEW 랭크 합, KCMI LOTT(1))를 읽는다. 표가
+          '직전 달 계산 → 이 달 적용'으로 이미 매핑돼 있어 룩어헤드가 구조적으로 없고,
+          실계좌 추론(features.build_features)과 같은 표·같은 모집단을 쓴다(2026-08-26).
         """
         idx = get_index_data()
         idx_close = idx.set_index("거래일자")["종가"].sort_index()

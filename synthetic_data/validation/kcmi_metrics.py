@@ -25,6 +25,8 @@ KCMI가 각 편향을 측정한 방식을 그대로 재현하는 계산 로직. 
 
 from collections import defaultdict
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 
@@ -406,8 +408,9 @@ def _lottery_rank(model, trading_days):
     sim_months = sorted({(d.year, d.month) for d in trading_days})
     acc: dict = defaultdict(list)
     for (yy, mm) in sim_months:
-        py, pm = (yy - 1, 12) if mm == 1 else (yy, mm - 1)
-        for tk, sc in model._monthly_lott.get((py, pm), {}).items():
+        # 시장 전체 순위표는 적용월 기준이라 model.get_lott_scores가 그 달 값을 바로 준다
+        # (예전엔 직전 달 계산치 _monthly_lott를 여기서 매핑했음 — 2026-08-26 표로 통일).
+        for tk, sc in model.get_lott_scores(date(yy, mm, 1)).items():
             acc[tk].append(sc)
     avg = {tk: float(np.mean(v)) for tk, v in acc.items() if v}
     if len(avg) < 2:
