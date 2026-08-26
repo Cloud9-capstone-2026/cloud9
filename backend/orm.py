@@ -19,6 +19,12 @@ class User(Base):
     # 덮어써서 이전 코드를 자동 무효화한다(별도 "무효화" 로직 불필요).
     verification_code_hash       = Column(String(64), nullable=True)
     verification_code_expires_at = Column(TIMESTAMP, nullable=True)
+    # 이용약관/개인정보처리방침 동의 (2026-08-26, 도경과 협의 — 회원가입 필드에 추가).
+    # 회원가입 시점에 True로 고정 기록. 나중에 약관이 개정되면 재동의 로직이
+    # 필요할 수 있는데, 그건 별도 버전 관리(예: agreed_terms_version)가
+    # 필요한 영역이라 지금 범위에는 포함하지 않음.
+    agreed_terms    = Column(Boolean, nullable=False, default=False)
+    agreed_terms_at = Column(TIMESTAMP, nullable=True)
     created_at      = Column(TIMESTAMP, server_default=func.now())
 
     __table_args__ = (
