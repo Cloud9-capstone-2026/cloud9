@@ -25,7 +25,7 @@ from database import SessionLocal
 from orm import AnalysisJob, AnalysisResult, CsvUpload, Trade
 from pipeline.csv_mapper import MappingError, map_file
 from pipeline.detect import run_pipeline_from_db
-from pipeline.upload_store import find_upload
+from pipeline.upload_store import load_upload
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,11 @@ def _store_trades(db, upload_id: int) -> None:
     이 5컬럼이 일치한다. 사용자 범위 제한이 없으면 다른 유저의 동일 거래가
     "중복"으로 오인되어 저장이 스킵된다.
     """
-    path = find_upload(upload_id)
-    if path is None:
+    loaded = load_upload(upload_id, db)  # DB(upload_files) 우선, 없으면 디스크
+    if loaded is None:
         raise MappingError(f"업로드 원본 파일 없음: upload_id={upload_id}")
-    out = map_file(path.read_bytes(), path.name)
+    raw, filename = loaded
+    out = map_file(raw, filename)
 
     upload = db.query(CsvUpload).filter(CsvUpload.id == upload_id).first()
     owner_user_id = upload.user_id if upload else None
