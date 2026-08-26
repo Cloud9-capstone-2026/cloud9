@@ -9,6 +9,9 @@ app:
 
 auth:
   jwt_expire_minutes: 10080  # 7일. JWT_EXPIRE_MINUTES 환경변수로 덮어쓸 수 있음.
+  email_verify_code_expire_minutes: 10  # 이메일 인증 6자리 코드 만료시간(분).
+                                          # EMAIL_VERIFY_CODE_EXPIRE_MINUTES 환경변수로 덮어쓸 수 있음.
+                                          # (2026-08-24, 딥링크 방식에서 전환하며 추가).
 
 # ---------------------------------------------------------------------------
 # 아래는 현재 models/layer3.py, models/xai.py, pipeline/monitor.py에

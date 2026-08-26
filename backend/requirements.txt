@@ -30,7 +30,7 @@ slowapi
 # 로컬/CI 환경에서는 다른 패키지가 requests를 끌고 와서 문제가 안 드러났다가,
 # EC2 배포(deploy.yml이 backend/requirements.txt로만 설치)에서
 # ModuleNotFoundError로 처음 드러남 (2026-08-18).
-google-auth
+google-auth==2.53.0
 httpx
 requests
 # 시세 캐시(parquet) — backend/price_cache.py, synthetic_data/market/krx_api.py 가 pandas.to_parquet/read_parquet 사용

@@ -7,8 +7,10 @@ POST /auth/login    - OAuth2PasswordRequestForm 사용 (username 필드에 이�
                       [주의] email_verified 여부로 로그인을 막지 않는다 —
                       발송 수단이 아직 없어 막으면 아무도 가입을 완료 못 함.
                       발송 수단 확정 후 이 게이트를 켤지는 별도 논의 필요.
-POST /auth/verify-email         - 인증 링크의 토큰으로 email_verified=True 처리.
+POST /auth/verify-email         - 이메일+6자리 코드로 email_verified=True 처리.
+                      (2026-08-24, 딥링크 방식에서 전환 — 도경과 협의 완료)
 POST /auth/verify-email/resend  - 인증 메일 재발송(미인증 상태일 때만, 존재 여부는 비노출).
+                      재발송 시 새 코드가 기존 코드를 덮어써 자동 무효화됨.
 POST /auth/social/{provider}    - 구글/네이버 소셜로그인 (카카오는 이메일
                       동의항목에 별도 비즈앱 심사가 필요해 이번 범위에서
                       제외 — 2026-08-18 팀 결정).
@@ -24,6 +26,8 @@ POST /auth/social/{provider}    - 구글/네이버 소셜로그인 (카카오는
 [레이트리밋 — 2026-08-17 최초 추가, 2026-08-18 신규 엔드포인트분 추가]
 login: 5/minute, signup: 3/minute — 브루트포스/스팸 방지.
 verify-email/resend: 3/minute — 이메일 스팸 발송 방지.
+verify-email: 5/minute — 6자리 코드 브루트포스 방지(경우의 수 100만개뿐이라
+필수. IP당 제한이라 완벽하진 않지만 1차 방어선).
 social/{provider}: 10/minute — 로그인류라 login과 비슷한 수준이되, provider
 검증 자체가 외부 API 호출(카카오/네이버)이라 너무 빡빡하면 정상 사용자도
 막힐 수 있어 login보다 약간 여유를 둠.
@@ -35,9 +39,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
-from auth import (create_access_token, create_email_verification_token,
-                  decode_email_verification_token, get_password_hash,
-                  verify_password)
+from datetime import datetime, timedelta, timezone
+
+from auth import (EMAIL_VERIFY_CODE_EXPIRE_MINUTES, create_access_token,
+                  generate_verification_code, get_password_hash,
+                  hash_verification_code, verify_password,
+                  verify_verification_code)
 from database import get_db
 from email_service import send_verification_email
 from orm import User
@@ -59,7 +66,8 @@ class TokenResponse(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
 
 
 class ResendVerificationRequest(BaseModel):
@@ -88,8 +96,13 @@ def signup(request: Request, payload: SignupRequest, db: Session = Depends(get_d
     db.commit()
     db.refresh(user)
 
-    verify_token = create_email_verification_token(user.email)
-    send_verification_email(user.email, verify_token)
+    code = generate_verification_code()
+    user.verification_code_hash = hash_verification_code(code)
+    user.verification_code_expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=EMAIL_VERIFY_CODE_EXPIRE_MINUTES
+    )
+    db.commit()
+    send_verification_email(user.email, code)
 
     token = create_access_token(user.id)
     return TokenResponse(access_token=token)
@@ -112,12 +125,25 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
 
 
 @router.post("/verify-email")
-def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
-    email = decode_email_verification_token(payload.token)
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="해당 이메일의 계정을 찾을 수 없습니다")
+@limiter.limit("5/minute")
+def verify_email(request: Request, payload: VerifyEmailRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user or not user.verification_code_hash:
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 인증 코드입니다")
+
+    expires_at = user.verification_code_expires_at
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not expires_at or expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="유효하지 않거나 만료된 인증 코드입니다")
+
+    if not verify_verification_code(payload.code, user.verification_code_hash):
+        raise HTTPException(status_code=400, detail="인증 코드가 올바르지 않습니다")
+
     user.email_verified = True
+    # 재사용(replay) 방지 — 검증에 성공한 코드는 즉시 무효화.
+    user.verification_code_hash = None
+    user.verification_code_expires_at = None
     db.commit()
     return {"message": "이메일 인증이 완료되었습니다"}
 
@@ -129,8 +155,13 @@ def resend_verification(request: Request, payload: ResendVerificationRequest, db
     # 계정 존재/인증 여부를 응답으로 노출하지 않음(이메일 나열 공격 방지) —
     # 있든 없든, 인증됐든 안 됐든 응답 메시지는 항상 동일.
     if user and not user.email_verified:
-        verify_token = create_email_verification_token(user.email)
-        send_verification_email(user.email, verify_token)
+        code = generate_verification_code()
+        user.verification_code_hash = hash_verification_code(code)
+        user.verification_code_expires_at = datetime.now(timezone.utc) + timedelta(
+            minutes=EMAIL_VERIFY_CODE_EXPIRE_MINUTES
+        )
+        db.commit()
+        send_verification_email(user.email, code)
     return {"message": "해당 이메일이 가입되어 있고 미인증 상태라면 인증 메일을 보냈습니다"}
 
 
