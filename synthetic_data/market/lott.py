@@ -202,3 +202,14 @@ def apply_month_rank(monthly_lott: dict) -> dict:
         ay, am = (yy + 1, 1) if mm == 12 else (yy, mm + 1)
         out[(ay, am)] = pd.Series(scores).rank(pct=True)
     return out
+
+
+def load_lott_table(path) -> dict:
+    """make_lott_table.py 산출 CSV(적용연·적용월·종목코드·lott_rank) →
+    {(적용연, 적용월): pd.Series(종목코드 -> 랭크)}. apply_month_rank 반환과 같은 꼴이라
+    features._market_context와 생성기 get_lott_scores가 그대로 조회한다."""
+    df = pd.read_csv(path, dtype={"종목코드": str})
+    return {
+        (int(y), int(m)): g.set_index("종목코드")["lott_rank"].astype(float)
+        for (y, m), g in df.groupby(["적용연", "적용월"])
+    }
