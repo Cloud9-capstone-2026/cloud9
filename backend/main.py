@@ -14,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config.settings import get
 load_dotenv()
 
+# .env(로컬 개발용 폴백)를 먼저 채운 뒤, EC2에서는 이 호출이 진짜 비밀값
+# 3개(DATABASE_URL/JWT_SECRET_KEY/GMAIL_APP_PASSWORD)를 Parameter Store
+# 값으로 덮어쓴다. 로컬에서는 IAM 역할이 없어 조용히 실패하고 .env 값이
+# 그대로 유지된다 (2026-08-26, secrets_loader.py 참고).
+from secrets_loader import load_secrets_into_env
+load_secrets_into_env()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
