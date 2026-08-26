@@ -33,3 +33,5 @@ slowapi
 google-auth
 httpx
 requests
+# 시세 캐시(parquet) — backend/price_cache.py, synthetic_data/market/krx_api.py 가 pandas.to_parquet/read_parquet 사용
+pyarrow

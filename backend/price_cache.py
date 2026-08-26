@@ -1,7 +1,7 @@
 """
 시세 조회 캐시 — 종목별 parquet + sidecar 증분 캐시.
 
-분석마다 종목별 순차 pykrx 호출(150일 룩백)을 반복하던 것을, 조회 성공 구간을
+분석마다 종목별 순차 시세 호출(150일 룩백)을 반복하던 것을, 조회 성공 구간을
 로컬에 쌓아 부족한 구간만 받아오게 한다. 분석 속도 개선 + KRX 장애 의존 완화.
 
 설계 (2026-08-05 착수 기준 반영):
@@ -18,7 +18,7 @@
   이어붙일 때 직전 OVERLAP_DAYS 만큼 겹쳐 받아 캐시와 대조하고, 불일치면 그
   종목을 전체 재조회한다. (겹침이 없는 옛 구간의 소급 변경은 감지 범위 밖 —
   알려진 한계로 문서화.)
-- fetcher 주입: pykrx 호출은 fetcher(ticker, start, end) 함수로 분리 — 테스트가
+- fetcher 주입: 시세 호출은 fetcher(ticker, start, end) 함수로 분리 — 테스트가
   mock 카운터로 대체해 호출 횟수·구간을 검증한다.
 
 공개 API:
@@ -158,20 +158,27 @@ def _normalize(raw: pd.DataFrame, ticker: str) -> pd.DataFrame:
 
 
 def _default_fetcher(ticker: str, start: date, end: date) -> pd.DataFrame:
-    """pykrx 수정주가 OHLCV. layer3 기존 경로와 동일 파라미터."""
-    from synthetic_data.net import ensure_timeout_patch
-    ensure_timeout_patch()
-    from pykrx import stock
+    """KRX Open API 일별 시세(krx_api 날짜별 캐시) → 이 종목의 [start, end] 수정주가 OHLCV.
 
-    df = stock.get_market_ohlcv(
-        start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), ticker, adjusted=True)
-    if df is None or df.empty:
+    2026-08-26 pykrx(KRX 웹 스크래핑, 약관·IP 차단) → Open API 전환. 날짜별 전 종목
+    파일을 캐시하므로 같은 기간의 다른 종목·다른 사용자 분석은 네트워크 없이 처리된다.
+    수정주가는 krx_api.adjust_prices(상장주식수·시총 연속성)로 만든다 — 기업행위로 과거
+    값이 바뀌면 위 겹침 대조(_overlap_mismatch)가 잡아 그 종목을 재조회한다."""
+    from synthetic_data.market import krx_api
+
+    days = krx_api.prefetch(start, end, with_index=False)
+    if not days:
         return pd.DataFrame(columns=["거래일자", "시가", "고가", "저가", "종가", "거래량"])
+    raw = krx_api.load_daily(days)
+    raw = raw[raw["종목코드"] == ticker]
+    if raw.empty:
+        return pd.DataFrame(columns=["거래일자", "시가", "고가", "저가", "종가", "거래량"])
+    adj = krx_api.adjust_prices(raw).sort_values("거래일자")
     return pd.DataFrame({
-        "거래일자": pd.to_datetime(df.index),
-        "시가": df["시가"].values, "고가": df["고가"].values,
-        "저가": df["저가"].values, "종가": df["종가"].values,
-        "거래량": df["거래량"].values,
+        "거래일자": pd.to_datetime(adj["거래일자"]),
+        "시가": adj["시가"].values, "고가": adj["고가"].values,
+        "저가": adj["저가"].values, "종가": adj["종가"].values,
+        "거래량": adj["거래량"].values,
     })
 
 
