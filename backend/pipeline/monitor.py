@@ -30,6 +30,7 @@ deep_excluded=True — detect.py가 그 계좌의 3계층 채점을 생략하고
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,14 @@ logger = logging.getLogger(__name__)
 # layer3와 같은 아티팩트 위치 규약 (환경변수 우선) — layer3를 import하지 않는
 # 이유: 이 모듈은 torch 없는 환경에서도 살아야 한다
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    # config.settings import용. xai.py/layer3.py와 같은 패턴 — 이 모듈은
+    # main.py를 거치지 않고 단독 실행/테스트될 수도 있어(test_monitor.py는
+    # pipeline.monitor를 직접 import) 방어적으로 넣는다.
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from config.settings import get  # 2026-08-27 CANARY_DIST_TRIGGER settings.yaml 이관
+
 _ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifacts"))
 
 
@@ -60,7 +69,7 @@ def _trigger_threshold() -> int:
     """발동 기준(이탈 지표 최소 개수) — 호출 시점에 환경변수를 읽어 재시작만으로
     조정 가능. 양의 정수만 허용: 빈 값·비숫자는 분석 전체를 죽이고 0 이하는
     이탈이 없어도 전 계좌를 제외하게 되므로, 무효 값은 경고 후 기본값 2."""
-    raw = os.environ.get("CANARY_DIST_TRIGGER", "2")
+    raw = get("model.dist_trigger", "2", env_override="CANARY_DIST_TRIGGER")
     try:
         n = int(raw)
     except (TypeError, ValueError):
