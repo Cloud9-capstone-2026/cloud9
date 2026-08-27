@@ -128,7 +128,12 @@ def test_upload_contract_and_worker_completion(app_env):
     assert "analysis" not in body       # 구 계약 필드 제거
     assert "건 저장" not in body["message"]  # 건수는 매핑 전이라 알 수 없음
 
-    assert app_env["map_calls"] == [f"{body['upload_id']}.csv"]  # 매핑 1회
+    # [2026-08-27] DB 저장(orm.UploadFile) 도입으로 매핑에 넘어가는 파일명이
+    # 실제 원본 파일명(csv_uploads.file_name, 여기선 "t.csv")으로 바뀜.
+    # 예전 디스크 저장 방식은 원본 파일명을 버리고 "{upload_id}.csv"로 덮어
+    #썼었는데, 이건 원본 파일명이 조용히 유실되던 부작용이었고 DB 방식이
+    # 오히려 이를 올바르게 보존하는 동작이라 이 값이 맞다.
+    assert app_env["map_calls"] == ["t.csv"]  # 매핑 1회, 원본 파일명 그대로
     assert app_env["pipeline_calls"] == [body["upload_id"]]      # 분석 1회
     from orm import AnalysisJob, CsvUpload, Trade
     db = app_env["Session"]()
@@ -142,12 +147,22 @@ def test_upload_contract_and_worker_completion(app_env):
 
 
 def test_upload_saves_raw_file(app_env):
-    """원본 파일이 디스크에 그대로 남는다 — worker·재시도·실패 조사의 재료."""
+    """원본 파일이 그대로 남는다 — worker·재시도·실패 조사의 재료.
+
+    [2026-08-27] orm.UploadFile 테이블 추가로 upload_store가 DB 저장을
+    우선하게 됨(디스크는 테이블 없을 때만 쓰는 폴백) — 그래서 find_upload
+    (디스크 전용 조회)가 아니라 upload_store.load_upload(DB 우선, 없으면
+    디스크)로 확인해야 실제 저장 위치와 무관하게 검증 가능."""
     r = _upload(app_env["client"])
     uid = r.json()["upload_id"]
-    path = app_env["upload_store"].find_upload(uid)
-    assert path is not None
-    assert path.read_bytes() == CSV.encode("utf-8-sig")
+
+    db = app_env["Session"]()
+    loaded = app_env["upload_store"].load_upload(uid, db)
+    db.close()
+
+    assert loaded is not None
+    raw, filename = loaded
+    assert raw == CSV.encode("utf-8-sig")
 
 
 def test_upload_rejects_unknown_extension(app_env):
@@ -179,8 +194,9 @@ def test_mapping_failure_fails_job_without_trades(app_env, monkeypatch):
     assert up.status == "failed"
     db.close()
     assert app_env["pipeline_calls"] == []           # 분석까지 안 감
-    assert app_env["upload_store"].find_upload(body["upload_id"]) is not None
-
+    db2 = app_env["Session"]()
+    assert app_env["upload_store"].load_upload(body["upload_id"], db2) is not None
+    db2.close()
 
 def test_reupload_skips_duplicate_trades(app_env):
     """같은 파일 재업로드 — 5컬럼 중복 키로 전 행 스킵, 이중 저장 없음."""
