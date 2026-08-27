@@ -44,6 +44,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from config.settings import get  # 2026-08-27 CANARY_MODEL_REPO settings.yaml 이관
+
 # 아티팩트 위치: 환경변수 우선(배포 서버 — 모델 파일은 gitignore라 레포에 없음),
 # 없으면 로컬 학습 산출 경로. 둘 다 비어 있으면 GitHub Release에서 내려받는다
 # (_ensure_artifacts — CANARY_MODEL_RELEASE 태그 필요, 사설 레포는 GITHUB_TOKEN).
@@ -88,7 +90,7 @@ def _ensure_artifacts() -> Path:
         raise RuntimeError(
             f"모델 아티팩트 없음({_ART_DIR}) — CANARY_MODEL_DIR 또는 "
             "CANARY_MODEL_RELEASE(다운로드 태그)를 설정할 것")
-    repo = os.environ.get("CANARY_MODEL_REPO", "Cloud9-capstone-2026/cloud9")
+        repo = get("model.repo", "Cloud9-capstone-2026/cloud9", env_override="CANARY_MODEL_REPO")
     headers = {"Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:

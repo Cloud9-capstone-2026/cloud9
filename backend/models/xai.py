@@ -27,10 +27,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from ml import seqfeat
+from config.settings import get
 
 # 경로 적분 근사 스텝 (완전성 오차 대비 계산량 절충). 서버 CPU가 느려 분석이
 # 오래 걸리면 환경변수로 16까지 낮춰 절반으로 줄일 수 있다(정밀도 소폭 희생).
-IG_STEPS = int(os.environ.get("CANARY_XAI_STEPS", "32"))
+IG_STEPS = int(get("model.xai_steps", 32, env_override="CANARY_XAI_STEPS"))  # 2026-08-27 settings.yaml 이관
 BATCH_CAP = 1024  # 한 순전파에 넣는 (타깃 복사본 × 스텝) 상한 — 메모리 절충
 
 # 시퀀스 채널 순서 = seqfeat.build_sequences의 컬럼 순서 (기본 10 + 결측 마스크 7)

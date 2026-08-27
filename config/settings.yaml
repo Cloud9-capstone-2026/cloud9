@@ -17,12 +17,15 @@ auth:
                                             # (2026-08-27 추가)
 
 # ---------------------------------------------------------------------------
-# 아래는 현재 models/layer3.py, models/xai.py, pipeline/monitor.py에
-# os.environ.get(...)으로 흩어져 있는 C파트 소관 설정값들이다.
-# settings.yaml 인프라(config/settings.py)는 이미 마련해뒀으니, 실제로 이
-# 파일로 옮길지는 은우와 협의 후 결정 — 나림이 임의로 C파트 파일을 고치지
-# 않기 위해 주석 처리 상태로 남겨둔다.
-#
-# model:
-#   xai_steps: 32              # 현재 CANARY_XAI_STEPS
-#   repo: Cloud9-capstone-2026/cloud9   # 현재 CANARY_MODEL_REPO
+# C파트(은우) 소관 설정값. 2026-08-27 은우 승인 후 이관 완료
+# (models/layer3.py, models/xai.py, pipeline/monitor.py에서 os.environ.get(...)
+# 직접 읽던 것을 config.settings.get()으로 교체). 값 자체나 기본값을 바꾸는 게
+# 아니라 "어디서 관리하느냐"만 바꾼 것 — 여전히 환경변수로 덮어쓸 수 있음
+# (예: 운영에서 급하게 재시작만으로 조정하고 싶을 때는 지금처럼 EC2 .env에
+# 같은 이름의 환경변수를 넣으면 이 파일 값보다 우선함).
+model:
+  xai_steps: 32              # CANARY_XAI_STEPS 환경변수로 덮어쓸 수 있음
+  repo: Cloud9-capstone-2026/cloud9   # CANARY_MODEL_REPO 환경변수로 덮어쓸 수 있음
+  dist_trigger: 2             # CANARY_DIST_TRIGGER 환경변수로 덮어쓸 수 있음.
+                               # 분포 점검 발동 기준(이탈 지표 개수) — 실사용
+                               # 데이터 쌓이면 조정 예정(은우, pipeline/monitor.py)
