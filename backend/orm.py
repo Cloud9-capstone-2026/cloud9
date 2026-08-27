@@ -25,6 +25,11 @@ class User(Base):
     # 필요한 영역이라 지금 범위에는 포함하지 않음.
     agreed_terms    = Column(Boolean, nullable=False, default=False)
     agreed_terms_at = Column(TIMESTAMP, nullable=True)
+    # 비밀번호 재설정 6자리 코드 (2026-08-27). verification_code_hash와 별도
+    # 컬럼으로 둔 이유는 auth.py 주석 참고 — 이메일 인증 코드와 섞이면
+    # 서로 덮어쓰는 사고가 날 수 있음.
+    password_reset_code_hash       = Column(String(64), nullable=True)
+    password_reset_code_expires_at = Column(TIMESTAMP, nullable=True)
     created_at      = Column(TIMESTAMP, server_default=func.now())
 
     __table_args__ = (

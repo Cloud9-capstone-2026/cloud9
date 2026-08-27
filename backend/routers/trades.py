@@ -4,11 +4,18 @@
 전체를 메모리로 읽어들여서(await file.read()), 큰 파일이 오면 서버 메모리를
 과도하게 잡아먹을 수 있었음. MAX_UPLOAD_SIZE로 상한선을 둠(기본 10MB —
 매매내역 CSV는 통상 수백KB~수MB 수준이라 충분히 넉넉함).
+
+[페이지네이션 추가 — 2026-08-27]
+GET /trades, GET /trades/uploads가 사용자 전체 이력을 무제한으로 반환하고
+있었음 — 데이터가 쌓일수록 응답이 계속 무거워지는 구조라 limit/offset을
+추가. 기본값 50, 최대 200(거래는 uploads보다 건수가 많을 수 있어 상한을
+좀 더 넉넉히 둠). 정렬 기준도 명시(거래는 거래일자 내림차순 — 최근 거래
+먼저 보여주는 게 자연스러움, 업로드는 기존처럼 id 내림차순 유지).
 """
 from pathlib import Path
 
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, HTTPException,
-                     UploadFile)
+                     Query, UploadFile)
 from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
@@ -22,21 +29,34 @@ MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10MB
 
 # GET /trades/uploads — 본인 업로드 히스토리만 조회
 @router.get("/uploads")
-def get_uploads(db: Session = Depends(get_db),
+def get_uploads(limit: int = Query(default=50, ge=1, le=200),
+                offset: int = Query(default=0, ge=0),
+                db: Session = Depends(get_db),
                  current_user: User = Depends(get_current_user)):
     uploads = (
         db.query(CsvUpload)
         .filter(CsvUpload.user_id == current_user.id)
         .order_by(CsvUpload.id.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     return uploads
 
-# GET /trades — 본인 거래 내역만 조회
+# GET /trades — 본인 거래 내역만 조회, 거래일자 최신순
 @router.get("/")
-def get_trades(db: Session = Depends(get_db),
+def get_trades(limit: int = Query(default=50, ge=1, le=200),
+               offset: int = Query(default=0, ge=0),
+               db: Session = Depends(get_db),
                current_user: User = Depends(get_current_user)):
-    trades = db.query(Trade).filter(Trade.user_id == current_user.id).all()
+    trades = (
+        db.query(Trade)
+        .filter(Trade.user_id == current_user.id)
+        .order_by(Trade.거래일자.desc(), Trade.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return trades
 
 # POST /trades/upload — 원본 파일 저장 + 분석 job 생성 후 즉시 202 반환

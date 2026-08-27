@@ -29,7 +29,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from database import engine, Base, SessionLocal
 from rate_limit import limiter
-from routers import trades, analysis, jobs, auth, survey
+from routers import trades, analysis, jobs, auth, survey, rules
 import uvicorn
 import os
 
@@ -57,6 +57,7 @@ app.include_router(trades.router, prefix="/trades", tags=["trades"])
 app.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
 app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 app.include_router(survey.router, prefix="/survey", tags=["survey"])
+app.include_router(rules.router, prefix="/rules", tags=["rules"])
 
 @app.get("/")
 def root():
