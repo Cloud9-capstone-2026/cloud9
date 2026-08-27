@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, BigInteger, Float, Boolean, JSON, TIMESTAMP, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Date, BigInteger, Float, Boolean, JSON, TIMESTAMP, ForeignKey, UniqueConstraint, LargeBinary
 from sqlalchemy.sql import func
 from database import Base
 
@@ -76,6 +76,74 @@ class AnalysisJob(Base):
     created_at   = Column(TIMESTAMP, server_default=func.now())
     started_at   = Column(TIMESTAMP, nullable=True)
     finished_at  = Column(TIMESTAMP, nullable=True)
+
+class UserRule(Base):
+    """1계층(Rule-based) 사용자 정의 규칙 파라미터.
+
+    2026-08-07 회의 결정: 1계층을 "사용자가 스스로 정한 절제 규칙" 방식으로
+    전환하면서 도입. 스키마는 은우가 pipeline/user_rules.py에 이미 문서화해둔
+    "기대 스키마"를 그대로 따른다 — 이 모델이 orm에 실제로 생기는 순간
+    pipeline/user_rules.py의 getattr 폴백(orm.UserRule 없으면 기본 조합 사용)이
+    자동으로 DB 조회 경로로 전환된다. 즉 이 모델 추가 외에 다른 코드 변경 불필요.
+
+    rule_id 유효값 7종(models/rule_based/templates.py의 TEMPLATES 키와 동기화
+    필요): daily_frequency, same_day_roundtrip, min_holding,
+    reentry_after_loss, averaging_down, single_buy_cap, daily_total_cap.
+    DB 레벨 CHECK 제약은 걸지 않음 — C파트가 템플릿을 추가/변경할 때마다
+    스키마 마이그레이션이 필요해지는 결합을 피하기 위함(값 검증은
+    pipeline/user_rules.py가 TEMPLATES 조회 실패 시 경고 후 스킵하는 방식으로
+    이미 방어하고 있음).
+
+    (user_id, rule_id) unique — 사용자당 규칙 1행, 수정은 UPDATE로(재등록 아님).
+    수정은 소급 없이 다음 업로드 분석부터 적용(과거 분석 결과 재계산 안 함)."""
+    __tablename__ = "user_rules"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'rule_id', name='uq_user_rules_user_id_rule_id'),
+    )
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    rule_id    = Column(String(30), nullable=False)
+    param      = Column(Float, nullable=True)  # 왕복매매처럼 파라미터 없는 규칙은 null
+    enabled    = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+
+class UploadFile(Base):
+    """업로드 CSV/XLS 원본 파일 실제 바이트를 DB에 보관.
+
+    배경: 기존엔 EC2 디스크(backend/uploads/)에만 저장돼 있어 서버 교체 시
+    유실 위험이 있었고, 개인 거래내역이라는 데이터 성격상 디스크에 평문
+    파일로 흩어져 있는 것도 보안 정책상 부적절 → DB로 이관.
+
+    csv_uploads에 컬럼으로 안 붙이고 별도 테이블로 분리한 이유: GET
+    /trades/uploads(업로드 목록 조회)가 csv_uploads를 통째로 조회하는데,
+    content(최대 10MB)가 같은 행에 있으면 목록 조회 한 번에 수십MB를
+    끌어오게 된다. 분리해두면 목록 조회는 가볍고, 원본 파일은 실제로
+    분석(map_file)에 쓰일 때만 이 테이블을 별도로 읽는다.
+
+    파일명은 여기 저장 안 함 — csv_uploads.file_name에 이미 있어 중복
+    저장을 피함(pipeline/upload_store.load_upload가 두 테이블을 조합해
+    (bytes, filename) 튜플로 반환).
+
+    이 모델이 orm에 생기는 순간 pipeline/upload_store.py의 getattr 폴백이
+    자동으로 DB 저장/조회 경로로 전환된다(디스크 저장 코드는 폴백용으로
+    남아있으나, 이후 backend/uploads/ 폴더 배포 시 유지 관리는 불필요해짐 —
+    당장 그 코드를 지우는 건 별도 후속 작업으로 남겨둠).
+
+    보관 정책(문서화, 이번 커밋에는 로직 미구현 — 별도 배치 작업 필요):
+    1) 회원 탈퇴 시 즉시 삭제(upload_files + csv_uploads/trades 연쇄 삭제 포함)
+    2) 업로드 후 90일 지난 원본은 분석 결과는 유지하고 원본 파일만 삭제
+    두 정책 모두 아직 구현 안 됨 — 탈퇴 기능 자체가 없고, 90일 정리 배치도
+    별도 스케줄러가 필요한 작업이라 이번 스키마 추가 범위 밖."""
+    __tablename__ = "upload_files"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    upload_id  = Column(Integer, ForeignKey("csv_uploads.id"), unique=True, nullable=False)
+    content    = Column(LargeBinary, nullable=False)
+    size       = Column(Integer, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
 
 class SurveyResult(Base):
     """투자 성향 자가진단(20문항) 결과 1회 제출분.
