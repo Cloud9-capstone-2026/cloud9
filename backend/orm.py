@@ -77,6 +77,44 @@ class AnalysisJob(Base):
     started_at   = Column(TIMESTAMP, nullable=True)
     finished_at  = Column(TIMESTAMP, nullable=True)
 
+class SurveyResult(Base):
+    """투자 성향 자가진단(20문항) 결과 1회 제출분.
+
+    스펙(2026-08-17 확정): 축당 5문항 4축(disposition_strength/overconfidence/
+    lottery_preference/herd_sensitivity), 1~5 리커트, 일부 문항 reverse 채점
+    (6-응답값). raw(5~25)를 (raw-5)/20*100으로 0~100 정규화, 50 이상 high.
+    type_code는 4축을 이 순서로 이어붙인 H/L 4글자.
+
+    answers는 원본 응답(reverse 적용 전)을 감사·재계산 대비용으로 JSONB에
+    같이 저장 — 나중에 reverse 채점 대상 문항이 바뀌어도 과거 응답으로
+    재계산 가능하게 하기 위함 (xai_result를 JSONB로 남기는 것과 같은 이유)."""
+    __tablename__ = "survey_results"
+
+    id      = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    disposition_strength_raw        = Column(Integer, nullable=False)
+    disposition_strength_normalized = Column(Float, nullable=False)
+    disposition_strength_level      = Column(String(4), nullable=False)  # 'high' | 'low'
+
+    overconfidence_raw        = Column(Integer, nullable=False)
+    overconfidence_normalized = Column(Float, nullable=False)
+    overconfidence_level      = Column(String(4), nullable=False)
+
+    lottery_preference_raw        = Column(Integer, nullable=False)
+    lottery_preference_normalized = Column(Float, nullable=False)
+    lottery_preference_level      = Column(String(4), nullable=False)
+
+    herd_sensitivity_raw        = Column(Integer, nullable=False)
+    herd_sensitivity_normalized = Column(Float, nullable=False)
+    herd_sensitivity_level      = Column(String(4), nullable=False)
+
+    type_code = Column(String(4), nullable=False)  # 예: 'HLHL'
+    answers   = Column(JSON, nullable=False)        # [{question_id, value}, ...] 원본 응답
+
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
 class AnalysisResult(Base):
     __tablename__ = "analysis_results"
 
