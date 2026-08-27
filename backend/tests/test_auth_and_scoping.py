@@ -271,6 +271,98 @@ def test_user_only_sees_own_uploads(client):
 
 
 # ---------------------------------------------------------------------------
+# 페이지네이션 (2026-08-27 추가)
+# ---------------------------------------------------------------------------
+
+def test_trades_pagination_limit_and_offset(client):
+    from orm import Trade, User
+    import datetime
+
+    _signup(client, email="pagetrades@test.com")
+    token = _login(client, email="pagetrades@test.com").json()["access_token"]
+
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "pagetrades@test.com").one()
+    for i in range(5):
+        db.add(Trade(
+            user_id=user.id, 거래일자=datetime.date(2026, 1, i + 1), 종목명=f"종목{i}",
+            거래구분="매수", 거래수량=1, 거래단가=1000, 거래금액=1000,
+            수수료=0, 거래세=0, 정산금액=1000,
+        ))
+    db.commit()
+    db.close()
+
+    page1 = client.get("/trades?limit=2&offset=0", headers=_auth_header(token)).json()
+    assert len(page1) == 2
+    # 거래일자 내림차순 — 가장 최근(1/5) 거래가 먼저 나와야 함
+    assert page1[0]["종목명"] == "종목4"
+    assert page1[1]["종목명"] == "종목3"
+
+    page2 = client.get("/trades?limit=2&offset=2", headers=_auth_header(token)).json()
+    assert len(page2) == 2
+    assert page2[0]["종목명"] == "종목2"
+
+
+def test_trades_pagination_default_limit_applied(client):
+    r = _signup(client, email="defaultlimit@test.com")
+    token = r.json()["access_token"]
+    r = client.get("/trades", headers=_auth_header(token))
+    assert r.status_code == 200  # limit 파라미터 없이도 정상 동작(기본값 50)
+
+
+def test_trades_pagination_rejects_limit_over_max(client):
+    token = _signup(client, email="overmaxlimit@test.com").json()["access_token"]
+    r = client.get("/trades?limit=201", headers=_auth_header(token))
+    assert r.status_code == 422
+
+
+def test_uploads_pagination_limit(client):
+    from orm import CsvUpload, User
+
+    _signup(client, email="pageuploads@test.com")
+    token = _login(client, email="pageuploads@test.com").json()["access_token"]
+
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "pageuploads@test.com").one()
+    for i in range(3):
+        db.add(CsvUpload(user_id=user.id, file_name=f"{i}.csv", status="done"))
+    db.commit()
+    db.close()
+
+    r = client.get("/trades/uploads?limit=1", headers=_auth_header(token))
+    assert len(r.json()) == 1
+
+
+def test_analysis_pagination_newest_first(client):
+    from orm import AnalysisResult, User
+
+    _signup(client, email="pageanalysis@test.com")
+    token = _login(client, email="pageanalysis@test.com").json()["access_token"]
+
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.email == "pageanalysis@test.com").one()
+    ids = []
+    for i in range(3):
+        row = AnalysisResult(user_id=user.id, final_score=float(i), is_anomaly=False)
+        db.add(row)
+        db.flush()
+        ids.append(row.id)
+    db.commit()
+    db.close()
+
+    r = client.get("/analysis?limit=2", headers=_auth_header(token))
+    body = r.json()
+    assert len(body) == 2
+    assert [row["id"] for row in body] == list(reversed(ids))[:2]  # 최신순
+
+
+# ---------------------------------------------------------------------------
 # 헬스체크 / 루트
 # ---------------------------------------------------------------------------
 
@@ -473,3 +565,193 @@ def test_social_login_rejects_email_already_used_by_local_account(client, monkey
 def test_social_login_unknown_provider_rejected(client):
     r = client.post("/auth/social/facebook", json={"token": "t"})
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 비밀번호 재설정 (2026-08-27)
+# ---------------------------------------------------------------------------
+
+def test_password_reset_request_does_not_leak_account_existence(client, monkeypatch):
+    sent = []
+    import routers.auth as auth_router_mod
+    monkeypatch.setattr(
+        auth_router_mod, "send_password_reset_email",
+        lambda to_email, code: sent.append(to_email),
+    )
+    _signup(client, email="resetme@test.com")
+    sent.clear()
+
+    r_unknown = client.post("/auth/password-reset/request", json={"email": "ghost3@test.com"})
+    assert r_unknown.status_code == 200
+    assert sent == []
+
+    r_known = client.post("/auth/password-reset/request", json={"email": "resetme@test.com"})
+    assert sent == ["resetme@test.com"]
+    assert r_known.json() == r_unknown.json()
+
+
+def test_password_reset_request_skipped_for_social_accounts(client, monkeypatch):
+    """소셜로그인 계정은 비밀번호 자체가 없으므로 코드 발송 안 함(응답은 동일)."""
+    from social_auth import VERIFIERS
+
+    sent = []
+    import routers.auth as auth_router_mod
+    monkeypatch.setattr(
+        auth_router_mod, "send_password_reset_email",
+        lambda to_email, code: sent.append(to_email),
+    )
+    monkeypatch.setitem(VERIFIERS, "google", lambda token: {
+        "provider_id": "g-1", "email": "socialreset@test.com",
+        "name": "소셜유저", "email_verified": True,
+    })
+    client.post("/auth/social/google", json={"token": "t"})
+
+    r = client.post("/auth/password-reset/request", json={"email": "socialreset@test.com"})
+    assert r.status_code == 200
+    assert sent == []
+
+
+def test_password_reset_confirm_changes_password_and_allows_login(client, monkeypatch):
+    sent = []
+    import routers.auth as auth_router_mod
+    monkeypatch.setattr(
+        auth_router_mod, "send_password_reset_email",
+        lambda to_email, code: sent.append((to_email, code)),
+    )
+    _signup(client, email="resetflow@test.com", password="oldpassword123")
+    client.post("/auth/password-reset/request", json={"email": "resetflow@test.com"})
+    code = sent[0][1]
+
+    r = client.post("/auth/password-reset/confirm", json={
+        "email": "resetflow@test.com", "code": code, "new_password": "newpassword456",
+    })
+    assert r.status_code == 200
+
+    old_login = _login(client, email="resetflow@test.com", password="oldpassword123")
+    assert old_login.status_code == 401
+    new_login = _login(client, email="resetflow@test.com", password="newpassword456")
+    assert new_login.status_code == 200
+
+
+def test_password_reset_confirm_rejects_wrong_code(client, monkeypatch):
+    monkeypatch.setattr("routers.auth.send_password_reset_email", lambda to_email, code: None)
+    _signup(client, email="resetwrong@test.com")
+    client.post("/auth/password-reset/request", json={"email": "resetwrong@test.com"})
+
+    r = client.post("/auth/password-reset/confirm", json={
+        "email": "resetwrong@test.com", "code": "000000", "new_password": "newpassword456",
+    })
+    assert r.status_code == 400
+
+
+def test_password_reset_confirm_code_is_single_use(client, monkeypatch):
+    sent = []
+    monkeypatch.setattr(
+        "routers.auth.send_password_reset_email",
+        lambda to_email, code: sent.append(code),
+    )
+    _signup(client, email="resetsingleuse@test.com")
+    client.post("/auth/password-reset/request", json={"email": "resetsingleuse@test.com"})
+    code = sent[0]
+
+    r1 = client.post("/auth/password-reset/confirm", json={
+        "email": "resetsingleuse@test.com", "code": code, "new_password": "newpassword456",
+    })
+    assert r1.status_code == 200
+
+    r2 = client.post("/auth/password-reset/confirm", json={
+        "email": "resetsingleuse@test.com", "code": code, "new_password": "anotherpassword789",
+    })
+    assert r2.status_code == 400
+
+
+def test_password_reset_confirm_without_request_rejected(client):
+    _signup(client, email="noresetrequest@test.com")
+    r = client.post("/auth/password-reset/confirm", json={
+        "email": "noresetrequest@test.com", "code": "123456", "new_password": "newpassword456",
+    })
+    assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# 프로필 조회/수정 (2026-08-27)
+# ---------------------------------------------------------------------------
+
+def test_get_my_profile_requires_auth(client):
+    r = client.get("/auth/me")
+    assert r.status_code == 401
+
+
+def test_get_my_profile_returns_own_info(client):
+    token = _signup(client, email="profiletest@test.com", name="원래이름").json()["access_token"]
+    r = client.get("/auth/me", headers=_auth_header(token))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["email"] == "profiletest@test.com"
+    assert body["name"] == "원래이름"
+    assert body["provider"] == "local"
+
+
+def test_update_my_profile_changes_name(client):
+    token = _signup(client, email="renametest@test.com", name="옛날이름").json()["access_token"]
+    r = client.patch("/auth/me", json={"name": "새이름"}, headers=_auth_header(token))
+    assert r.status_code == 200
+    assert r.json()["name"] == "새이름"
+
+    check = client.get("/auth/me", headers=_auth_header(token))
+    assert check.json()["name"] == "새이름"
+
+
+def test_update_my_profile_requires_auth(client):
+    r = client.patch("/auth/me", json={"name": "몰래"})
+    assert r.status_code == 401
+
+
+def test_update_my_profile_rejects_empty_name(client):
+    token = _signup(client, email="emptynametest@test.com").json()["access_token"]
+    r = client.patch("/auth/me", json={"name": ""}, headers=_auth_header(token))
+    assert r.status_code == 422
+
+
+def test_change_password_requires_auth(client):
+    r = client.put("/auth/me/password", json={
+        "current_password": "a", "new_password": "newpassword123",
+    })
+    assert r.status_code == 401
+
+
+def test_change_password_success_and_can_login_with_new(client):
+    token = _signup(client, email="changepw@test.com", password="oldpassword123").json()["access_token"]
+    r = client.put("/auth/me/password", json={
+        "current_password": "oldpassword123", "new_password": "newpassword456",
+    }, headers=_auth_header(token))
+    assert r.status_code == 200
+
+    old_login = _login(client, email="changepw@test.com", password="oldpassword123")
+    assert old_login.status_code == 401
+    new_login = _login(client, email="changepw@test.com", password="newpassword456")
+    assert new_login.status_code == 200
+
+
+def test_change_password_rejects_wrong_current_password(client):
+    token = _signup(client, email="wrongcurrentpw@test.com", password="oldpassword123").json()["access_token"]
+    r = client.put("/auth/me/password", json={
+        "current_password": "totallywrong", "new_password": "newpassword456",
+    }, headers=_auth_header(token))
+    assert r.status_code == 401
+
+
+def test_change_password_rejected_for_social_account(client, monkeypatch):
+    from social_auth import VERIFIERS
+
+    monkeypatch.setitem(VERIFIERS, "naver", lambda token: {
+        "provider_id": "n-pw-1", "email": "socialpw@test.com",
+        "name": "네이버유저", "email_verified": True,
+    })
+    r = client.post("/auth/social/naver", json={"token": "t"})
+    token = r.json()["access_token"]
+
+    r2 = client.put("/auth/me/password", json={
+        "current_password": "whatever", "new_password": "newpassword456",
+    }, headers=_auth_header(token))
+    assert r2.status_code == 400

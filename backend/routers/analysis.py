@@ -17,7 +17,7 @@ POST /analysis가 기존엔 `data: dict`로 완전히 타입 없이 받았음 �
 import re
 from typing import Optional, Union
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -106,12 +106,18 @@ def save_analysis(payload: SaveAnalysisRequest, db: Session = Depends(get_db)):
 
 
 # GET /analysis — 본인 분석 결과만 조회 (프론트 리포트 화면이 실제로 쓰는 엔드포인트)
+# [페이지네이션 추가 — 2026-08-27] trades.py와 동일 이유·기본값.
 @router.get("/")
-def get_analysis(db: Session = Depends(get_db),
+def get_analysis(limit: int = Query(default=50, ge=1, le=200),
+                  offset: int = Query(default=0, ge=0),
+                  db: Session = Depends(get_db),
                   current_user: User = Depends(get_current_user)):
     results = (
         db.query(AnalysisResult)
         .filter(AnalysisResult.user_id == current_user.id)
+        .order_by(AnalysisResult.id.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     return results

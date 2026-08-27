@@ -197,3 +197,77 @@ def test_submit_ignores_user_id_in_body(client):
     assert saved.user_id == real_user.id
     assert saved.user_id != 999999
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# GET /survey/latest, /survey/history (2026-08-27 추가)
+# ---------------------------------------------------------------------------
+
+def test_get_latest_requires_auth(client):
+    r = client.get("/survey/latest")
+    assert r.status_code == 401
+
+
+def test_get_latest_404_when_no_submissions(client):
+    token = _signup_and_login(client, email="nosurvey@test.com")
+    r = client.get("/survey/latest", headers=_auth_header(token))
+    assert r.status_code == 404
+
+
+def test_get_latest_returns_most_recent_submission(client):
+    token = _signup_and_login(client, email="latesttest@test.com")
+    r1 = client.post("/survey/submit", json={"answers": _make_answers(default=3)},
+                      headers=_auth_header(token))
+    r2 = client.post("/survey/submit", json={"answers": _make_answers(default=5)},
+                      headers=_auth_header(token))
+
+    latest = client.get("/survey/latest", headers=_auth_header(token))
+    assert latest.status_code == 200
+    assert latest.json()["result_id"] == r2.json()["result_id"]
+    assert latest.json()["result_id"] != r1.json()["result_id"]
+
+
+def test_get_latest_only_returns_own_result(client):
+    """유저 A의 최신 결과가 유저 B에게 노출되면 안 됨."""
+    token_a = _signup_and_login(client, email="scopeA@test.com")
+    client.post("/survey/submit", json={"answers": _make_answers()}, headers=_auth_header(token_a))
+
+    token_b = _signup_and_login(client, email="scopeB@test.com")
+    r = client.get("/survey/latest", headers=_auth_header(token_b))
+    assert r.status_code == 404  # B는 제출 이력이 없으므로
+
+
+def test_get_history_requires_auth(client):
+    r = client.get("/survey/history")
+    assert r.status_code == 401
+
+
+def test_get_history_returns_newest_first(client):
+    token = _signup_and_login(client, email="historytest@test.com")
+    ids = []
+    for v in (3, 4, 5):
+        r = client.post("/survey/submit", json={"answers": _make_answers(default=v)},
+                         headers=_auth_header(token))
+        ids.append(r.json()["result_id"])
+
+    history = client.get("/survey/history", headers=_auth_header(token))
+    assert history.status_code == 200
+    body = history.json()
+    assert len(body) == 3
+    assert [r["result_id"] for r in body] == list(reversed(ids))  # 최신순
+
+
+def test_get_history_respects_limit(client):
+    token = _signup_and_login(client, email="limittest@test.com")
+    for v in (1, 2, 3, 4, 5):
+        client.post("/survey/submit", json={"answers": _make_answers(default=(v % 5) + 1)},
+                    headers=_auth_header(token))
+
+    r = client.get("/survey/history?limit=2", headers=_auth_header(token))
+    assert len(r.json()) == 2
+
+
+def test_get_history_rejects_limit_over_max(client):
+    token = _signup_and_login(client, email="limitmaxtest@test.com")
+    r = client.get("/survey/history?limit=101", headers=_auth_header(token))
+    assert r.status_code == 422

@@ -99,6 +99,18 @@ def verify_verification_code(code: str, code_hash: str) -> bool:
     return hmac.compare_digest(hash_verification_code(code), code_hash)
 
 
+# --- 비밀번호 재설정 코드 (2026-08-27) --------------------------------------
+# 이메일 인증 코드와 완전히 같은 방식(6자리 숫자, HMAC 해시 저장, 만료시간)을
+# 재사용한다 — generate_verification_code/hash_verification_code/
+# verify_verification_code는 애초에 이메일 전용이 아니라 범용으로 짜여
+# 있어서 그대로 쓸 수 있다. 컬럼만 User에 별도로 둔다
+# (verification_code_hash와 섞어 쓰면 이메일 인증 중인 사용자가 비밀번호
+# 재설정을 요청했을 때 서로의 코드를 덮어쓰는 사고가 생길 수 있어서).
+PASSWORD_RESET_CODE_EXPIRE_MINUTES = int(
+    get("auth.password_reset_code_expire_minutes", 10, env_override="PASSWORD_RESET_CODE_EXPIRE_MINUTES")
+)
+
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),

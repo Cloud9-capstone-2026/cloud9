@@ -35,7 +35,12 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
 
-def send_verification_email(to_email: str, code: str) -> None:
+def _send_code_email(to_email: str, code: str, subject: str, body_intro: str, stub_label: str) -> None:
+    """이메일 인증/비밀번호 재설정 등 "6자리 코드 발송" 공통 로직.
+
+    두 플로우(send_verification_email, send_password_reset_email)가 SMTP
+    설정 확인·발송·예외 처리 로직을 완전히 동일하게 반복하고 있었어서 통합.
+    """
     gmail_user = os.getenv("GMAIL_USER")
     gmail_password = os.getenv("GMAIL_APP_PASSWORD")
     if gmail_password:
@@ -46,17 +51,16 @@ def send_verification_email(to_email: str, code: str) -> None:
     if not gmail_user or not gmail_password:
         logger.warning(
             "GMAIL_USER/GMAIL_APP_PASSWORD 미설정 — 실제 발송 대신 로그로 대체. "
-            "[DEV-STUB] %s 앞 인증 코드: %s", to_email, code,
+            "[DEV-STUB] %s 앞 %s: %s", to_email, stub_label, code,
         )
         return
 
     msg = MIMEText(
-        "Canary 이메일 인증을 완료해주세요.\n\n"
-        f"아래 6자리 인증 코드를 앱에 입력해주세요:\n{code}\n\n"
+        f"{body_intro}\n\n아래 6자리 코드를 앱에 입력해주세요:\n{code}\n\n"
         "이 코드는 발급 후 일정 시간 동안만 유효합니다.",
         "plain", "utf-8",
     )
-    msg["Subject"] = "[Canary] 이메일 인증을 완료해주세요"
+    msg["Subject"] = subject
     msg["From"] = gmail_user
     msg["To"] = to_email
 
@@ -65,11 +69,31 @@ def send_verification_email(to_email: str, code: str) -> None:
             server.starttls()
             server.login(gmail_user, gmail_password)
             server.sendmail(gmail_user, [to_email], msg.as_string())
-        logger.info("인증 메일 발송 성공: %s", to_email)
+        logger.info("%s 발송 성공: %s", stub_label, to_email)
     except (smtplib.SMTPException, OSError):
         # smtplib.SMTPException 외에, 연결 타임아웃/거부 같은 네트워크 레벨
         # 오류는 OSError 계열이라 별도로 잡아야 함(안 그러면 EC2 보안그룹이
         # 587번 포트를 막고 있을 때 이 예외가 안 잡혀서 회원가입 요청 자체가
-        # 500으로 죽는 사고로 이어짐). 메일 서버 일시 장애로 회원가입 자체가
+        # 500으로 죽는 사고로 이어짐). 메일 서버 일시 장애로 요청 자체가
         # 실패하면 안 되므로 로그로만 남기고 삼킨다.
-        logger.exception("인증 메일 발송 실패: %s", to_email)
+        logger.exception("%s 발송 실패: %s", stub_label, to_email)
+
+
+def send_verification_email(to_email: str, code: str) -> None:
+    _send_code_email(
+        to_email, code,
+        subject="[Canary] 이메일 인증을 완료해주세요",
+        body_intro="Canary 이메일 인증을 완료해주세요.",
+        stub_label="인증 코드",
+    )
+
+
+def send_password_reset_email(to_email: str, code: str) -> None:
+    """[2026-08-27 추가] 비밀번호 재설정 코드 발송."""
+    _send_code_email(
+        to_email, code,
+        subject="[Canary] 비밀번호 재설정 코드",
+        body_intro="비밀번호를 재설정하려면 아래 코드를 입력해주세요. "
+                    "본인이 요청한 게 아니라면 이 메일을 무시해도 됩니다.",
+        stub_label="비밀번호 재설정 코드",
+    )
