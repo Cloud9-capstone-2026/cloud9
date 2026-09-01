@@ -4,7 +4,6 @@
 - xai_result: 처음엔 XAI 근거만 담았으나 지금은 거래별 상세 전부(판정·flags·규칙·
   마할라노비스·3계층 근거·분포 점검)를 담는 JSON — 내용에 맞게 detail로.
 - final_score: 가중합 판정 폐기(flag 개수 기반) 후 항상 NULL이던 죽은 컬럼.
-(2026-08-27, 은우 — 프론트 키 이름도 함께 바뀜: 도경 전달)
 
 Revision ID: d4f7a2b9c5e1
 Revises: c3d8e91f6a02
