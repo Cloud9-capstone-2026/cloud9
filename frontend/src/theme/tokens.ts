@@ -1,6 +1,6 @@
 export const C = {
-  bg: '#F4F4F4',
-  card: '#FEFEFE',
+  bg: '#F7F8FA',
+  card: '#FFFFFF',
   navy: '#16213b',
   black: '#111111',
   blue: '#0066FF',
@@ -59,6 +59,8 @@ export const FEATURE_POOL = [
   '복권성순위', '지수수익률', '전일수익률', '직전거래간격', '매수여부',
 ];
 
+export const PERIODS = ['최근 1개월', '최근 3개월', '최근 6개월', '최근 1년', '최근 3년'];
+
 export const spacing = {
   screenPaddingH: 22,
   diagnosisPaddingH: 28,
@@ -95,12 +97,26 @@ export const shadow = {
     shadowRadius: 16,
     elevation: 8,
   },
+  modal: {
+    shadowColor: 'rgba(16,24,40,1)',
+    shadowOpacity: 0.22,
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 40,
+    elevation: 16,
+  },
+  dropdown: {
+    shadowColor: '#16213b',
+    shadowOpacity: 0.14,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 22,
+    elevation: 10,
+  },
 };
 
 export const text = {
-  screenTitle: { fontSize: 20, fontWeight: '600' as const, letterSpacing: -0.3, lineHeight: 28, color: C.navy },
-  screenSubtitle: { fontSize: 13, fontWeight: '400' as const, color: C.muted, lineHeight: 20 },
-  sectionTitle: { fontSize: 18, fontWeight: '600' as const, letterSpacing: -0.1, color: C.navy },
-  cardSubtitle: { fontSize: 12, fontWeight: '500' as const, color: C.navy },
-  mutedLabel: { fontSize: 11, fontWeight: '400' as const, color: C.muted },
+  screenTitle: { fontSize: 22, fontWeight: '600' as const, letterSpacing: -0.3, lineHeight: 28, color: C.navy },
+  screenSubtitle: { fontSize: 15, fontWeight: '400' as const, color: C.muted, lineHeight: 20 },
+  sectionTitle: { fontSize: 20, fontWeight: '600' as const, letterSpacing: -0.1, color: C.navy },
+  cardSubtitle: { fontSize: 13, fontWeight: '500' as const, color: C.navy },
+  mutedLabel: { fontSize: 12, fontWeight: '400' as const, color: C.muted },
 };

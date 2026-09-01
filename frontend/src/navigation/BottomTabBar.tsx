@@ -74,5 +74,5 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 4,
   },
-  label: { fontSize: 10, letterSpacing: -0.1 },
+  label: { fontSize: 11, letterSpacing: -0.1 },
 });

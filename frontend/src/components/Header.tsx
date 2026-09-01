@@ -5,11 +5,13 @@ import { useNavigation } from '@react-navigation/native';
 import { C, shadow } from '../theme/tokens';
 import { Logo } from '../assets/Logo';
 import { IconBack, IconUpload, IconBell } from '../assets/icons';
-import { goToUpload } from '../navigation/navigationRef';
+import { goToUpload, goToNotifications } from '../navigation/navigationRef';
+import { useAppState } from '../state/AppState';
 
 export function Header({ back }: { back?: boolean }) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
+  const { unreadNotifCount } = useAppState();
 
   return (
     <View style={[styles.header, { paddingTop: (insets.top || 0) + 12 }]}>
@@ -28,12 +30,14 @@ export function Header({ back }: { back?: boolean }) {
           <Text style={styles.uploadLabel}>업로드</Text>
         </Pressable>
         <View>
-          <Pressable style={[styles.bellBtn, shadow.header]}>
+          <Pressable onPress={goToNotifications} style={[styles.bellBtn, shadow.header]}>
             <IconBell size={18} />
           </Pressable>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>3</Text>
-          </View>
+          {unreadNotifCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unreadNotifCount}</Text>
+            </View>
+          )}
         </View>
       </View>
     </View>
@@ -62,13 +66,13 @@ const styles = StyleSheet.create({
     gap: 5,
     backgroundColor: C.blue,
     borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  uploadLabel: { color: '#fff', fontSize: 13, fontWeight: '500' },
+  uploadLabel: { color: '#fff', fontSize: 15, fontWeight: '500' },
   bellBtn: {
     backgroundColor: C.card,
-    padding: 9,
+    padding: 12,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
@@ -84,5 +88,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: { color: '#78350f', fontSize: 9, fontWeight: '700' },
+  badgeText: { color: '#78350f', fontSize: 10, fontWeight: '700' },
 });

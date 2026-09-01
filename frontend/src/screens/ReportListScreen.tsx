@@ -3,8 +3,9 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { TradeRow } from '../components/TradeRow';
+import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
-import { C, riskLevel } from '../theme/tokens';
+import { C, riskLevel, PERIODS } from '../theme/tokens';
 import { tradesRaw } from '../data/mock';
 import { goToReportDetail } from '../navigation/navigationRef';
 
@@ -15,7 +16,9 @@ export function ReportListScreen() {
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
   const [newest, setNewest] = useState(true);
+  const [period, setPeriod] = useState(PERIODS[1]);
   const [page, setPage] = useState(0);
+  const isDefaultFilter = type === 'all' && risk === 'all' && search === '';
 
   const filtered = useMemo(() => {
     let list = tradesRaw.filter((t) => {
@@ -38,13 +41,16 @@ export function ReportListScreen() {
   };
 
   return (
-    <Screen>
+    <Screen footer={<Pagination page={clampedPage} totalPages={totalPages} onChange={setPage} />}>
       <Text style={styles.title}>분석 리포트</Text>
       <Text style={styles.subtitle}>분석하고 싶은 거래를 선택하세요</Text>
 
       <View style={styles.filterRow}>
         <TypeTabs value={type} onChange={updateFilter(setType)} />
-        <SortToggle newest={newest} onToggle={() => { setNewest((v) => !v); setPage(0); }} />
+        <View style={styles.filterRight}>
+          <SortToggle newest={newest} onToggle={() => { setNewest((v) => !v); setPage(0); }} />
+          <PeriodDropdown value={period} onChange={(v) => { setPeriod(v); setPage(0); }} />
+        </View>
       </View>
 
       <SearchInput value={search} onChangeText={updateFilter(setSearch)} placeholder="종목명 검색..." />
@@ -57,17 +63,18 @@ export function ReportListScreen() {
           ))}
         </Card>
       ) : (
-        <Text style={styles.empty}>검색 결과가 없습니다.</Text>
+        <Text style={styles.empty}>
+          {isDefaultFilter ? `${period}에 해당하는 내역이 없어요` : '검색 결과가 없습니다.'}
+        </Text>
       )}
-
-      <Pagination page={clampedPage} totalPages={totalPages} onChange={setPage} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 13, color: C.muted, marginTop: 3, marginBottom: 16, lineHeight: 20 },
+  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
+  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, marginBottom: 16, lineHeight: 20 },
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
-  empty: { textAlign: 'center', paddingVertical: 40, color: C.muted, fontSize: 14 },
+  filterRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  empty: { textAlign: 'center', paddingVertical: 40, color: C.muted, fontSize: 16 },
 });

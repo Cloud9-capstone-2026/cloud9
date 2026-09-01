@@ -4,10 +4,19 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
-import { AppStateProvider } from './src/state/AppState';
+import { AppStateProvider, useAppState } from './src/state/AppState';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { AuthNavigator } from './src/navigation/AuthNavigator';
+import { OnboardingNavigator } from './src/navigation/OnboardingNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
 import { C } from './src/theme/tokens';
+
+function AppSwitch() {
+  const { authPhase } = useAppState();
+  if (authPhase === 'auth') return <AuthNavigator />;
+  if (authPhase === 'onboarding') return <OnboardingNavigator />;
+  return <RootNavigator />;
+}
 
 export default function App() {
   return (
@@ -17,7 +26,7 @@ export default function App() {
           <View style={styles.phone}>
             <AppStateProvider>
               <NavigationContainer ref={navigationRef}>
-                <RootNavigator />
+                <AppSwitch />
               </NavigationContainer>
             </AppStateProvider>
           </View>

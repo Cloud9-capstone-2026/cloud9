@@ -99,3 +99,47 @@ export interface AnalysisEntry {
   lstm_score: number | null;
   xai_result: XaiResult;
 }
+
+// ── 1계층 사용자 정의 규칙 템플릿 ──────────────────────────────
+export interface RuleTemplate {
+  id: string;
+  name: string;
+  desc: string;
+  unit: '회' | '일' | null;
+  label?: string;
+  min?: number;
+  max?: number;
+  minL?: string;
+  maxL?: string;
+  isMoney?: boolean;
+  defaultOn: boolean;
+  defaultVal: number;
+}
+
+// ── 온보딩 튜토리얼 ────────────────────────────────────────────
+export interface TutorialStep {
+  kicker: string;
+  title: string;
+  body: string;
+  points: string[];
+}
+
+// ── 알림 ──────────────────────────────────────────────────────
+export type NotifKind = 'analysis' | 'upload' | 'uploadFail' | 'analyzeFail';
+export interface NotifRaw {
+  kind: NotifKind;
+  file: string;
+  count?: number;
+  time: string;
+}
+
+// ── 약관/개인정보 ──────────────────────────────────────────────
+export interface LegalSection {
+  h: string;
+  p: string;
+}
+export interface LegalContent {
+  title: string;
+  meta: string;
+  sections: LegalSection[];
+}

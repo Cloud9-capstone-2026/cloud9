@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
@@ -6,12 +6,21 @@ import { GradientCard } from '../components/GradientCard';
 import { JournalRow } from '../components/JournalRow';
 import { RadarChart } from '../components/charts/RadarChart';
 import { C, ACCENT, shadow } from '../theme/tokens';
-import { emotionRadarData } from '../data/mock';
+import { emotionRadarData, tradesRaw } from '../data/mock';
 import { useAppState } from '../state/AppState';
-import { goToJournalFullList, goToJournalWrite } from '../navigation/navigationRef';
+import { goToJournalFullList, goToJournalPending, goToJournalWrite } from '../navigation/navigationRef';
 
 export function JournalListScreen() {
-  const { journals } = useAppState();
+  const { journals, isJournaled } = useAppState();
+  const pendingCount = useMemo(() => tradesRaw.filter((t) => !isJournaled(t.id)).length, [isJournaled]);
+  const topTag = useMemo(() => {
+    const counts: Record<string, number> = {};
+    journals.forEach((j) => { counts[j.emotion] = (counts[j.emotion] || 0) + 1; });
+    let best: string | null = null;
+    let bestCount = 0;
+    Object.entries(counts).forEach(([k, c]) => { if (c > bestCount) { best = k; bestCount = c; } });
+    return best ? { tag: best, count: bestCount } : null;
+  }, [journals]);
 
   return (
     <Screen contentStyle={styles.content}>
@@ -21,9 +30,11 @@ export function JournalListScreen() {
       </View>
 
       <GradientCard colors={['#eff6ff', '#dbeafe']} style={[styles.banner, shadow.floating]}>
-        <Text style={styles.bannerText}>아직 21건의 거래가 기록되지 않았어요</Text>
-        <Pressable onPress={() => goToJournalWrite(null)}>
-          <Text style={styles.bannerCta}>기록 추가하기 →</Text>
+        <Text style={styles.bannerText}>
+          {pendingCount > 0 ? `아직 ${pendingCount}건의 거래가 기록되지 않았어요` : '아직 업로드한 거래 내역이 없어요'}
+        </Text>
+        <Pressable onPress={goToJournalPending} disabled={pendingCount === 0}>
+          <Text style={[styles.bannerCta, pendingCount === 0 && { color: '#a5b4c8' }]}>기록 추가하기 →</Text>
         </Pressable>
       </GradientCard>
 
@@ -46,12 +57,12 @@ export function JournalListScreen() {
         <View style={styles.leftCol}>
           <Card style={styles.smallCard}>
             <Text style={styles.smallCardLabel}>총 거래일지</Text>
-            <Text style={styles.smallCardValue}>4<Text style={styles.smallCardUnit}>건</Text></Text>
+            <Text style={styles.smallCardValue}>{journals.length}<Text style={styles.smallCardUnit}>건</Text></Text>
           </Card>
           <Card style={styles.smallCard}>
             <Text style={styles.smallCardLabel}>가장 잦은 태그</Text>
-            <Text style={styles.tagValue}>#조급함</Text>
-            <Text style={styles.tagCount}>4회</Text>
+            <Text style={styles.tagValue}>{topTag ? `#${topTag.tag}` : '#-'}</Text>
+            <Text style={styles.tagCount}>{topTag ? `${topTag.count}회` : '-회'}</Text>
           </Card>
         </View>
       </View>
@@ -75,26 +86,26 @@ export function JournalListScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  title: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 13, color: C.muted, marginTop: 3, lineHeight: 20 },
+  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
+  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, lineHeight: 20 },
   banner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 18 },
-  bannerText: { fontSize: 14, fontWeight: '500', color: C.navy, lineHeight: 21, flex: 1, marginRight: 8 },
-  bannerCta: { fontSize: 13, fontWeight: '600', color: C.blue },
+  bannerText: { fontSize: 16, fontWeight: '500', color: C.navy, lineHeight: 21, flex: 1, marginRight: 8 },
+  bannerCta: { fontSize: 15, fontWeight: '600', color: C.blue },
   grid: { flexDirection: 'row', gap: 13 },
   leftCol: { flex: 1, gap: 13 },
   smallCard: { flex: 1, minHeight: 100, justifyContent: 'center' },
-  smallCardLabel: { fontSize: 12, color: C.navy, marginBottom: 7, lineHeight: 19 },
-  smallCardValue: { fontSize: 24, fontWeight: '600', color: C.navy, letterSpacing: -0.5 },
-  smallCardUnit: { fontSize: 13, fontWeight: '400', color: C.muted },
-  tagValue: { fontSize: 17, fontWeight: '600', color: C.navy, letterSpacing: -0.2 },
-  tagCount: { fontSize: 12, color: C.muted, marginTop: 3 },
+  smallCardLabel: { fontSize: 13, color: C.navy, marginBottom: 7, lineHeight: 19 },
+  smallCardValue: { fontSize: 27, fontWeight: '600', color: C.navy, letterSpacing: -0.5 },
+  smallCardUnit: { fontSize: 15, fontWeight: '400', color: C.muted },
+  tagValue: { fontSize: 19, fontWeight: '600', color: C.navy, letterSpacing: -0.2 },
+  tagCount: { fontSize: 13, color: C.muted, marginTop: 3 },
   radarCard: { flex: 1.15, padding: 14 },
-  radarTitle: { fontSize: 12, fontWeight: '500', color: C.navy, marginBottom: 8 },
+  radarTitle: { fontSize: 13, fontWeight: '500', color: C.navy, marginBottom: 8 },
   radarWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   sectionHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 2, marginBottom: 10,
   },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
-  more: { fontSize: 12, color: C.muted },
+  sectionTitle: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
+  more: { fontSize: 13, color: C.muted },
 });

@@ -2,6 +2,44 @@ import React from 'react';
 import Svg, { Path, Circle, Polygon, Polyline, Line, Rect } from 'react-native-svg';
 import { C } from '../theme/tokens';
 
+export function IconGoogle({ size = 20 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M23.04 12.27c0-.82-.07-1.42-.22-2.05H12v3.93h6.34c-.13 1.05-.83 2.63-2.38 3.7l-.02.14 3.46 2.68.24.02c2.2-2.03 3.4-5.02 3.4-8.42z" fill="#4285F4" />
+      <Path d="M12 23c3.13 0 5.76-1.03 7.68-2.8l-3.66-2.84c-.98.68-2.3 1.16-4.02 1.16-3.07 0-5.67-2.03-6.6-4.84l-.14.01-3.6 2.78-.05.13C3.51 20.44 7.44 23 12 23z" fill="#34A853" />
+      <Path d="M5.4 13.68A6.98 6.98 0 015 12c0-.58.1-1.15.28-1.68l-.01-.15-3.64-2.83-.12.06A11 11 0 001 12c0 1.77.42 3.45 1.16 4.94l3.24-2.26z" fill="#FBBC05" />
+      <Path d="M12 5.16c2.18 0 3.65.94 4.49 1.73l3.28-3.2C17.74 1.99 15.13 1 12 1 7.44 1 3.51 3.56 1.99 7.06l3.4 2.64C6.33 6.9 8.93 5.16 12 5.16z" fill="#EA4335" />
+    </Svg>
+  );
+}
+
+export function IconNaver({ size = 20 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect width={24} height={24} rx={5} fill="#03C75A" />
+      <Path d="M13.6 6.5v6.05L10.2 6.5H6.5v11h3.8v-6.05l3.4 6.05h3.7v-11h-3.8z" fill="#fff" />
+    </Svg>
+  );
+}
+
+export function IconEye({ on, size = 20 }: { on?: boolean; size?: number }) {
+  if (!on) {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M3 3l18 18" stroke={C.muted} strokeWidth={1.8} strokeLinecap="round" />
+        <Path d="M10.58 10.58a2 2 0 002.83 2.83" stroke={C.muted} strokeWidth={1.8} strokeLinecap="round" />
+        <Path d="M9.36 5.3A10.4 10.4 0 0112 5c5 0 9 4 10 7-.42 1.13-1.3 2.5-2.6 3.7M6.6 6.6C4.6 7.9 3.15 9.9 2 12c1 3 5 7 10 7 1.24 0 2.4-.24 3.44-.66" stroke={C.muted} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    );
+  }
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" stroke={C.muted} strokeWidth={1.8} strokeLinejoin="round" />
+      <Circle cx={12} cy={12} r={3} stroke={C.muted} strokeWidth={1.8} />
+    </Svg>
+  );
+}
+
 const stroke = (a?: boolean) => (a ? C.blue : C.muted);
 
 export function IconHome({ active, size = 22 }: { active?: boolean; size?: number }) {

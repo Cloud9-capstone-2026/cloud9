@@ -13,14 +13,15 @@ import type { RootStackParamList } from '../navigation/types';
 export function JournalWriteScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'JournalWrite'>>();
   const navigation = useNavigation();
-  const { journals, saveJournal } = useAppState();
-  const { journalId } = route.params;
+  const { journals, saveJournal, addJournal } = useAppState();
+  const { journalId, tradeId } = route.params;
 
   const existing = journalId ? journals.find((j) => j.id === journalId) : null;
-  const trade = useMemo(
-    () => (existing ? tradesRaw.find((t) => t.stock === existing.stock) || tradesRaw[0] : tradesRaw[0]),
-    [existing]
-  );
+  const trade = useMemo(() => {
+    if (existing) return tradesRaw.find((t) => t.stock === existing.stock) || tradesRaw[0];
+    if (tradeId != null) return tradesRaw.find((t) => t.id === tradeId) || tradesRaw[0];
+    return tradesRaw[0];
+  }, [existing, tradeId]);
 
   const [reason, setReason] = useState(existing?.reason ?? '');
   const [emotion, setEmotion] = useState(existing?.emotion ?? '');
@@ -30,7 +31,21 @@ export function JournalWriteScreen() {
   const isBuy = trade.type === 'buy';
 
   const handleSave = () => {
-    saveJournal(journalId, { reason, emotion, review });
+    if (journalId != null) {
+      saveJournal(journalId, { reason, emotion, review });
+    } else {
+      addJournal({
+        id: trade.id,
+        stock: trade.stock,
+        date: trade.date,
+        type: trade.type,
+        emotion,
+        risk: riskLevel(trade.score),
+        memo: reason.slice(0, 40),
+        reason,
+        review,
+      });
+    }
     navigation.goBack();
   };
 
@@ -82,7 +97,7 @@ export function JournalWriteScreen() {
                 onPress={() => setEmotion(selected ? '' : e)}
                 style={[styles.emotionChip, { backgroundColor: selected ? ACCENT : C.mutedBg }]}
               >
-                <Text style={{ fontSize: 12, color: selected ? '#fff' : C.muted, fontWeight: selected ? '500' : '400' }}>
+                <Text style={{ fontSize: 13, color: selected ? '#fff' : C.muted, fontWeight: selected ? '500' : '400' }}>
                   #{e}
                 </Text>
               </Pressable>
@@ -108,7 +123,7 @@ export function JournalWriteScreen() {
           onPress={handleSave}
           style={[styles.saveBtn, { backgroundColor: filled ? C.blue : C.card }]}
         >
-          <Text style={{ color: filled ? '#fff' : C.muted, fontSize: 15, fontWeight: '500' }}>저장하기</Text>
+          <Text style={{ color: filled ? '#fff' : C.muted, fontSize: 17, fontWeight: '500' }}>저장하기</Text>
         </Pressable>
       </View>
     </Screen>
@@ -117,20 +132,20 @@ export function JournalWriteScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 16, paddingBottom: 130 },
-  title: { fontSize: 18, fontWeight: '600', color: C.navy, letterSpacing: -0.2 },
+  title: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.2 },
   tradeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  tradeStock: { fontSize: 16, fontWeight: '600', color: C.navy, marginBottom: 4, letterSpacing: -0.2 },
+  tradeStock: { fontSize: 18, fontWeight: '600', color: C.navy, marginBottom: 4, letterSpacing: -0.2 },
   tradeMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  tradeDate: { fontSize: 12, color: C.muted },
-  tradeType: { fontSize: 12, fontWeight: '500' },
-  tradeAmount: { fontSize: 14, fontWeight: '500', color: C.navy, marginBottom: 5 },
+  tradeDate: { fontSize: 13, color: C.muted },
+  tradeType: { fontSize: 13, fontWeight: '500' },
+  tradeAmount: { fontSize: 16, fontWeight: '500', color: C.navy, marginBottom: 5 },
   reportLinkRow: { marginTop: 12, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10, alignItems: 'flex-end' },
-  reportLink: { fontSize: 12, fontWeight: '500', color: C.blue },
+  reportLink: { fontSize: 13, fontWeight: '500', color: C.blue },
   card: { backgroundColor: C.card, borderRadius: 30, padding: 16 },
-  cardTitle: { fontSize: 13, fontWeight: '500', color: C.navy, marginBottom: 10 },
+  cardTitle: { fontSize: 15, fontWeight: '500', color: C.navy, marginBottom: 10 },
   textarea: {
     minHeight: 80, padding: 12, backgroundColor: C.mutedBg, borderRadius: 20,
-    fontSize: 13, color: C.navy, textAlignVertical: 'top', lineHeight: 21,
+    fontSize: 15, color: C.navy, textAlignVertical: 'top', lineHeight: 21,
   },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   emotionChip: { borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
