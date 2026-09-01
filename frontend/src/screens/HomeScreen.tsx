@@ -10,8 +10,10 @@ import { Avatar } from '../assets/Avatar';
 import { C, RISK, riskLevel, BIAS_LABELS, BIAS_COLORS } from '../theme/tokens';
 import { tradesRaw, monthlyData, dartNews, BIAS_SCORES } from '../data/mock';
 import { goToTab, goToNewsFullList, goToReportDetail } from '../navigation/navigationRef';
+import { useAppState } from '../state/AppState';
 
 export function HomeScreen() {
+  const { openBiasInfo } = useAppState();
   const [chartTab, setChartTab] = useState<'trades' | 'anomaly'>('trades');
 
   const counts = useMemo(() => {
@@ -40,7 +42,12 @@ export function HomeScreen() {
           </Pressable>
         </View>
         <Card>
-          <Text style={styles.personaName}>불안한 동조자</Text>
+          <View style={styles.personaTitleRow}>
+            <Text style={styles.personaName}>불안한 동조자</Text>
+            <Pressable onPress={openBiasInfo} style={styles.infoBtn}>
+              <Text style={styles.infoBtnText}>?</Text>
+            </Pressable>
+          </View>
           <View style={styles.personaRow}>
             <Avatar size={100} />
             <View style={styles.biasBars}>
@@ -121,7 +128,7 @@ export function HomeScreen() {
             const active = chartTab === id;
             return (
               <Pressable key={id} onPress={() => setChartTab(id)} style={[styles.chartTab, active && styles.chartTabActive]}>
-                <Text style={{ fontSize: 14, fontWeight: active ? '600' : '400', color: active ? C.navy : C.muted }}>
+                <Text style={{ fontSize: 16, fontWeight: active ? '600' : '400', color: active ? C.navy : C.muted }}>
                   {label}
                 </Text>
               </Pressable>
@@ -166,39 +173,42 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  greeting: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  lastUpload: { fontSize: 12, color: C.muted, marginTop: 3 },
+  greeting: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
+  lastUpload: { fontSize: 13, color: C.muted, marginTop: 3 },
   sectionHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 2, marginBottom: 10,
   },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
-  more: { fontSize: 12, color: C.muted },
-  personaName: { fontSize: 14, fontWeight: '500', color: C.navy, marginBottom: 14, letterSpacing: -0.1 },
+  sectionTitle: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
+  more: { fontSize: 13, color: C.muted },
+  personaTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  personaName: { fontSize: 16, fontWeight: '500', color: C.navy, letterSpacing: -0.1 },
+  infoBtn: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.3, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
+  infoBtnText: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
   personaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   biasBars: { flex: 1, gap: 8 },
   biasBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  biasLabel: { fontSize: 11, color: C.muted, width: 56 },
+  biasLabel: { fontSize: 12, color: C.muted, width: 56 },
   biasTrack: { height: 5, backgroundColor: C.mutedBg, borderRadius: 999, overflow: 'hidden', flex: 1 },
   biasFill: { height: '100%', borderRadius: 999 },
-  biasScore: { fontSize: 11, fontWeight: '500', width: 24, textAlign: 'right' },
+  biasScore: { fontSize: 12, fontWeight: '500', width: 24, textAlign: 'right' },
   summaryGrid: { flexDirection: 'row', gap: 13 },
   summaryLeftCol: { flex: 1, gap: 13 },
   summaryRightCol: { flex: 1.15 },
   summaryCard: { flex: 1 },
   summaryCardWide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
-  summaryCardWideTitle: { fontSize: 12, fontWeight: '500', color: C.navy, alignSelf: 'flex-start' },
-  summaryLabel: { fontSize: 12, color: C.navy, marginBottom: 7, lineHeight: 19 },
+  summaryCardWideTitle: { fontSize: 13, fontWeight: '500', color: C.navy, alignSelf: 'flex-start' },
+  summaryLabel: { fontSize: 13, color: C.navy, marginBottom: 7, lineHeight: 19 },
   summaryValueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
-  summaryValue: { fontSize: 26, fontWeight: '600', color: C.navy, letterSpacing: -0.5 },
-  summaryUnit: { fontSize: 12, color: C.muted },
-  summaryDiff: { fontSize: 12, fontWeight: '500', marginTop: 4 },
+  summaryValue: { fontSize: 29, fontWeight: '600', color: C.navy, letterSpacing: -0.5 },
+  summaryUnit: { fontSize: 13, color: C.muted },
+  summaryDiff: { fontSize: 13, fontWeight: '500', marginTop: 4 },
   legend: { gap: 6, alignSelf: 'stretch' },
   legendRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   legendLeft: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 2 },
-  legendLabel: { fontSize: 11, color: C.muted },
-  legendValue: { fontSize: 12, fontWeight: '500', color: C.navy },
+  legendLabel: { fontSize: 12, color: C.muted },
+  legendValue: { fontSize: 13, fontWeight: '500', color: C.navy },
   chartTabRow: { flexDirection: 'row', alignItems: 'center', gap: 20, paddingHorizontal: 2, marginBottom: 12 },
   chartTab: { paddingVertical: 5, paddingTop: 2, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   chartTabActive: { borderBottomColor: C.navy },

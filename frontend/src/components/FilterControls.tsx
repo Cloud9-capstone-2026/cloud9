@@ -69,7 +69,7 @@ export function RiskChips({ value, onChange }: { value: RiskFilter; onChange: (v
             onPress={() => onChange(r)}
             style={[styles.chip, { backgroundColor: active ? C.blue : C.card }]}
           >
-            <Text style={{ fontSize: 12, color: active ? '#fff' : C.muted, fontWeight: active ? '500' : '400' }}>
+            <Text style={{ fontSize: 13, color: active ? '#fff' : C.muted, fontWeight: active ? '500' : '400' }}>
               {RISK_LABEL[r]}
             </Text>
           </Pressable>
@@ -91,7 +91,7 @@ export function Pagination({
         disabled={page === 0}
         style={styles.pagerBtn}
       >
-        <Text style={{ fontSize: 15, color: page === 0 ? C.muted : C.navy }}>‹</Text>
+        <Text style={{ fontSize: 17, color: page === 0 ? C.muted : C.navy }}>‹</Text>
       </Pressable>
       {pages.map((p) => (
         <Pressable
@@ -99,7 +99,7 @@ export function Pagination({
           onPress={() => onChange(p)}
           style={[styles.pagerNumBtn, { backgroundColor: p === page ? C.blue : C.card }]}
         >
-          <Text style={{ fontSize: 13, color: p === page ? '#fff' : C.navy, fontWeight: p === page ? '500' : '400' }}>
+          <Text style={{ fontSize: 15, color: p === page ? '#fff' : C.navy, fontWeight: p === page ? '500' : '400' }}>
             {p + 1}
           </Text>
         </Pressable>
@@ -109,7 +109,7 @@ export function Pagination({
         disabled={page === totalPages - 1}
         style={styles.pagerBtn}
       >
-        <Text style={{ fontSize: 15, color: page === totalPages - 1 ? C.muted : C.navy }}>›</Text>
+        <Text style={{ fontSize: 17, color: page === totalPages - 1 ? C.muted : C.navy }}>›</Text>
       </Pressable>
     </View>
   );
@@ -119,9 +119,9 @@ const styles = StyleSheet.create({
   tabRow: { flexDirection: 'row', gap: 20 },
   tab: { paddingVertical: 5, paddingTop: 2, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabActive: { borderBottomColor: C.navy },
-  tabLabel: { fontSize: 14, lineHeight: 21 },
+  tabLabel: { fontSize: 16, lineHeight: 21 },
   sortRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  sortLabel: { fontSize: 12, color: C.muted },
+  sortLabel: { fontSize: 13, color: C.muted },
   switchTrack: { width: 40, height: 23, borderRadius: 999, justifyContent: 'center' },
   switchKnob: {
     position: 'absolute', width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff',
@@ -131,10 +131,10 @@ const styles = StyleSheet.create({
   searchIcon: { position: 'absolute', left: 12, zIndex: 1 },
   searchInput: {
     width: '100%', paddingVertical: 10, paddingRight: 12, paddingLeft: 32,
-    borderBottomWidth: 1.5, borderBottomColor: '#555', fontSize: 13, color: C.navy,
+    borderBottomWidth: 1.5, borderBottomColor: '#555', fontSize: 15, color: C.navy,
   },
   chipRow: { flexDirection: 'row', gap: 7, marginBottom: 16, flexWrap: 'wrap' },
-  chip: { borderRadius: 999, paddingVertical: 6, paddingHorizontal: 14 },
+  chip: { borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },
   pagerRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 16 },
   pagerBtn: { backgroundColor: C.card, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 13 },
   pagerNumBtn: { borderRadius: 20, paddingVertical: 7, paddingHorizontal: 12, minWidth: 36, alignItems: 'center' },

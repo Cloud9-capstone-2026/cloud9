@@ -12,10 +12,10 @@ export function NewsRow({ news, index, showCorp = true }: { news: DartNews; inde
           <View style={styles.typeBadge}>
             <Text style={styles.typeText}>{news.type}</Text>
           </View>
-          {showCorp && <Text style={styles.corp}>{news.corp}</Text>}
+          {showCorp && <Text style={styles.corp} numberOfLines={1}>{news.corp}</Text>}
           <Text style={styles.date}>{news.date}</Text>
         </View>
-        <Text style={styles.title}>{news.title}</Text>
+        <Text style={styles.title} numberOfLines={2}>{news.title}</Text>
       </View>
       <View style={{ marginTop: 2 }}>
         <IconExt size={11} />
@@ -28,10 +28,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 13 },
   divider: { borderTopWidth: 1, borderTopColor: C.border },
   content: { flex: 1 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' },
-  typeBadge: { backgroundColor: '#e8f0ff', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 7 },
-  typeText: { fontSize: 10, fontWeight: '500', color: C.blue },
-  corp: { fontSize: 11, fontWeight: '500', color: C.navy },
-  date: { fontSize: 11, color: C.muted },
-  title: { fontSize: 13, color: C.navy, lineHeight: 21 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
+  typeBadge: { backgroundColor: '#e8f0ff', borderRadius: 999, paddingVertical: 2, paddingHorizontal: 7, flexShrink: 0 },
+  typeText: { fontSize: 11, fontWeight: '500', color: C.blue },
+  corp: { fontSize: 12, fontWeight: '500', color: C.navy, flexShrink: 1, minWidth: 0 },
+  date: { fontSize: 12, color: C.muted, flexShrink: 0 },
+  title: { fontSize: 15, color: C.navy, lineHeight: 21 },
 });

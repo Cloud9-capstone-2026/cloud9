@@ -28,6 +28,30 @@ export function rankedFeatures(biasKey: string, features: EvidenceFeature[]) {
   }));
 }
 
+// 탐지 규칙 설정(§5.2)의 7종 명칭과 표시를 일치시키기 위한 매핑.
+// analysisData의 triggered_rules에는 규칙 개편 이전의 구 명칭이 섞여 있어 변환한다.
+const RULE_NAME_MAP: Record<string, string> = {
+  일중_반복매매: '일중_반복매매',
+  당일_왕복매매: '당일_왕복매매',
+  최소_보유기간: '최소_보유기간',
+  손실_후_재진입: '손실_후_재진입',
+  물타기_반복: '물타기_반복',
+  '1회_매수금액_상한': '1회_매수금액_상한',
+  일일_매매대금_상한: '일일_매매대금_상한',
+  집중매매: '일일_매매대금_상한',
+  반복매수: '물타기_반복',
+};
+
+function canonicalRules(raw: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  raw.forEach((r) => {
+    const name = RULE_NAME_MAP[r] || r;
+    if (!seen.has(name)) { seen.add(name); out.push(name); }
+  });
+  return out;
+}
+
 const DEV_SEGS = [
   { max: 1, label: '평소와 비슷해요' },
   { max: 2, label: '평소와 조금 달라요' },
@@ -71,7 +95,7 @@ export function buildReportDetailVM(tradeId: number) {
     verdictColor: RISK[verdictRisk].color,
     layers: layerDefs,
     lstmFailed,
-    rules: xai.triggered_rules.length ? xai.triggered_rules.map((r) => `#${r}`) : ['없음'],
+    rules: xai.triggered_rules.length ? canonicalRules(xai.triggered_rules).map((r) => `#${r}`) : ['없음'],
     devLabel: DEV_SEGS[activeSeg].label,
     sigmaText: `${sigma}σ`,
     markerPct: Math.min(sigma / 4, 0.97) * 100,

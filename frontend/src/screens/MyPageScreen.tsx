@@ -1,16 +1,43 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
-import { RadarChart } from '../components/charts/RadarChart';
-import { TrendBarChart } from '../components/charts/TrendBarChart';
+import { DumbbellChart } from '../components/charts/DumbbellChart';
+import { TrendLineChart } from '../components/charts/TrendLineChart';
 import { Avatar } from '../assets/Avatar';
-import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS } from '../theme/tokens';
-import { biasComparisonData, biasTrend, BIAS_SCORES } from '../data/mock';
+import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEY_MAP } from '../theme/tokens';
+import { biasComparisonData, biasTrend, BIAS_SCORES, analysisData } from '../data/mock';
 import { goToDiagnosis } from '../navigation/navigationRef';
+import { useAppState } from '../state/AppState';
 
 export function MyPageScreen() {
+  const { openBiasInfo } = useAppState();
+
+  const topBias = useMemo(() => {
+    const counts: Record<string, number> = {};
+    Object.values(analysisData).forEach((a) => {
+      const k = a.xai_result.top_bias;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    let bestKey: string | null = null;
+    let bestCount = 0;
+    Object.entries(counts).forEach(([k, c]) => {
+      if (c > bestCount) { bestKey = k; bestCount = c; }
+    });
+    return bestKey ? { label: BIAS_KEY_MAP[bestKey as keyof typeof BIAS_KEY_MAP], count: bestCount } : null;
+  }, []);
+
+  const insight = useMemo(() => {
+    let best = biasComparisonData[0];
+    let bestDiff = -1;
+    biasComparisonData.forEach((d) => {
+      const diff = Math.abs(d.trading - d.self);
+      if (diff > bestDiff) { bestDiff = diff; best = d; }
+    });
+    return { subject: best.subject, diff: bestDiff, bigger: best.trading > best.self };
+  }, []);
+
   return (
     <Screen contentStyle={styles.content}>
       <View>
@@ -36,7 +63,12 @@ export function MyPageScreen() {
           <Text style={styles.updateDate}>최종 업데이트 2026.07.31</Text>
         </View>
         <Card>
-          <Text style={styles.personaName}>불안한 동조자</Text>
+          <View style={styles.personaTitleRow}>
+            <Text style={styles.personaName}>불안한 동조자</Text>
+            <Pressable onPress={openBiasInfo} style={styles.infoBtn}>
+              <Text style={styles.infoBtnText}>?</Text>
+            </Pressable>
+          </View>
           <View style={styles.personaRow}>
             <Avatar size={100} />
             <View style={styles.biasBars}>
@@ -55,43 +87,45 @@ export function MyPageScreen() {
       </View>
 
       <View>
-        <Text style={styles.sectionTitleStandalone}>검사 vs 거래 성향 비교</Text>
-        <Card>
-          <View style={styles.compareRow}>
-            <View style={{ flex: 1 }}>
-              <RadarChart
-                axes={biasComparisonData.map((d) => d.subject)}
-                series={[
-                  { values: biasComparisonData.map((d) => d.self), color: ACCENT, fillOpacity: 0.3, width: 2 },
-                  { values: biasComparisonData.map((d) => d.trading), color: '#64748b', fillOpacity: 0.18, width: 2 },
-                ]}
-                size={190}
-                radius={62}
-                max={100}
-                fontSize={10}
-                height={190}
-              />
+        <Text style={styles.sectionTitleStandalone}>거래로 본 나의 성향</Text>
+        <View style={{ gap: 13 }}>
+          <Card style={styles.topBiasCard}>
+            <Text style={styles.topBiasLabel}>거래에서 가장 많이 나타난 편향</Text>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.topBiasTag}>{topBias ? `#${topBias.label}` : '#-'}</Text>
+              <Text style={styles.topBiasCount}>{topBias ? `${topBias.count}회` : '-회'}</Text>
             </View>
-            <View style={styles.legendCol}>
+          </Card>
+
+          <Card>
+            <Text style={styles.compareSubtitle}>검사 결과 vs 실제 거래 데이터</Text>
+            <View style={styles.legendRow}>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: ACCENT }]} />
                 <Text style={styles.legendText}>검사 결과</Text>
               </View>
               <View style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: '#64748b' }]} />
-                <Text style={styles.legendText}>거래 기반</Text>
+                <Text style={styles.legendText}>실제 거래 데이터</Text>
               </View>
             </View>
-          </View>
-          <View style={styles.divider} />
-          <Text style={styles.compareText}>
-            처분효과가 거래 기반 대비 <Text style={styles.comparePlus}>+7p</Text> 높아요. 실제로 손절을 더 회피하는 경향이 보입니다.
-          </Text>
-        </Card>
+            <View style={{ marginTop: 10 }}>
+              <DumbbellChart data={biasComparisonData} />
+            </View>
+            <View style={styles.insightBlock}>
+              <View style={styles.insightIconBox}>
+                <Text style={styles.insightIconText}>!</Text>
+              </View>
+              <Text style={styles.insightText}>
+                {insight.subject}이 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
+              </Text>
+            </View>
+          </Card>
+        </View>
       </View>
 
       <View>
-        <Text style={styles.sectionTitleStandalone}>누적 통계</Text>
+        <Text style={styles.sectionTitleStandalone}>검사 히스토리</Text>
         <View style={styles.trendGrid}>
           {BIAS_TREND_KEYS.map((key, i) => {
             const latest = biasTrend[biasTrend.length - 1][key];
@@ -103,7 +137,7 @@ export function MyPageScreen() {
                     {latest}<Text style={styles.trendUnit}>/100</Text>
                   </Text>
                 </View>
-                <TrendBarChart data={biasTrend} dataKey={key} color={BIAS_COLORS[i]} />
+                <TrendLineChart data={biasTrend} dataKey={key} color={BIAS_COLORS[i]} />
               </Card>
             );
           })}
@@ -115,36 +149,45 @@ export function MyPageScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  title: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 13, color: C.muted, marginTop: 3, lineHeight: 20 },
+  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
+  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, lineHeight: 20 },
   bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  bannerTitle: { fontSize: 14, fontWeight: '500', color: C.navy, lineHeight: 21 },
-  bannerSub: { fontSize: 12, color: C.muted, marginTop: 4, lineHeight: 20 },
-  bannerCta: { fontSize: 13, fontWeight: '600', color: C.blue, marginLeft: 8 },
+  bannerTitle: { fontSize: 16, fontWeight: '500', color: C.navy, lineHeight: 21 },
+  bannerSub: { fontSize: 13, color: C.muted, marginTop: 4, lineHeight: 20 },
+  bannerCta: { fontSize: 15, fontWeight: '600', color: C.blue, marginLeft: 8 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
-  sectionTitleStandalone: { fontSize: 18, fontWeight: '600', color: C.navy, letterSpacing: -0.1, paddingHorizontal: 2, marginBottom: 10 },
-  updateDate: { fontSize: 12, color: C.muted },
-  personaName: { fontSize: 14, fontWeight: '500', color: C.navy, marginBottom: 14 },
+  sectionTitle: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
+  sectionTitleStandalone: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1, paddingHorizontal: 2, marginBottom: 10 },
+  updateDate: { fontSize: 13, color: C.muted },
+  personaTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  personaName: { fontSize: 16, fontWeight: '500', color: C.navy },
+  infoBtn: { width: 18, height: 18, borderRadius: 9, borderWidth: 1.3, borderColor: '#cbd5e1', alignItems: 'center', justifyContent: 'center' },
+  infoBtnText: { fontSize: 12, fontWeight: '600', color: '#94a3b8' },
   personaRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   biasBars: { flex: 1, gap: 8 },
   biasBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  biasLabel: { fontSize: 11, color: C.muted, width: 56 },
+  biasLabel: { fontSize: 12, color: C.muted, width: 56 },
   biasTrack: { height: 5, backgroundColor: C.mutedBg, borderRadius: 999, overflow: 'hidden', flex: 1 },
   biasFill: { height: '100%', borderRadius: 999 },
-  biasScore: { fontSize: 11, fontWeight: '500', width: 24, textAlign: 'right' },
-  compareRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  legendCol: { gap: 10 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 10, height: 10, borderRadius: 2 },
-  legendText: { fontSize: 12, color: C.navy, fontWeight: '500' },
-  divider: { height: 1, backgroundColor: C.border, marginVertical: 12 },
-  compareText: { fontSize: 13, color: C.navy, lineHeight: 22 },
-  comparePlus: { color: '#AE77FF', fontWeight: '600' },
+  biasScore: { fontSize: 12, fontWeight: '500', width: 24, textAlign: 'right' },
+  topBiasCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  topBiasLabel: { fontSize: 13, color: '#94a3b8', lineHeight: 18, flex: 1, paddingRight: 10 },
+  topBiasTag: { fontSize: 17, fontWeight: '600', color: '#16213b', lineHeight: 18 },
+  topBiasCount: { fontSize: 12, color: '#94a3b8', marginTop: 4 },
+  compareSubtitle: { fontSize: 13, color: '#94a3b8' },
+  legendRow: { flexDirection: 'row', gap: 16, marginTop: 8 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 9, height: 9, borderRadius: 5 },
+  legendText: { fontSize: 12, color: C.navy },
+  insightBlock: { flexDirection: 'row', gap: 10, backgroundColor: '#eff6ff', borderRadius: 18, padding: 13, marginTop: 16, alignItems: 'flex-start' },
+  insightIconBox: { width: 19, height: 19, borderRadius: 10, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
+  insightIconText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  insightText: { flex: 1, fontSize: 15, color: C.navy, lineHeight: 20 },
+  insightNum: { color: C.blue, fontWeight: '600' },
   trendGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 13 },
   trendCard: { width: '46%', flexGrow: 1, borderRadius: 26, padding: 10, paddingTop: 14 },
   trendHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 },
-  trendLabel: { fontSize: 12, fontWeight: '500', color: C.navy },
-  trendValue: { fontSize: 15, fontWeight: '600' },
-  trendUnit: { fontSize: 11, fontWeight: '400', color: C.muted },
+  trendLabel: { fontSize: 13, fontWeight: '500', color: C.navy },
+  trendValue: { fontSize: 17, fontWeight: '600' },
+  trendUnit: { fontSize: 12, fontWeight: '400', color: C.muted },
 });
