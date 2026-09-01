@@ -349,7 +349,7 @@ def test_analysis_pagination_newest_first(client):
     user = db.query(User).filter(User.email == "pageanalysis@test.com").one()
     ids = []
     for i in range(3):
-        row = AnalysisResult(user_id=user.id, final_score=float(i), is_anomaly=False)
+        row = AnalysisResult(user_id=user.id, deep_score=float(i), is_anomaly=False)
         db.add(row)
         db.flush()
         ids.append(row.id)

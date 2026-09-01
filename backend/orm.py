@@ -160,7 +160,7 @@ class SurveyResult(Base):
 
     answers는 원본 응답(reverse 적용 전)을 감사·재계산 대비용으로 JSONB에
     같이 저장 — 나중에 reverse 채점 대상 문항이 바뀌어도 과거 응답으로
-    재계산 가능하게 하기 위함 (xai_result를 JSONB로 남기는 것과 같은 이유)."""
+    재계산 가능하게 하기 위함 (AnalysisResult.detail을 JSONB로 남기는 것과 같은 이유)."""
     __tablename__ = "survey_results"
 
     id      = Column(Integer, primary_key=True, index=True)

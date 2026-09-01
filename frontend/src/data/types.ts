@@ -96,8 +96,8 @@ export interface XaiResult {
 export interface AnalysisEntry {
   rule_score: number;
   stat_score: number;
-  lstm_score: number | null;
-  xai_result: XaiResult;
+  deep_score: number | null;
+  detail: XaiResult;
 }
 
 // ── 1계층 사용자 정의 규칙 템플릿 ──────────────────────────────

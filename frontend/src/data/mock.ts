@@ -124,8 +124,8 @@ export const QUESTIONS: string[] = [
 
 export const analysisData: Record<number, AnalysisEntry> = {
   1: {
-    rule_score: 0.70, stat_score: 0.31, lstm_score: 0.46,
-    xai_result: {
+    rule_score: 0.70, stat_score: 0.31, deep_score: 0.46,
+    detail: {
       verdict: '경고', flags: { rule: true, stat: false, deep: false }, layers_available: 3,
       triggered_rules: ['당일_왕복매매'], mahalanobis: 1.42, top_bias: 'herd_sensitivity',
       bias_scores: { disposition_strength: 0.12, overconfidence: 0.31, lottery_preference: 0.05, herd_sensitivity: 0.46 },
@@ -138,8 +138,8 @@ export const analysisData: Record<number, AnalysisEntry> = {
     },
   },
   3: {
-    rule_score: 0.85, stat_score: 0.78, lstm_score: null,
-    xai_result: {
+    rule_score: 0.85, stat_score: 0.78, deep_score: null,
+    detail: {
       verdict: '이상', flags: { rule: true, stat: true }, layers_available: 2,
       triggered_rules: ['당일_왕복매매', '집중매매'], mahalanobis: 3.12, top_bias: 'overconfidence',
       bias_scores: { disposition_strength: 0.44, overconfidence: 0.85, lottery_preference: 0.22, herd_sensitivity: 0.61 },
@@ -147,8 +147,8 @@ export const analysisData: Record<number, AnalysisEntry> = {
     },
   },
   5: {
-    rule_score: 0.91, stat_score: 0.88, lstm_score: 0.76,
-    xai_result: {
+    rule_score: 0.91, stat_score: 0.88, deep_score: 0.76,
+    detail: {
       verdict: '이상', flags: { rule: true, stat: true, deep: true }, layers_available: 3,
       triggered_rules: ['집중매매', '반복매수'], mahalanobis: 3.88, top_bias: 'overconfidence',
       bias_scores: { disposition_strength: 0.55, overconfidence: 0.91, lottery_preference: 0.38, herd_sensitivity: 0.72 },
