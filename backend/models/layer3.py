@@ -79,18 +79,25 @@ BIAS_NAMES = {
 
 
 def _ensure_artifacts() -> Path:
-    """아티팩트 확보: 로컬 존재 시 그대로, 없으면 GitHub Release에서 1회 다운로드.
+    """아티팩트 확보: 선언된 Release 태그와 일치하는 로컬 파일이 있으면 그대로,
+    없거나 태그가 바뀌었으면 GitHub Release에서 다운로드.
 
+    태그 일치 판정은 다운로드 성공 시 같이 써 두는 release_tag.txt로 한다 — 이게
+    없던 시절(옛 배포)의 파일은 태그가 설정돼 있으면 불일치로 보고 재다운로드
+    (env만 바꾸면 서버 모델이 실제로 갈리게 — 2026-09-01, 옛 파일이 남아 태그
+    변경이 무시되던 구멍 수리). 태그 미설정(로컬 학습 산출물 사용)은 파일만 보면 됨.
     다운로드 실패는 예외 → _load_artifacts → score_account None → 2계층 폴백
-    (기존 실패 정책 그대로). 태그 미설정이면 시도 없이 즉시 부재 처리."""
-    if (_ART_DIR / "tagger.pt").exists() and (_ART_DIR / "tagger_meta.json").exists():
-        return _ART_DIR
+    (기존 실패 정책 그대로)."""
     tag = os.environ.get("CANARY_MODEL_RELEASE")
+    tag_file = _ART_DIR / "release_tag.txt"
+    have_files = (_ART_DIR / "tagger.pt").exists() and (_ART_DIR / "tagger_meta.json").exists()
+    if have_files and (not tag or (tag_file.exists() and tag_file.read_text().strip() == tag)):
+        return _ART_DIR
     if not tag:
         raise RuntimeError(
             f"모델 아티팩트 없음({_ART_DIR}) — CANARY_MODEL_DIR 또는 "
             "CANARY_MODEL_RELEASE(다운로드 태그)를 설정할 것")
-        repo = get("model.repo", "Cloud9-capstone-2026/cloud9", env_override="CANARY_MODEL_REPO")
+    repo = get("model.repo", "Cloud9-capstone-2026/cloud9", env_override="CANARY_MODEL_REPO")
     headers = {"Accept": "application/vnd.github+json"}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
@@ -133,6 +140,7 @@ def _ensure_artifacts() -> Path:
         logger.info("layer3 아티팩트 무결성 검증 통과 (%d개)", len(expected))
     else:
         logger.warning("hashes.json 부재 — 다운로드 아티팩트 무결성 검증 생략")
+    tag_file.write_text(tag, encoding="utf-8")  # 다음 기동부터 이 태그와 대조
     logger.info("layer3 아티팩트 다운로드 완료: %s (%s)", tag, _ART_DIR)
     return _ART_DIR
 
