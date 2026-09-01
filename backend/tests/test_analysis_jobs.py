@@ -358,6 +358,7 @@ def test_worker_failure_records_reason_internally(app_env, monkeypatch):
     assert poll.status_code == 200
     body = poll.json()
     assert body["status"] == "failed"
+    assert body["error_type"] == "RuntimeError"  # 클래스명만 노출 (진단용, 2026-09-02)
     assert body.get("message") == "분석에 실패했습니다"
     assert "pykrx" not in str(body)     # 상세 원인 비노출
 
