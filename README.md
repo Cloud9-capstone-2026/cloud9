@@ -114,21 +114,19 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 ```
 cloud9/
 ├── frontend/         # React Native(Expo) 앱
-│   └── src/
-│       ├── screens/      # 대시보드·업로드·성향진단·리포트 화면
-│       ├── components/   # 공통 UI 컴포넌트
-│       └── navigation/   # 탭/스택 내비게이션
+│   └── src/              # screens(화면)·components·navigation·state·theme
 │
 ├── backend/          # FastAPI 서버
-│   ├── routers/          # API 엔드포인트 (auth, trades, analysis, jobs, survey, rules)
-│   ├── models/           # 이상 탐지 모델 (Rule·Statistical·Deep·XAI)
-│   ├── pipeline/         # CSV 매핑·비동기 잡·분석 파이프라인
-│   └── reset_db.py       # 데모용 DB 초기화 유틸
+│   ├── routers/          # API 엔드포인트 (auth, trades, jobs, analysis, survey, rules)
+│   ├── models/           # 이상 탐지 (rule_based·zscore·layer3·xai)
+│   ├── pipeline/         # 비동기 잡·CSV 매핑·탐지 파이프라인·분포 점검
+│   ├── alembic/          # DB 마이그레이션
+│   └── tests/            # 빠른 층 테스트 (CI에서 자동 실행)
 │
-├── ml/                # 딥러닝 모델 학습/실험/검증
-├── synthetic_data/   # 합성 학습 데이터 생성기
-├── data/             # 데모용 샘플 매매내역 CSV
-├── config/           # 설정 (settings.yaml)
+├── ml/               # 3계층 모델 학습·실험·재현성 도구
+├── synthetic_data/   # 합성 학습 데이터 생성기 (시뮬레이션·검증)
+├── data/             # 데모용 샘플 거래내역
+├── config/           # 서버 튜닝값 (settings.yaml)
 └── doc/              # 기획 문서
 ```
 
