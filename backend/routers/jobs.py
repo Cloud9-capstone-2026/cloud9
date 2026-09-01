@@ -5,8 +5,11 @@ done/failed가 오면 중단. done이면 기존 결과 조회 API로 이동.
 
 - 소유자 확인: 이제 쿼리 파라미터 user_id 대신 JWT에서 추출한 current_user.id로 비교.
   기존 주석대로 "인증 도입 시 주입 지점만 바뀌면 된다"던 부분이 바로 여기.
-- error_reason(내부 기록)은 절대 응답에 넣지 않는다 — failed는 일반 문구만.
+- error_reason(내부 기록)의 메시지는 응답에 넣지 않는다 — failed는 일반 문구 +
+  예외 클래스명(error_type)만. 내부 경로·라이브러리명 노출 방지는 유지(2026-09-02 완화).
 """
+
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -34,4 +37,10 @@ def get_job(job_id: int,
         out["upload_id"] = job.upload_id
     elif job.status == "failed":
         out["message"] = "분석에 실패했습니다"
+        # 예외 클래스명만 소유자에게 노출 (2026-09-02) — 내부 메시지(경로·라이브러리명
+        # 등)는 계속 감추되, MemoryError인지 ValueError인지 정도는 알아야 사용자·개발자가
+        # 문의/진단을 할 수 있다. error_reason은 repr(e) 형태라 앞머리가 클래스명이다.
+        m = re.match(r"[A-Za-z_][\w.]*", job.error_reason or "")
+        if m:
+            out["error_type"] = m.group(0)
     return out
