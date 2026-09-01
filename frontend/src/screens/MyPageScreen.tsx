@@ -17,7 +17,7 @@ export function MyPageScreen() {
   const topBias = useMemo(() => {
     const counts: Record<string, number> = {};
     Object.values(analysisData).forEach((a) => {
-      const k = a.xai_result.top_bias;
+      const k = a.detail.top_bias;
       counts[k] = (counts[k] || 0) + 1;
     });
     let bestKey: string | null = null;

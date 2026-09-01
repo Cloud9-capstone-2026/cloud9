@@ -83,10 +83,9 @@ def save_analysis(payload: SaveAnalysisRequest, db: Session = Depends(get_db)):
             user_id     = user_id,
             rule_score  = e.rule.score if e.rule else None,
             stat_score  = e.stat.score if e.stat else None,
-            lstm_score  = e.deep.score if e.deep else None,  # 3계층 판정 불가 거래는 None
-            final_score = None,               # 가중합 폐기
+            deep_score  = e.deep.score if e.deep else None,  # 3계층 판정 불가 거래는 None
             is_anomaly  = e.verdict == "이상",
-            xai_result  = {
+            detail      = {
                 "날짜": e.날짜,
                 "종목명": e.종목명,
                 "verdict": e.verdict,

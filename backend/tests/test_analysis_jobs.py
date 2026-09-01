@@ -300,7 +300,7 @@ def test_recover_stale_jobs_cleans_orphans(app_env):
         db.add(AnalysisJob(upload_id=up.id, status=status))
         # 저장까지 진행된 흔적 — running은 지워져야, done은 남아야 한다
         db.add(_trade(up.id))
-        db.add(AnalysisResult(upload_id=up.id, xai_result={}))
+        db.add(AnalysisResult(upload_id=up.id, detail={}))
         db.commit()
         ids[status] = up.id
     db.close()

@@ -26,9 +26,9 @@ BIAS_PARAMS = {"disposition_strength", "overconfidence",
 def _assert_contract(out, n_trades):
     """score_* 공통 계약: 구조·값 범위·행 1:1 매칭·요약 규약."""
     assert out is not None, "픽스처 입력에서 채점 실패하면 안 됨 (경고 로그 확인)"
-    assert set(out) >= {"per_trade", "lstm_score", "bias_mean", "n_events"}
+    assert set(out) >= {"per_trade", "deep_score", "bias_mean", "n_events"}
     assert out["n_events"] == n_trades  # max_len 안 — 전 거래 채점
-    assert 0.0 <= out["lstm_score"] <= 1.0
+    assert 0.0 <= out["deep_score"] <= 1.0
 
     rows_seen = set()
     for e in out["per_trade"]:
@@ -41,8 +41,8 @@ def _assert_contract(out, n_trades):
         rows_seen.add(e["row"])
     assert rows_seen == set(range(n_trades))  # 행 매칭 1:1
 
-    # lstm_score = 거래 점수의 최댓값 (문서화된 요약 규약)
-    assert out["lstm_score"] == max(e["trade_score"] for e in out["per_trade"])
+    # deep_score = 거래 점수의 최댓값 (문서화된 요약 규약)
+    assert out["deep_score"] == max(e["trade_score"] for e in out["per_trade"])
 
 
 def test_score_from_trades_contract(fake_layer3, synthetic_trades, price_df, index_df):

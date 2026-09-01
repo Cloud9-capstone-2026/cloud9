@@ -227,8 +227,8 @@ def test_user_only_sees_own_trades_and_analysis(client):
         거래구분="매수", 거래수량=1, 거래단가=2000, 거래금액=2000,
         수수료=0, 거래세=0, 정산금액=2000,
     ))
-    db.add(AnalysisResult(user_id=user_a.id, final_score=0.1, is_anomaly=False))
-    db.add(AnalysisResult(user_id=user_b.id, final_score=0.9, is_anomaly=True))
+    db.add(AnalysisResult(user_id=user_a.id, deep_score=0.1, is_anomaly=False))
+    db.add(AnalysisResult(user_id=user_b.id, deep_score=0.9, is_anomaly=True))
     db.commit()
     db.close()
 
@@ -349,7 +349,7 @@ def test_analysis_pagination_newest_first(client):
     user = db.query(User).filter(User.email == "pageanalysis@test.com").one()
     ids = []
     for i in range(3):
-        row = AnalysisResult(user_id=user.id, final_score=float(i), is_anomaly=False)
+        row = AnalysisResult(user_id=user.id, deep_score=float(i), is_anomaly=False)
         db.add(row)
         db.flush()
         ids.append(row.id)

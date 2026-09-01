@@ -62,14 +62,14 @@ const DEV_SEGS = [
 export function buildReportDetailVM(tradeId: number) {
   const trade = tradesRaw.find((x) => x.id === tradeId) || tradesRaw[0];
   const ana = analysisData[tradeId] || analysisData[1];
-  const xai = ana.xai_result;
+  const xai = ana.detail;
   const verdictRisk = xai.verdict === '이상' ? 'danger' : xai.verdict === '경고' ? 'caution' : 'safe';
-  const lstmFailed = ana.lstm_score === null;
+  const lstmFailed = ana.deep_score === null;
 
   const layerDefs = [
     { label: '규칙 기반', score: Math.round(ana.rule_score * 100), triggered: xai.flags.rule, failed: false },
     { label: '통계 분석', score: Math.round(ana.stat_score * 100), triggered: xai.flags.stat, failed: false },
-    { label: '딥러닝', score: ana.lstm_score !== null ? Math.round(ana.lstm_score * 100) : 0, triggered: !!xai.flags.deep, failed: lstmFailed },
+    { label: '딥러닝', score: ana.deep_score !== null ? Math.round(ana.deep_score * 100) : 0, triggered: !!xai.flags.deep, failed: lstmFailed },
   ];
 
   const sigma = xai.mahalanobis;
