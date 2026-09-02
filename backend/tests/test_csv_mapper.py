@@ -159,6 +159,42 @@ def test_llm_sees_only_head_lines(monkeypatch):
     assert "종목27" not in head_prompt
 
 
+# ─ 개인정보 마스킹 — LLM에 나가는 head에서 식별자 값만 가려지는가 ─
+
+def test_mask_pii_hides_identifiers_keeps_structure():
+    head = (
+        "계좌번호: 123-45-678900  예금주: 홍길동\n"
+        "연락처: 010-1234-5678  이메일: hong@test.com  주민번호 900101-1234567\n"
+        "예수금: 5,000,000  잔고 12345678901\n"
+        "체결일자,종목명,매매구분,체결수량,체결단가,예수금\n"
+        "2026/01/05,현대차,현금매수,3,200000,100000\n"
+    )
+    out = csv_mapper._mask_pii(head)
+    for pii in ("123-45-678900", "홍길동", "010-1234-5678", "hong@test.com",
+                "900101-1234567", "5,000,000", "12345678901"):
+        assert pii not in out
+    # 구조는 유지 — 키워드·헤더 줄·데이터 행은 그대로 (컬럼명 "예수금" 포함)
+    assert "계좌번호:" in out and "예수금:" in out
+    assert "체결일자,종목명,매매구분,체결수량,체결단가,예수금" in out
+    assert "2026/01/05,현대차,현금매수,3,200000,100000" in out
+
+
+def test_mask_pii_preserves_dates():
+    text = "2026-01-05\n2026/01/05\n2026.1.5\n20260105\n체결 20260105 종가"
+    assert csv_mapper._mask_pii(text) == text
+
+
+def test_llm_prompt_is_masked(monkeypatch):
+    """전송 직전 프롬프트 기준 검증 — 계좌 요약이 붙은 실제 흐름."""
+    fake_calls = fake_llm(monkeypatch, [
+        j(MAP_PREAMBLE), j({"현금매수": "매수", "현금매도": "매도"})])
+    map_file(CSV_PREAMBLE, "samsung.csv")
+    head_prompt = fake_calls[0]
+    assert "123-45-678900" not in head_prompt   # 계좌번호 가림
+    assert "계좌번호:" in head_prompt            # 키워드(구조)는 남음
+    assert "2026/01/05" in head_prompt           # 날짜 샘플은 원형
+
+
 # ─ 매핑표가 엉터리일 때 — 저장 전에 막히는가 ─
 
 def test_mapping_missing_required_field(monkeypatch):

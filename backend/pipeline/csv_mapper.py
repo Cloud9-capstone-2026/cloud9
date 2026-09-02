@@ -8,8 +8,9 @@ pandas 코드가 결정론적으로 수행한다. 거래 데이터 전체를 LLM
 (3) 비용·속도.
 
 LLM 호출은 2패스:
-  패스 1  파일 앞 15줄 원문 → {header_row(헤더 줄 번호 — 증권사 파일은 머리에
-          계좌 요약이 붙곤 함), columns(원본 컬럼명→Trade 필드), date_format}
+  패스 1  파일 앞 15줄(계좌번호·성명·잔고 등 식별자 값은 마스킹) → {header_row
+          (헤더 줄 번호 — 증권사 파일은 머리에 계좌 요약이 붙곤 함),
+          columns(원본 컬럼명→Trade 필드), date_format}
   패스 2  전체 파일에서 뽑은 거래구분 고유값 목록 → {원본 값: 매수|매도|null}.
           앞 15줄 샘플에는 없던 값이 뒤에 나올 수 있어, 값 매핑만은 전체
           고유값(외부로 나가는 건 값 몇 개뿐)으로 다시 묻는다. null = 거래가
@@ -26,6 +27,7 @@ import io
 import json
 import logging
 import os
+import re
 
 import pandas as pd
 
@@ -205,13 +207,54 @@ def _load_grid(raw: bytes, filename: str) -> pd.DataFrame | None:
     return None
 
 
+# ─ 개인정보 마스킹 — LLM에 나가는 head 텍스트에서 식별자 값만 가림 ─
+#
+# 원칙: 값만 가리고 구조는 남긴다. 패스 1이 필요로 하는 건 헤더 줄 위치·컬럼명·
+# 날짜/숫자 형식 샘플이지 계좌 식별자가 아니다. 컬럼명(예: "예수금")은 남고,
+# "예수금: 5,000,000"처럼 키워드 뒤에 붙은 값만 가린다. 마스킹이 매핑을 망치면
+# 기존 검증 게이트(필수 필드·날짜 파싱·행 수 보존)가 MappingError로 잡는다.
+
+_MASK = "[가림]"
+_DATE_SHAPE = r"(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{8})"  # 날짜는 가리면 안 됨
+_PII_PATTERNS = [
+    re.compile(r"\d{6}-\d{7}"),                          # 주민등록번호
+    re.compile(r"01\d[-\s]?\d{3,4}[-\s]?\d{4}"),         # 휴대전화
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),              # 이메일
+    # 계좌번호: 하이픈 구분 숫자 묶음(그룹 3개 이상, 날짜 모양 제외) 또는 10자리+ 연속 숫자.
+    # (?<!\d)는 날짜 등 다른 숫자의 중간부터 매칭되는 것을 차단.
+    re.compile(rf"(?<!\d)(?!{_DATE_SHAPE}(?!\d))\d{{1,8}}-\d{{1,8}}-\d{{1,8}}(?:-\d{{1,8}})?"),
+    re.compile(rf"(?<!\d)(?!{_DATE_SHAPE}(?!\d))\d{{10,}}"),
+]
+# 키워드 바로 뒤의 값(같은 줄, 구분자 :, =, 공백·탭) — 키워드 자체는 남긴다.
+# 값은 콤마 자릿수 구분 숫자("5,000,000")까지 한 덩어리로 취급.
+_PII_KEYWORD = re.compile(
+    r"(성명|고객명|예금주|이름|계좌번호|계좌|예수금|잔고|평가금액)"
+    r"([ \t:=]+)([^\s,\"']+(?:,\d{3})*)")
+
+
+def _mask_pii(text: str) -> str:
+    n = 0
+    for pat in _PII_PATTERNS:
+        text, k = pat.subn(_MASK, text)
+        n += k
+
+    def _keep_keyword(m):
+        nonlocal n
+        n += 1
+        return m.group(1) + m.group(2) + _MASK
+    text = _PII_KEYWORD.sub(_keep_keyword, text)
+    if n:
+        logger.info("LLM 전송 head에서 개인정보 후보 %d건 마스킹", n)
+    return text
+
+
 def _read_head(raw: bytes, filename: str) -> str:
-    """LLM 패스 1에 보여줄 파일 앞부분 텍스트."""
+    """LLM 패스 1에 보여줄 파일 앞부분 텍스트 (개인정보 값 마스킹 적용)."""
     grid = _load_grid(raw, filename)
     if grid is not None:
-        return grid.head(HEAD_LINES).to_csv(index=False, header=False)
+        return _mask_pii(grid.head(HEAD_LINES).to_csv(index=False, header=False))
     lines = _decode(raw).splitlines()[:HEAD_LINES]
-    return "\n".join(lines)
+    return _mask_pii("\n".join(lines))
 
 
 def _read_table(raw: bytes, filename: str, header_row: int) -> pd.DataFrame:
