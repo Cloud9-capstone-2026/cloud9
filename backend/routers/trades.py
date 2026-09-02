@@ -78,7 +78,7 @@ async def upload_trades(background_tasks: BackgroundTasks,
     csv_upload = CsvUpload(file_name=file.filename, status="pending", user_id=current_user.id)
     db.add(csv_upload)
     db.flush()
-    save_upload(csv_upload.id, file.filename, contents, db=db)  # upload_files 테이블 있으면 DB, 없으면 디스크
+    save_upload(csv_upload.id, contents, db)  # upload_files 테이블에 원본 보관
 
     # 2. 분석 job 생성(pending). upload_id unique — 같은 업로드에 중복 생성 불가.
     job = AnalysisJob(upload_id=csv_upload.id, status="pending", user_id=current_user.id)

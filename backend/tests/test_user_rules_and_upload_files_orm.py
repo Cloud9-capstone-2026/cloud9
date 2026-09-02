@@ -82,7 +82,7 @@ def test_upload_file_stores_and_retrieves_raw_bytes(db):
     db.commit()
 
     raw = b"a,b,c\n1,2,3\n"
-    upload_store.save_upload(100, "원본.csv", raw, db=db)
+    upload_store.save_upload(100, raw, db)
     db.commit()
 
     saved = db.query(orm.UploadFile).filter(orm.UploadFile.upload_id == 100).one()

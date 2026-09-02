@@ -61,7 +61,7 @@ def _store_trades(db, upload_id: int) -> None:
     detect(분석)는 신규 판정을 여기에 위임한다 — upload_id로 저장된 행 전부가
     신규다(중복 걸러내기는 이 함수가 유일한 책임 지점).
     """
-    loaded = load_upload(upload_id, db)  # DB(upload_files) 우선, 없으면 디스크
+    loaded = load_upload(upload_id, db)  # upload_files 테이블에서 원본 조회
     if loaded is None:
         raise MappingError(f"업로드 원본 파일 없음: upload_id={upload_id}")
     raw, filename = loaded

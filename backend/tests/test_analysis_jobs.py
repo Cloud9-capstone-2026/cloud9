@@ -24,7 +24,7 @@ from sqlalchemy.pool import StaticPool
 
 
 @pytest.fixture()
-def app_env(monkeypatch, tmp_path):
+def app_env(monkeypatch):
     """인메모리 DB로 앱 구성 + worker 세션·파이프라인·매핑을 테스트용으로 주입."""
     import database
     from database import Base
@@ -40,8 +40,6 @@ def app_env(monkeypatch, tmp_path):
 
     from pipeline import jobs as jobs_mod
     from pipeline import upload_store
-
-    monkeypatch.setattr(upload_store, "UPLOAD_DIR", tmp_path / "uploads")
 
     session_count = {"n": 0}
 
@@ -286,8 +284,9 @@ def test_conditional_claim_prevents_double_run(app_env):
     db.add(job)
     db.commit()
     jid = job.id
-    # worker가 읽을 원본 파일도 준비 (라우트를 거치지 않고 job을 만들었으므로)
-    app_env["upload_store"].save_upload(up.id, "x.csv", CSV.encode("utf-8-sig"))
+    # worker가 읽을 원본도 준비 (라우트를 거치지 않고 job을 만들었으므로)
+    app_env["upload_store"].save_upload(up.id, CSV.encode("utf-8-sig"), db)
+    db.commit()
     db.close()
 
     run_analysis_job(jid)                       # 정상 1회 실행 → done
