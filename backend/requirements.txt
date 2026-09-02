@@ -43,4 +43,4 @@ pyarrow
 # 별도 액세스키 없이 인증됨 — 로컬 개발 환경엔 이 역할이 없어 조용히 실패하고
 # .env로 폴백(secrets_loader.py 참고).
 boto3==1.43.80
-apscheduler
+apscheduler==3.11.3  # requirements.lock과 동일 버전 — 미고정 배포가 pandas 3을 받아 전면 장애 났던 전례(2026-09-01)

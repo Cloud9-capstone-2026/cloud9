@@ -30,3 +30,13 @@ def test_db_roundtrip(db):
     db.commit()
     assert upload_store.load_upload(7, db) == (b"<html>raw</html>", "원본.xls")
     assert upload_store.load_upload(99, db) is None  # 행 없음 → 호출자가 실패 처리
+
+
+def test_load_expired_content_returns_none(db):
+    """90일 보관 만료로 content가 NULL인 행 — 예외 없이 '원본 없음' 처리."""
+    upload_store.save_upload(7, b"raw", db)
+    db.commit()
+    db.query(orm.UploadFile).filter(orm.UploadFile.upload_id == 7).update(
+        {"content": None, "size": None})
+    db.commit()
+    assert upload_store.load_upload(7, db) is None

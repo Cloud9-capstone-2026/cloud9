@@ -23,7 +23,8 @@ def save_upload(upload_id: int, raw: bytes, db) -> None:
 def load_upload(upload_id: int, db) -> tuple[bytes, str] | None:
     """원본 (bytes, 파일명). 행이 없으면 None — 호출자가 실패 처리."""
     row = db.query(UploadFile).filter(UploadFile.upload_id == upload_id).first()
-    if row is None:
+    if row is None or row.content is None:
+        # content NULL = 90일 보관 만료로 원본만 비워진 행(scheduler.cleanup_old_csv_files)
         return None
     up = db.query(CsvUpload).filter(CsvUpload.id == upload_id).first()
     return bytes(row.content), (up.file_name if up else f"{upload_id}")
