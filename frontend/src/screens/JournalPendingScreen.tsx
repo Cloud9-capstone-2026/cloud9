@@ -5,7 +5,7 @@ import { Card } from '../components/Card';
 import { TradeRow } from '../components/TradeRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
-import { C, riskLevel, PERIODS } from '../theme/tokens';
+import { C, riskLevel, PERIODS, text } from '../theme/tokens';
 import { tradesRaw } from '../data/mock';
 import { useAppState } from '../state/AppState';
 import { goToJournalWrite } from '../navigation/navigationRef';
@@ -46,8 +46,8 @@ export function JournalPendingScreen() {
 
   return (
     <Screen back footer={<Pagination page={clampedPage} totalPages={totalPages} onChange={setPage} />}>
-      <Text style={styles.title}>기록되지 않은 거래</Text>
-      <Text style={styles.subtitle}>원하는 거래를 골라 기록을 남겨보세요</Text>
+      <Text style={text.screenTitle}>기록되지 않은 거래</Text>
+      <Text style={[text.screenSubtitle, styles.subtitle]}>원하는 거래를 골라 기록을 남겨보세요</Text>
 
       <View style={styles.filterRow}>
         <TypeTabs value={type} onChange={updateFilter(setType)} />
@@ -79,8 +79,7 @@ export function JournalPendingScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, marginBottom: 16 },
+  subtitle: { marginTop: 3, marginBottom: 16 },
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
   filterRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { textAlign: 'center', paddingVertical: 40, color: C.muted, fontSize: 16 },

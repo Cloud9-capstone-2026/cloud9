@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, StyleProp, TextStyle } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardTypeOptions, StyleProp, TextStyle, ViewStyle } from 'react-native';
 import { C, shadow } from '../theme/tokens';
 import { IconEye, IconGoogle, IconNaver } from '../assets/icons';
 
@@ -147,11 +147,13 @@ export function SocialButton({
   );
 }
 
-export function CtaButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+export function CtaButton({
+  label, active, onPress, style,
+}: { label: string; active: boolean; onPress: () => void; style?: StyleProp<ViewStyle> }) {
   return (
     <Pressable
       onPress={active ? onPress : undefined}
-      style={[styles.cta, active ? styles.ctaActive : styles.ctaInactive]}
+      style={[styles.cta, active ? styles.ctaActive : styles.ctaInactive, style]}
     >
       <Text style={[styles.ctaText, { color: active ? '#fff' : '#94a3b8' }]}>{label}</Text>
     </Pressable>

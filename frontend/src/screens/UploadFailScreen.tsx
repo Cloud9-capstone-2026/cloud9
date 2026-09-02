@@ -13,7 +13,7 @@ export function UploadFailScreen() {
       title="업로드 실패"
       body="파일을 다시 업로드 해주세요."
       ctaLabel="확인"
-      onCta={() => navigation.navigate('Upload')}
+      onCta={() => navigation.goBack()}
     />
   );
 }

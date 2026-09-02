@@ -5,7 +5,7 @@ import { Card } from '../components/Card';
 import { NewsRow } from '../components/NewsRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { Pagination } from '../components/FilterControls';
-import { C, PERIODS } from '../theme/tokens';
+import { PERIODS, text } from '../theme/tokens';
 import { dartNews } from '../data/mock';
 
 const PAGE_SIZE = 10;
@@ -22,7 +22,7 @@ export function NewsFullListScreen() {
 
   return (
     <Screen back footer={<Pagination page={page} totalPages={totalPages} onChange={setPage} />}>
-      <Text style={styles.title}>전체 소식</Text>
+      <Text style={text.screenTitle}>전체 소식</Text>
       <View style={styles.filterRow}>
         <PeriodDropdown value={period} onChange={(v) => { setPeriod(v); setPage(0); }} />
       </View>
@@ -36,6 +36,5 @@ export function NewsFullListScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
   filterRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 20, marginBottom: 13 },
 });

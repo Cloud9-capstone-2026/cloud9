@@ -7,7 +7,7 @@ import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { IconCloud, IconFile } from '../assets/icons';
-import { C } from '../theme/tokens';
+import { C, text } from '../theme/tokens';
 import { uploadHistoryRaw } from '../data/mock';
 import { useAppState } from '../state/AppState';
 import { goToUploadHistory } from '../navigation/navigationRef';
@@ -33,7 +33,7 @@ function validate(name: string, sizeBytes: number | null): string | null {
 
 export function UploadScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { setUpFile } = useAppState();
+  const { setUpFile, hasUploaded } = useAppState();
   const [file, setFile] = useState<PickedFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dupOpen, setDupOpen] = useState(false);
@@ -75,13 +75,13 @@ export function UploadScreen() {
     startUpload();
   };
 
-  const recent = uploadHistoryRaw.slice(0, 5);
+  const recent = hasUploaded ? uploadHistoryRaw.slice(0, 5) : [];
 
   return (
     <Screen back contentStyle={styles.content}>
       <View>
-        <Text style={styles.title}>파일 업로드</Text>
-        <Text style={styles.subtitle}>증권사에서 내려받은 거래내역 파일을 올려 분석을 시작해보세요.</Text>
+        <Text style={text.screenTitle}>파일 업로드</Text>
+        <Text style={[text.screenSubtitle, styles.subtitle]}>{'증권사에서 내려받은 거래내역 파일을 올려\n분석을 시작해보세요.'}</Text>
       </View>
 
       <View style={[styles.dropzone, file ? styles.dropzoneFilled : styles.dropzoneEmpty]}>
@@ -164,8 +164,7 @@ export function UploadScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 4, lineHeight: 20 },
+  subtitle: { marginTop: 3 },
   dropzone: {
     borderRadius: 30, paddingVertical: 24, paddingHorizontal: 20, minHeight: 232,
     justifyContent: 'space-between',
@@ -188,7 +187,7 @@ const styles = StyleSheet.create({
   fileMeta: { fontSize: 12, color: C.muted, marginTop: 2 },
   removeBtn: { color: C.muted, fontSize: 20, lineHeight: 18, padding: 4 },
   fileError: { fontSize: 13, color: '#dc2626', marginTop: 10 },
-  actionBtn: { width: '100%', backgroundColor: C.blue, borderRadius: 999, paddingVertical: 13, alignItems: 'center' },
+  actionBtn: { width: '100%', backgroundColor: C.blue, borderRadius: 30, paddingVertical: 14, alignItems: 'center' },
   actionBtnDisabled: { backgroundColor: '#e2e8f0' },
   actionBtnText: { color: '#fff', fontSize: 16, fontWeight: '500' },
   actionBtnTextDisabled: { color: '#94a3b8' },

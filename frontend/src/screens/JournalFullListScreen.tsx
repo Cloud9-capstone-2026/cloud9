@@ -5,7 +5,7 @@ import { Card } from '../components/Card';
 import { JournalRow } from '../components/JournalRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
-import { C, PERIODS } from '../theme/tokens';
+import { C, PERIODS, text } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
 import { goToJournalWrite } from '../navigation/navigationRef';
 
@@ -43,8 +43,8 @@ export function JournalFullListScreen() {
 
   return (
     <Screen back footer={<Pagination page={clampedPage} totalPages={totalPages} onChange={setPage} />}>
-      <Text style={styles.title}>전체 거래일지</Text>
-      <Text style={styles.subtitle}>기록된 모든 거래를 확인해요</Text>
+      <Text style={text.screenTitle}>전체 거래일지</Text>
+      <Text style={[text.screenSubtitle, styles.subtitle]}>기록된 모든 거래를 확인해요</Text>
 
       <View style={styles.filterRow}>
         <TypeTabs value={type} onChange={updateFilter(setType)} />
@@ -78,8 +78,7 @@ export function JournalFullListScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, marginBottom: 16, lineHeight: 20 },
+  subtitle: { marginTop: 3, marginBottom: 16 },
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
   filterRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { textAlign: 'center', paddingVertical: 40, color: C.muted, fontSize: 16 },

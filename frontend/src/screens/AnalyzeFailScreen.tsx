@@ -13,7 +13,7 @@ export function AnalyzeFailScreen() {
       title="분석 실패"
       body={'분석 중 문제가 생겼어요.\n잠시 후 다시 시도해주세요.'}
       ctaLabel="확인"
-      onCta={() => navigation.navigate('Upload')}
+      onCta={() => navigation.goBack()}
     />
   );
 }
