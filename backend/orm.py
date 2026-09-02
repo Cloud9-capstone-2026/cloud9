@@ -31,7 +31,8 @@ class User(Base):
     password_reset_code_hash       = Column(String(64), nullable=True)
     password_reset_code_expires_at = Column(TIMESTAMP, nullable=True)
     created_at      = Column(TIMESTAMP, server_default=func.now())
-
+    deleted_at            = Column(TIMESTAMP(timezone=True), nullable=True)
+    scheduled_deletion_at = Column(TIMESTAMP(timezone=True), nullable=True)
     __table_args__ = (
         UniqueConstraint('provider', 'provider_id', name='uq_users_provider_provider_id'),
     )
@@ -145,8 +146,8 @@ class UploadFile(Base):
 
     id         = Column(Integer, primary_key=True, index=True)
     upload_id  = Column(Integer, ForeignKey("csv_uploads.id"), unique=True, nullable=False)
-    content    = Column(LargeBinary, nullable=False)
-    size       = Column(Integer, nullable=False)
+    content    = Column(LargeBinary, nullable=True)  # 90일 경과 시 NULL로 비움 (원본만 삭제, 행은 유지)
+    size       = Column(Integer, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
