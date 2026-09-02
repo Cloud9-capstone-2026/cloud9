@@ -3,15 +3,18 @@ import { View, Text, StyleSheet } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { TradeRow } from '../components/TradeRow';
+import { EmptyState } from '../components/EmptyState';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
-import { C, riskLevel, PERIODS } from '../theme/tokens';
+import { C, riskLevel, PERIODS, text } from '../theme/tokens';
 import { tradesRaw } from '../data/mock';
 import { goToReportDetail } from '../navigation/navigationRef';
+import { useAppState } from '../state/AppState';
 
 const PAGE_SIZE = 10;
 
 export function ReportListScreen() {
+  const { hasUploaded } = useAppState();
   const [type, setType] = useState<TypeFilter>('all');
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
@@ -31,7 +34,7 @@ export function ReportListScreen() {
     return list;
   }, [type, risk, search, newest]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = hasUploaded ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);
   const paginated = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
 
@@ -41,9 +44,9 @@ export function ReportListScreen() {
   };
 
   return (
-    <Screen footer={<Pagination page={clampedPage} totalPages={totalPages} onChange={setPage} />}>
-      <Text style={styles.title}>분석 리포트</Text>
-      <Text style={styles.subtitle}>분석하고 싶은 거래를 선택하세요</Text>
+    <Screen belowTabBar footer={<Pagination page={clampedPage} totalPages={totalPages} onChange={setPage} />}>
+      <Text style={text.screenTitle}>분석 리포트</Text>
+      <Text style={[text.screenSubtitle, styles.subtitle]}>분석하고 싶은 거래를 선택하세요</Text>
 
       <View style={styles.filterRow}>
         <TypeTabs value={type} onChange={updateFilter(setType)} />
@@ -56,7 +59,12 @@ export function ReportListScreen() {
       <SearchInput value={search} onChangeText={updateFilter(setSearch)} placeholder="종목명 검색..." />
       <RiskChips value={risk} onChange={updateFilter(setRisk)} />
 
-      {paginated.length > 0 ? (
+      {!hasUploaded ? (
+        <EmptyState
+          title="아직 업로드한 거래 내역이 없어요"
+          subtitle={'거래내역을 업로드 하면\n거래별 분석 리포트가 생성돼요'}
+        />
+      ) : paginated.length > 0 ? (
         <Card>
           {paginated.map((t, i) => (
             <TradeRow key={t.id} trade={t} index={i} onPress={() => goToReportDetail(t.id)} />
@@ -72,8 +80,7 @@ export function ReportListScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, marginBottom: 16, lineHeight: 20 },
+  subtitle: { marginTop: 3, marginBottom: 16 },
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
   filterRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { textAlign: 'center', paddingVertical: 40, color: C.muted, fontSize: 16 },

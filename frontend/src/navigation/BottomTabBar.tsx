@@ -13,6 +13,10 @@ const ICONS: Record<string, (active: boolean) => React.ReactNode> = {
   Settings: (a) => <IconGear active={a} />,
 };
 
+// 이 둥둥 뜬 탭바의 실측 전체 높이(바 자체 68 + 화면 하단과의 간격 16) — 탭 화면 안에서
+// 탭바 위에 다른 걸(페이지네이션 등) 띄워야 할 때 이 값으로 여유 공간을 계산해서 재사용할 것.
+export const TAB_BAR_CLEARANCE = 84;
+
 const LABELS: Record<string, string> = {
   Home: '홈',
   ReportList: '리포트',

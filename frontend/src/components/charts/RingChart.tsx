@@ -8,7 +8,8 @@ export function RingChart({
   danger: number; caution: number; safe: number;
   dangerColor: string; cautionColor: string; safeColor: string;
 }) {
-  const total = Math.max(1, danger + caution + safe);
+  const realTotal = danger + caution + safe;
+  const total = Math.max(1, realTotal);
   const r = 36, cx = 46, cy = 52, circ = 2 * Math.PI * r, gap = 4;
 
   const seg = (value: number, color: string, rot: number, key: string) => (
@@ -32,7 +33,7 @@ export function RingChart({
       {seg(caution, cautionColor, (danger / total) * 360 - 90, 'caution')}
       {seg(safe, safeColor, ((danger + caution) / total) * 360 - 90, 'safe')}
       <SvgText x={cx} y={cx + 2} textAnchor="middle" fill={C.muted} fontSize={8}>Total</SvgText>
-      <SvgText x={cx} y={cx + 16} textAnchor="middle" fill={C.navy} fontSize={16} fontWeight="600">{total}</SvgText>
+      <SvgText x={cx} y={cx + 16} textAnchor="middle" fill={C.navy} fontSize={16} fontWeight="600">{realTotal || '—'}</SvgText>
     </Svg>
   );
 }

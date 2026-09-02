@@ -1,8 +1,18 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { journals as journalsSeed, RULES, NOTIFS } from '../data/mock';
 import type { Journal } from '../data/types';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
+
+// "로그인 상태 유지" 체크 시 세션을 남겨두는 저장소 키.
+// 지금은 로그인 여부만 로컬에 저장하는 목업이고, 실제 백엔드 연동 시에는
+// 여기 저장하는 값을 서버가 발급한 토큰으로 바꾸기만 하면 됨 — 저장/복원 흐름 자체는 그대로 재사용.
+const SESSION_STORAGE_KEY = '@canary/session';
+
+// 튜토리얼(온보딩)을 한 번이라도 완료했는지 — "로그인 상태 유지"와 별개로 항상 저장됨.
+// 로그아웃하거나 로그인 상태 유지를 꺼도 이 기록은 남아있어서, 다시 로그인하면 튜토리얼을 또 보여주지 않음.
+const ONBOARDING_DONE_STORAGE_KEY = '@canary/onboardingDone';
 
 type RuleOnMap = Record<string, boolean>;
 type RuleValMap = Record<string, number>;
@@ -32,6 +42,7 @@ interface AppStateValue {
 
   // 인증 / 온보딩 플로우
   authPhase: AuthPhase;
+  authReady: boolean;
   login: () => void;
   enterMainDirectly: () => void;
   logout: () => void;
@@ -82,6 +93,10 @@ interface AppStateValue {
   // 프로필
   pfName: string;
   setPfName: (v: string) => void;
+
+  // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
+  hasUploaded: boolean;
+  toggleHasUploaded: () => void;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -91,9 +106,30 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [notif, setNotif] = useState(true);
 
   const [authPhase, setAuthPhase] = useState<AuthPhase>('auth');
+  const [authReady, setAuthReady] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [keepLogin, setKeepLogin] = useState(true);
   const [suVerified, setSuVerified] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [sessionRaw, onboardingRaw] = await Promise.all([
+          AsyncStorage.getItem(SESSION_STORAGE_KEY),
+          AsyncStorage.getItem(ONBOARDING_DONE_STORAGE_KEY),
+        ]);
+        const savedOnboardingDone = onboardingRaw === '1';
+        if (savedOnboardingDone) setOnboardingDone(true);
+        if (sessionRaw) {
+          setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
+        }
+      } catch {
+        // 저장된 값이 없거나 손상된 경우 로그인 화면부터 시작
+      } finally {
+        setAuthReady(true);
+      }
+    })();
+  }, []);
 
   const [tutStep, setTutStep] = useState(0);
   const [rulesConfirmed, setRulesConfirmed] = useState(false);
@@ -116,6 +152,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [notifPermModalOpen, setNotifPermModalOpen] = useState(false);
   const [biasInfo, setBiasInfo] = useState(false);
   const [pfName, setPfName] = useState('김투자');
+  const [hasUploaded, setHasUploaded] = useState(true);
 
   const saveJournal = useCallback<AppStateValue['saveJournal']>((journalId, patch) => {
     setJournals((prev) => {
@@ -135,21 +172,32 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(() => {
     setAuthPhase(onboardingDone ? 'main' : 'onboarding');
-  }, [onboardingDone]);
+    if (keepLogin) {
+      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone })).catch(() => {});
+    }
+  }, [onboardingDone, keepLogin]);
 
   const enterMainDirectly = useCallback(() => {
+    setOnboardingDone(true);
     setAuthPhase('main');
+    AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
+    AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone: true })).catch(() => {});
   }, []);
 
   const logout = useCallback(() => {
     setAuthPhase('auth');
+    AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
   }, []);
 
   const completeOnboarding = useCallback(() => {
     setOnboardingDone(true);
     setAuthPhase('main');
     setNotifPermModalOpen(true);
-  }, []);
+    AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
+    if (keepLogin) {
+      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone: true })).catch(() => {});
+    }
+  }, [keepLogin]);
 
   const toggleRule = useCallback((id: string) => {
     setRuleOn((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -210,6 +258,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       notif,
       toggleNotif: () => setNotif((v) => !v),
       authPhase,
+      authReady,
       login,
       enterMainDirectly,
       logout,
@@ -246,16 +295,18 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       closeBiasInfo,
       pfName,
       setPfName,
+      hasUploaded,
+      toggleHasUploaded: () => setHasUploaded((v) => !v),
     }),
     [
       journals, saveJournal, addJournal, isJournaled, notif,
-      authPhase, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
+      authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       suVerified, tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
       upFile,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
-      biasInfo, openBiasInfo, closeBiasInfo, pfName,
+      biasInfo, openBiasInfo, closeBiasInfo, pfName, hasUploaded,
     ]
   );
 

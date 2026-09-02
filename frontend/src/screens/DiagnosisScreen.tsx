@@ -189,7 +189,7 @@ const styles = StyleSheet.create({
   quizBody: { paddingHorizontal: 28, paddingTop: 170 },
   qLabel: { fontSize: 12, fontWeight: '500', color: C.blue, marginBottom: 16, letterSpacing: 0.8 },
   qText: { fontSize: 21, fontWeight: '600', color: '#111', lineHeight: 30, letterSpacing: -0.3, marginBottom: 56 },
-  optionsRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 54 },
+  optionsRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 60 },
   optionWrap: { width: 54, height: 54, alignItems: 'center', justifyContent: 'flex-end' },
   optionCircle: { alignItems: 'center', justifyContent: 'center' },
   optionVal: { position: 'absolute', top: 60, fontSize: 11, color: C.muted },

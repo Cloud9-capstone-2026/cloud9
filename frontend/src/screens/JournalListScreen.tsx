@@ -5,7 +5,7 @@ import { Card } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
 import { JournalRow } from '../components/JournalRow';
 import { RadarChart } from '../components/charts/RadarChart';
-import { C, ACCENT, shadow } from '../theme/tokens';
+import { C, ACCENT, shadow, text } from '../theme/tokens';
 import { emotionRadarData, tradesRaw } from '../data/mock';
 import { useAppState } from '../state/AppState';
 import { goToJournalFullList, goToJournalPending, goToJournalWrite } from '../navigation/navigationRef';
@@ -25,8 +25,8 @@ export function JournalListScreen() {
   return (
     <Screen contentStyle={styles.content}>
       <View>
-        <Text style={styles.title}>거래일지</Text>
-        <Text style={styles.subtitle}>거래 이유와 감정을 기록하고 돌아봐요</Text>
+        <Text style={text.screenTitle}>거래일지</Text>
+        <Text style={[text.screenSubtitle, styles.subtitle]}>거래 이유와 감정을 기록하고 돌아봐요</Text>
       </View>
 
       <GradientCard colors={['#eff6ff', '#dbeafe']} style={[styles.banner, shadow.floating]}>
@@ -86,8 +86,7 @@ export function JournalListScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, lineHeight: 20 },
+  subtitle: { marginTop: 3 },
   banner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 18 },
   bannerText: { fontSize: 16, fontWeight: '500', color: C.navy, lineHeight: 21, flex: 1, marginRight: 8 },
   bannerCta: { fontSize: 15, fontWeight: '600', color: C.blue },

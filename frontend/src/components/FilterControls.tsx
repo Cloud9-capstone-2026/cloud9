@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet, TextInput } from 'react-native';
-import { C } from '../theme/tokens';
+import { C, shadow } from '../theme/tokens';
 import { IconSearch } from '../assets/icons';
 
 export type TypeFilter = 'all' | 'buy' | 'sell';
@@ -89,7 +89,7 @@ export function Pagination({
       <Pressable
         onPress={() => onChange(Math.max(0, page - 1))}
         disabled={page === 0}
-        style={styles.pagerBtn}
+        style={[styles.pagerBtn, shadow.header]}
       >
         <Text style={{ fontSize: 17, color: page === 0 ? C.muted : C.navy }}>‹</Text>
       </Pressable>
@@ -97,7 +97,7 @@ export function Pagination({
         <Pressable
           key={p}
           onPress={() => onChange(p)}
-          style={[styles.pagerNumBtn, { backgroundColor: p === page ? C.blue : C.card }]}
+          style={[styles.pagerNumBtn, shadow.header, { backgroundColor: p === page ? C.blue : C.card }]}
         >
           <Text style={{ fontSize: 15, color: p === page ? '#fff' : C.navy, fontWeight: p === page ? '500' : '400' }}>
             {p + 1}
@@ -107,7 +107,7 @@ export function Pagination({
       <Pressable
         onPress={() => onChange(Math.min(totalPages - 1, page + 1))}
         disabled={page === totalPages - 1}
-        style={styles.pagerBtn}
+        style={[styles.pagerBtn, shadow.header]}
       >
         <Text style={{ fontSize: 17, color: page === totalPages - 1 ? C.muted : C.navy }}>›</Text>
       </Pressable>

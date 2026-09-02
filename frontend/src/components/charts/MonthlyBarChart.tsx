@@ -3,8 +3,11 @@ import Svg, { Rect, Polyline, Circle, Text as SvgText, Defs, LinearGradient, Sto
 import { C, ACCENT } from '../../theme/tokens';
 import type { MonthlyDatum } from '../../data/types';
 
+// 이 차트의 고정 렌더 높이 — 카드가 빈 상태일 때 크기를 유지해야 하면 이 값을 그대로 재사용할 것.
+export const MONTHLY_CHART_HEIGHT = 158;
+
 export function MonthlyBarChart({ data, activeTab }: { data: MonthlyDatum[]; activeTab: 'trades' | 'anomaly' }) {
-  const W = 356, H = 158, padL = 26, padB = 24, padT = 8;
+  const W = 356, H = MONTHLY_CHART_HEIGHT, padL = 26, padB = 24, padT = 8;
   const plotH = H - padB - padT;
   const n = data.length;
   const step = (W - padL - 8) / n;

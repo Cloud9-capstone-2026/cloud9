@@ -6,7 +6,7 @@ import { GradientCard } from '../components/GradientCard';
 import { DumbbellChart } from '../components/charts/DumbbellChart';
 import { TrendLineChart } from '../components/charts/TrendLineChart';
 import { Avatar } from '../assets/Avatar';
-import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEY_MAP } from '../theme/tokens';
+import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEY_MAP, text } from '../theme/tokens';
 import { biasComparisonData, biasTrend, BIAS_SCORES, analysisData } from '../data/mock';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
@@ -41,8 +41,8 @@ export function MyPageScreen() {
   return (
     <Screen contentStyle={styles.content}>
       <View>
-        <Text style={styles.title}>성향분석</Text>
-        <Text style={styles.subtitle}>내 투자 성향을 파악하고 거래 패턴을 분석해요</Text>
+        <Text style={text.screenTitle}>성향분석</Text>
+        <Text style={[text.screenSubtitle, styles.subtitle]}>내 투자 성향을 파악하고 거래 패턴을 분석해요</Text>
       </View>
 
       <GradientCard colors={['#eff6ff', '#dbeafe']} style={shadow.floating}>
@@ -149,8 +149,7 @@ export function MyPageScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 3, lineHeight: 20 },
+  subtitle: { marginTop: 3 },
   bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   bannerTitle: { fontSize: 16, fontWeight: '500', color: C.navy, lineHeight: 21 },
   bannerSub: { fontSize: 13, color: C.muted, marginTop: 4, lineHeight: 20 },

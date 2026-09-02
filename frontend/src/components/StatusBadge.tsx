@@ -12,6 +12,6 @@ export function StatusBadge({ risk }: { risk: RiskLevel }) {
 }
 
 const styles = StyleSheet.create({
-  badge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6, alignSelf: 'flex-end' },
+  badge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, alignSelf: 'flex-end' },
   text: { color: '#fff', fontSize: 12, fontWeight: '500' },
 });
