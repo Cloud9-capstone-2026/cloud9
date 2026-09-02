@@ -23,7 +23,6 @@ layers_available로 표시한다.
 
 import json
 import re
-import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -45,8 +44,6 @@ except Exception:  # noqa: BLE001
 
 # backend/pipeline/detect.py → backend/
 BACKEND_DIR = Path(__file__).resolve().parent.parent
-
-logging.getLogger("pykrx").setLevel(logging.ERROR)
 
 # DB(trades) 컬럼 → 모델이 기대하는 표준 컬럼
 DB_TO_STANDARD = {
