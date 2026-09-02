@@ -38,6 +38,12 @@ def test_no_tag_env_uses_local_files(art_dir, monkeypatch):
     assert layer3._ensure_artifacts() == art_dir  # 로컬 학습 산출물 경로
 
 
+def test_lott_table_not_in_model_release():
+    # 순위표는 고정 태그 Release로 분리(2026-09-02) — 모델 자산 목록에 다시 넣으면
+    # 무결성 검증이 월간 갱신된 표를 지문 불일치로 죽이는 회귀가 된다.
+    assert "lott_ranks.csv" not in layer3._RELEASE_ASSETS
+
+
 def test_missing_or_stale_tag_record_redownloads(art_dir, monkeypatch):
     monkeypatch.setenv("CANARY_MODEL_RELEASE", "model-x")
     with pytest.raises(_Boom):  # 기록 없음(옛 배포) → 다운로드 시도 (repo 정의 후 첫 호출)

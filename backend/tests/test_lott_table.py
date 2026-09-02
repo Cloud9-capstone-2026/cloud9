@@ -54,6 +54,83 @@ def test_injected_table_fills_events(synthetic_trades, price_df, index_df, fake_
     assert ev[ev["월"] == 3]["lott_rank"].isna().all()  # 표에 없는 달
 
 
+# ─ 신선도 판정 + 자체 다운로드 (2026-09-02 모델 Release에서 분리) ─
+
+def _this_month_rows():
+    import datetime
+    t = datetime.date.today()
+    return [(t.year, t.month, "000010", 0.5)]
+
+
+@pytest.fixture()
+def download_env(tmp_path, monkeypatch):
+    """CANARY_LOTT_TABLE 해제 + 아티팩트 경로를 tmp로 — 다운로드 로직이 사는 환경."""
+    monkeypatch.delenv("CANARY_LOTT_TABLE", raising=False)
+    monkeypatch.setenv("CANARY_MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(lott_table, "_last_download_try", None)
+    lott_table._load.cache_clear()
+    return tmp_path
+
+
+def _mock_release(monkeypatch, csv_bytes):
+    """GitHub API 2단 호출(태그 조회 → 자산 다운로드) 흉내. 호출 URL 기록."""
+    calls = []
+
+    class _Resp:
+        def __init__(self, js=None, content=b""):
+            self._js, self.content = js, content
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return self._js
+
+    def fake_get(url, **k):
+        calls.append(url)
+        if "/releases/tags/" in url:
+            return _Resp(js={"assets": [{"name": "lott_ranks.csv", "url": "asset://lott"}]})
+        return _Resp(content=csv_bytes)
+    monkeypatch.setattr(lott_table.requests, "get", fake_get)
+    return calls
+
+
+def test_stale_table_triggers_download(download_env, monkeypatch):
+    _write_csv(download_env / "lott_ranks.csv", [(2020, 5, "000010", 0.9)])  # 이번 달 없음
+    fresh = pd.DataFrame(_this_month_rows(),
+                         columns=["적용연", "적용월", "종목코드", "lott_rank"])
+    calls = _mock_release(monkeypatch, fresh.to_csv(index=False).encode())
+    t = lott_table.get_lott_table()
+    assert calls  # 다운로드 시도됨
+    import datetime
+    today = datetime.date.today()
+    assert (today.year, today.month) in t  # 새 표가 반환됨
+    assert t[(today.year, today.month)]["000010"] == 0.5
+
+
+def test_download_failure_keeps_old_table_with_cooldown(download_env, monkeypatch):
+    _write_csv(download_env / "lott_ranks.csv", [(2020, 5, "000010", 0.9)])
+    calls = []
+
+    def fail_get(url, **k):
+        calls.append(url)
+        raise lott_table.requests.ConnectionError("no network")
+    monkeypatch.setattr(lott_table.requests, "get", fail_get)
+
+    t = lott_table.get_lott_table()
+    assert t[(2020, 5)]["000010"] == 0.9  # 예외 없이 기존 표 유지
+    n = len(calls)
+    assert n >= 1
+    assert lott_table.get_lott_table() is not None  # 쿨다운 안 — 재시도 없음
+    assert len(calls) == n
+
+
+def test_env_path_skips_download(fake_table_file, monkeypatch):
+    def no_network(*a, **k):
+        raise AssertionError("CANARY_LOTT_TABLE 지정 시 네트워크 호출 금지")
+    monkeypatch.setattr(lott_table.requests, "get", no_network)
+    monkeypatch.setattr(lott_table, "_last_download_try", None)
+    assert lott_table.get_lott_table() is not None  # 2020년 표(낡음)라도 그대로 신뢰
+
+
 def test_layer3_prepare_uses_table_or_falls_back(synthetic_trades, price_df, index_df,
                                                 monkeypatch, fake_table_file):
     from models import layer3
