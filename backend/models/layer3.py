@@ -51,7 +51,7 @@ from config.settings import get  # 2026-08-27 CANARY_MODEL_REPO settings.yaml �
 # (_ensure_artifacts — CANARY_MODEL_RELEASE 태그 필요, 사설 레포는 GITHUB_TOKEN).
 _ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifacts"))
 _RELEASE_ASSETS = ("tagger.pt", "tagger_meta.json", "distribution_ref.json",
-                   "hashes.json", "lott_ranks.csv")  # lott_ranks.csv: 복권성 순위표(선택)
+                   "hashes.json")  # 복권성 순위표는 별도 Release(lott_table._download 참조)
 logger = logging.getLogger(__name__)
 
 try:
@@ -130,6 +130,8 @@ def _ensure_artifacts() -> Path:
         with open(hashes_path, encoding="utf-8") as fp:
             expected = json.load(fp).get("artifacts", {})
         for name, want in expected.items():
+            if name not in _RELEASE_ASSETS:
+                continue  # 순위표 등 별도 관리 파일은 이 Release의 지문 대상이 아님
             p = _ART_DIR / name
             if not p.exists():
                 continue
