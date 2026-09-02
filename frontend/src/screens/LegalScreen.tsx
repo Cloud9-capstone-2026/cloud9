@@ -1,19 +1,20 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { useRoute } from '@react-navigation/native';
-import { Screen } from '../components/Screen';
+import { AuthScreen } from '../components/AuthScreen';
+import { HeaderActions } from '../components/Header';
 import { C } from '../theme/tokens';
 import { LEGAL } from '../data/mock';
 
 export function LegalScreen() {
   const route = useRoute<any>();
   const kind: 'terms' | 'privacy' = route.params?.kind || 'terms';
+  const variant: 'auth' | 'app' = route.params?.variant || 'app';
   const content = LEGAL[kind];
 
   return (
-    <Screen back>
+    <AuthScreen back headerRight={variant === 'app' ? <HeaderActions /> : undefined}>
       <Text style={styles.title}>{content.title}</Text>
-      <Text style={styles.meta}>{content.meta}</Text>
       <View style={styles.card}>
         {content.sections.map((s, i) => (
           <View key={s.h} style={[styles.section, i > 0 && styles.divider]}>
@@ -22,14 +23,13 @@ export function LegalScreen() {
           </View>
         ))}
       </View>
-    </Screen>
+    </AuthScreen>
   );
 }
 
 const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  meta: { fontSize: 13, color: C.muted, marginTop: 4, marginBottom: 16 },
-  card: { backgroundColor: '#fff', borderRadius: 30, paddingVertical: 20, paddingHorizontal: 18 },
+  card: { backgroundColor: '#fff', borderRadius: 30, paddingVertical: 20, paddingHorizontal: 18, marginTop: 16 },
   section: { paddingVertical: 14 },
   divider: { borderTopWidth: 1, borderTopColor: C.border },
   h: { fontSize: 16, fontWeight: '600', color: C.navy, marginBottom: 8 },

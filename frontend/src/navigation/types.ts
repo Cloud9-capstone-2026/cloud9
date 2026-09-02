@@ -18,7 +18,7 @@ export type AuthStackParamList = {
   FindPw: undefined;
   ResetPw: { mode: CodeMode };
   SocialExtra: undefined;
-  Legal: { kind: LegalKind };
+  Legal: { kind: LegalKind; variant: 'auth' | 'app' };
 };
 
 export type OnboardingStackParamList = {
@@ -41,7 +41,7 @@ export type RootStackParamList = {
   Profile: undefined;
   ProfileVerify: { mode: CodeMode };
   ProfileResetPw: { mode: CodeMode };
-  Legal: { kind: LegalKind };
+  Legal: { kind: LegalKind; variant: 'auth' | 'app' };
   RulesSettings: undefined;
   Uploading: undefined;
   Analyzing: undefined;

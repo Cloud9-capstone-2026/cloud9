@@ -3,30 +3,13 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthScreen } from '../components/AuthScreen';
-import { AuthInput, PasswordInput, ErrorText, CtaButton } from '../components/AuthField';
-import { IconTick } from '../assets/icons';
+import { AuthInput, PasswordInput, ErrorText, CtaButton, SocialButton, AuthTitle, AuthSubtitle, FieldLabel, PasswordStrengthHint, FIELD_GAP, HINT_GAP } from '../components/AuthField';
+import { TermsAgreement } from '../components/TermsAgreement';
 import { C } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
 import type { AuthStackParamList } from '../navigation/types';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const TERMS_ROWS = [
-  { label: '(필수) 서비스 이용약관 동의', required: true, legal: 'terms' as const },
-  { label: '(필수) 개인정보 수집·이용 동의', required: true, legal: 'privacy' as const },
-  { label: '(필수) 만 14세 이상입니다', required: true, legal: null },
-  { label: '(선택) 마케팅 정보 수신 동의', required: false, legal: null },
-];
-
-function strength(pw: string) {
-  if (!pw) return 0;
-  let score = 0;
-  if (pw.length >= 8) score++;
-  if (/[a-zA-Z]/.test(pw) && /[0-9]/.test(pw)) score++;
-  if (/[^a-zA-Z0-9]/.test(pw)) score++;
-  return score;
-}
-const STRENGTH_META = [null, { label: '약함', color: '#dc2626' }, { label: '보통', color: '#FFB800' }, { label: '안전', color: '#00C807' }];
 
 export function SignupScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
@@ -40,8 +23,6 @@ export function SignupScreen() {
   const [terms, setTerms] = useState([false, false, false, false]);
 
   const emailValid = EMAIL_RE.test(email);
-  const sc = strength(pw);
-  const meta = STRENGTH_META[sc];
   const pw2Mismatch = pw2.length > 0 && pw !== pw2;
   const allTerms = terms.every(Boolean);
 
@@ -51,15 +32,15 @@ export function SignupScreen() {
   const canSubmit = name.trim().length > 0 && suVerified && pw.length > 0 && pw === pw2 && terms[0] && terms[1] && terms[2];
 
   return (
-    <AuthScreen back>
-      <Text style={styles.title}>회원가입</Text>
-      <Text style={styles.subtitle}>기본 정보를 입력해주세요</Text>
+    <AuthScreen back onBack={() => { setSuVerified(false); navigation.goBack(); }}>
+      <AuthTitle>회원가입</AuthTitle>
+      <AuthSubtitle>기본 정보를 입력해주세요</AuthSubtitle>
 
-      <View style={{ marginTop: 32, gap: 22 }}>
+      <View style={{ marginTop: 32 }}>
         <AuthInput label="닉네임" value={name} onChangeText={setName} placeholder="앱에서 사용할 이름" />
 
-        <View>
-          <Text style={styles.fieldLabel}>이메일</Text>
+        <View style={{ marginTop: FIELD_GAP }}>
+          <FieldLabel>이메일</FieldLabel>
           <View style={styles.emailRow}>
             <View style={{ flex: 1 }}>
               <AuthInput
@@ -71,19 +52,22 @@ export function SignupScreen() {
               />
             </View>
             <Pressable
-              disabled={!emailValid && !suVerified}
+              disabled={suVerified || !emailValid}
               onPress={() => navigation.navigate('Verify', { mode: 'signup' })}
-              style={[styles.verifyBtn, (emailValid || suVerified) ? styles.verifyBtnActive : styles.verifyBtnInactive]}
+              style={[
+                styles.verifyBtn,
+                suVerified ? styles.verifyBtnDone : emailValid ? styles.verifyBtnActive : styles.verifyBtnInactive,
+              ]}
             >
               <Text style={{ fontSize: 15, fontWeight: '600', color: suVerified ? C.blue : emailValid ? '#fff' : '#94a3b8' }}>
                 {suVerified ? '인증 완료' : '인증하기'}
               </Text>
             </Pressable>
           </View>
-          {suVerified && <Text style={styles.verifiedNote}>이메일 인증이 완료되었어요</Text>}
+          <ErrorText color={C.blue}>{suVerified ? '이메일 인증이 완료되었어요' : null}</ErrorText>
         </View>
 
-        <View>
+        <View style={{ marginTop: HINT_GAP }}>
           <PasswordInput
             label="비밀번호"
             value={pw}
@@ -92,10 +76,10 @@ export function SignupScreen() {
             show={showPw}
             onToggleShow={() => setShowPw((v) => !v)}
           />
-          {meta && <Text style={[styles.strengthText, { color: meta.color }]}>비밀번호 강도: {meta.label}</Text>}
+          <PasswordStrengthHint pw={pw} />
         </View>
 
-        <View>
+        <View style={{ marginTop: HINT_GAP }}>
           <PasswordInput
             label="비밀번호 확인"
             value={pw2}
@@ -108,42 +92,23 @@ export function SignupScreen() {
           <ErrorText>{pw2Mismatch ? '비밀번호가 일치하지 않아요' : null}</ErrorText>
         </View>
 
-        <View>
-          <Text style={styles.fieldLabel}>약관 동의</Text>
-          <View style={styles.termsCard}>
-          <View style={styles.termsHead}>
-            <Text style={styles.termsHeadLabel}>전체 동의</Text>
-            <Pressable onPress={toggleAll} style={[styles.roundCheck, allTerms && styles.roundCheckOn]}>
-              {allTerms && <IconTick size={11} />}
-            </Pressable>
-          </View>
-          {TERMS_ROWS.map((row, i) => (
-            <View key={row.label} style={[styles.termRow, i > 0 && styles.termDivider]}>
-              <Pressable onPress={() => toggleTerm(i)} style={styles.termLeft}>
-                <View style={[styles.termCheck, terms[i] && styles.termCheckOn]}>
-                  {terms[i] && <IconTick size={10} />}
-                </View>
-                <Text style={styles.termLabel}>{row.label}</Text>
-              </Pressable>
-              {row.legal && (
-                <Pressable onPress={() => navigation.navigate('Legal', { kind: row.legal! })}>
-                  <Text style={styles.termView}>보기</Text>
-                </Pressable>
-              )}
-            </View>
-          ))}
-          </View>
+        <View style={{ marginTop: HINT_GAP }}>
+          <TermsAgreement terms={terms} onToggleTerm={toggleTerm} onToggleAll={toggleAll} />
         </View>
 
-        <CtaButton label="가입하기" active={canSubmit} onPress={() => navigation.navigate('SignupDone')} />
+        <View style={{ marginTop: FIELD_GAP }}>
+          <CtaButton label="가입하기" active={canSubmit} onPress={() => { setSuVerified(false); navigation.navigate('SignupDone'); }} />
+        </View>
 
-        <View style={{ gap: 10, marginTop: 4 }}>
-          <Pressable style={styles.socialBtn} onPress={() => navigation.navigate('SocialExtra')}>
-            <Text style={styles.socialText}>Google로 계속하기</Text>
-          </Pressable>
-          <Pressable style={[styles.socialBtn, styles.naverBtn]} onPress={() => navigation.navigate('SocialExtra')}>
-            <Text style={[styles.socialText, { color: '#fff' }]}>네이버로 계속하기</Text>
-          </Pressable>
+        <View style={[styles.dividerRow, { marginTop: FIELD_GAP }]}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>소셜 계정으로 가입</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <View style={{ gap: 10, marginTop: FIELD_GAP }}>
+          <SocialButton provider="google" label="Google로 가입하기" onPress={() => navigation.navigate('SocialExtra')} />
+          <SocialButton provider="naver" label="네이버로 가입하기" onPress={() => navigation.navigate('SocialExtra')} />
         </View>
       </View>
     </AuthScreen>
@@ -151,28 +116,12 @@ export function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 25, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  subtitle: { fontSize: 15, color: '#94a3b8', marginTop: 7 },
-  fieldLabel: { fontSize: 15, fontWeight: '600', color: C.navy, marginBottom: 10, paddingLeft: 2 },
   emailRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  verifyBtn: { borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16, justifyContent: 'center' },
+  verifyBtn: { borderRadius: 16, paddingVertical: 17, paddingHorizontal: 16, justifyContent: 'center' },
   verifyBtnActive: { backgroundColor: C.blue },
   verifyBtnInactive: { backgroundColor: '#f1f5f9' },
-  verifiedNote: { fontSize: 12, color: C.blue, marginTop: 6 },
-  strengthText: { fontSize: 12, marginTop: 6 },
-  termsCard: { backgroundColor: '#fff', borderRadius: 20, paddingVertical: 14, paddingHorizontal: 16 },
-  termsHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 10 },
-  termsHeadLabel: { fontSize: 15, fontWeight: '600', color: C.navy },
-  roundCheck: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: '#e8edf4', alignItems: 'center', justifyContent: 'center' },
-  roundCheckOn: { backgroundColor: C.blue, borderColor: C.blue },
-  termRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 11 },
-  termDivider: { borderTopWidth: 1, borderTopColor: C.border },
-  termLeft: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 },
-  termCheck: { width: 18, height: 18, borderRadius: 9, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
-  termCheckOn: { backgroundColor: C.blue },
-  termLabel: { fontSize: 15, color: C.navy },
-  termView: { fontSize: 12, color: '#cbd5e1', textDecorationLine: 'underline' },
-  socialBtn: { backgroundColor: '#fff', borderRadius: 16, paddingVertical: 14, alignItems: 'center' },
-  naverBtn: { backgroundColor: '#03C75A' },
-  socialText: { fontSize: 16, fontWeight: '500', color: C.navy },
+  verifyBtnDone: { backgroundColor: '#f1f5f9' },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: C.border },
+  dividerText: { fontSize: 13, color: '#94a3b8' },
 });

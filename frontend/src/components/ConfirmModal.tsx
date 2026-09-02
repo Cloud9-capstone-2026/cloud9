@@ -41,7 +41,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 19, fontWeight: '600', color: C.navy, textAlign: 'center' },
   body: { fontSize: 15, color: '#64748b', lineHeight: 22, textAlign: 'center', marginTop: 10, marginBottom: 20 },
   btnRow: { flexDirection: 'row', gap: 9 },
-  btn: { flex: 1, borderRadius: 999, paddingVertical: 14, alignItems: 'center' },
+  btn: { flex: 1, borderRadius: 16, paddingVertical: 17, alignItems: 'center' },
   cancelBtn: { backgroundColor: '#f1f5f9' },
   cancelText: { fontSize: 16, fontWeight: '500', color: '#64748b' },
   confirmText: { fontSize: 16, fontWeight: '500', color: '#fff' },

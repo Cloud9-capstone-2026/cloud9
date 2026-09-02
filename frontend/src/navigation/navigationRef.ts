@@ -50,7 +50,7 @@ export function goToProfile() {
 }
 
 export function goToLegal(kind: LegalKind) {
-  if (navigationRef.isReady()) navigationRef.navigate('Legal', { kind });
+  if (navigationRef.isReady()) navigationRef.navigate('Legal', { kind, variant: 'app' });
 }
 
 export function goToRulesSettings() {

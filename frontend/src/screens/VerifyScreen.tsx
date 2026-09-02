@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { AuthScreen } from '../components/AuthScreen';
-import { CtaButton } from '../components/AuthField';
+import { CtaButton, ErrorText, AuthTitle, AuthSubtitle, FIELD_GAP } from '../components/AuthField';
 import { C } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
 
@@ -42,7 +42,7 @@ export function VerifyScreen() {
     }
     if (mode === 'signup') {
       setSuVerified(true);
-      navigation.navigate('Signup');
+      navigation.goBack();
     } else if (mode === 'reset') {
       navigation.navigate('ResetPw', { mode: 'reset' });
     } else {
@@ -58,8 +58,8 @@ export function VerifyScreen() {
 
   return (
     <AuthScreen back>
-      <Text style={styles.title}>인증코드 입력</Text>
-      <Text style={styles.subtitle}>{email}로{'\n'}6자리 코드를 보냈어요</Text>
+      <AuthTitle>인증코드 입력</AuthTitle>
+      <AuthSubtitle style={{ lineHeight: 20 }}>{email}로{'\n'}6자리 코드를 보냈어요</AuthSubtitle>
 
       <Pressable style={styles.boxRow} onPress={() => inputRef.current?.focus()}>
         {Array.from({ length: 6 }).map((_, i) => {
@@ -82,7 +82,9 @@ export function VerifyScreen() {
           autoFocus
         />
       </Pressable>
-      <Text style={styles.errorText}>{error ? '인증코드가 올바르지 않아요. 다시 입력해주세요.' : ''}</Text>
+      <View style={{ marginTop: 11 }}>
+        <ErrorText>{error ? '인증코드가 올바르지 않아요. 다시 입력해주세요.' : null}</ErrorText>
+      </View>
 
       <View style={styles.timerRow}>
         <Text style={[styles.timerText, { color: sec > 0 ? '#dc2626' : '#94a3b8' }]}>{mm}:{ss}</Text>
@@ -91,7 +93,7 @@ export function VerifyScreen() {
         </Pressable>
       </View>
 
-      <View style={{ marginTop: 24 }}>
+      <View style={{ marginTop: 'auto', paddingTop: FIELD_GAP }}>
         <CtaButton label="확인" active={code.length === 6} onPress={onSubmit} />
       </View>
     </AuthScreen>
@@ -99,8 +101,6 @@ export function VerifyScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 25, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  subtitle: { fontSize: 15, color: '#94a3b8', marginTop: 8, lineHeight: 20 },
   boxRow: { flexDirection: 'row', gap: 8, marginTop: 34, position: 'relative' },
   box: {
     flex: 1, aspectRatio: 1 / 1.18, backgroundColor: '#fff', borderRadius: 14,
@@ -108,8 +108,7 @@ const styles = StyleSheet.create({
   },
   boxText: { fontSize: 25, fontWeight: '600', color: C.navy },
   hiddenInput: { position: 'absolute', width: '100%', height: '100%', opacity: 0 },
-  errorText: { fontSize: 13, color: '#dc2626', minHeight: 18, marginTop: 8 },
-  timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  timerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 11 },
   timerText: { fontSize: 15, fontWeight: '600' },
   resend: { fontSize: 13, color: '#64748b', textDecorationLine: 'underline' },
 });

@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: C.card, alignSelf: 'flex-start', padding: 8, borderRadius: 20 },
   content: { paddingHorizontal: 22, paddingBottom: 110 },
   title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 4, lineHeight: 20 },
+  subtitle: { fontSize: 14, color: C.muted, marginTop: 12, lineHeight: 20 },
   footer: { position: 'absolute', left: 22, right: 22, bottom: 0 },
   saveBtn: { borderRadius: 999, paddingVertical: 16, alignItems: 'center' },
 });
