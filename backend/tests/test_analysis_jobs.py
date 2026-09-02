@@ -199,7 +199,7 @@ def test_mapping_failure_fails_job_without_trades(app_env, monkeypatch):
     db2.close()
 
 def test_reupload_skips_duplicate_trades(app_env):
-    """같은 파일 재업로드 — 5컬럼 중복 키로 전 행 스킵, 이중 저장 없음."""
+    """같은 파일 재업로드 — 5컬럼 키 개수 대조로 전 행 상쇄, 이중 저장 없음."""
     from orm import CsvUpload, Trade
 
     _upload(app_env["client"])
@@ -209,6 +209,49 @@ def test_reupload_skips_duplicate_trades(app_env):
     up2 = db.query(CsvUpload).filter(
         CsvUpload.id == r2.json()["upload_id"]).one()
     assert up2.status == "done" and up2.row_count == 0  # 신규 0건
+    db.close()
+
+
+# 분할 체결·같은 날 동일 조건 재거래 — 5키가 완전히 같은 진짜 거래 여러 건.
+# 존재 여부 판정 시절엔 첫 건만 남고 유실됐다(2026-09-02 개수 대조로 수리).
+CSV_SPLIT = (
+    "거래일자,종목명,거래구분,거래수량,거래단가,거래금액,수수료,거래세,정산금액\n"
+    "2020-06-01,테스트A,매수,10,10000,100000,0,0,100000\n"
+    "2020-06-01,테스트A,매수,10,10000,100000,0,0,100000\n"
+    "2020-06-03,테스트A,매도,10,11000,110000,0,0,110000\n"
+)
+
+
+def test_split_fills_all_saved(app_env):
+    """한 파일 안의 동일 5키 2행 — 둘 다 실거래로 저장된다."""
+    from orm import CsvUpload, Trade
+
+    r = _upload(app_env["client"], body=CSV_SPLIT)
+    db = app_env["Session"]()
+    assert db.query(Trade).count() == 3
+    buys = db.query(Trade).filter(Trade.거래구분 == "매수").count()
+    assert buys == 2  # 분할 체결 2건 모두 보존
+    up = db.query(CsvUpload).filter(CsvUpload.id == r.json()["upload_id"]).one()
+    assert up.row_count == 3
+    db.close()
+    # 분석도 전 행을 신규로 받는다 (신규 판정은 저장이 유일 책임)
+    assert app_env["pipeline_calls"] == [r.json()["upload_id"]]
+
+
+def test_partial_overlap_saves_only_excess(app_env):
+    """기존 업로드와 일부 겹치는 파일 — 키별 '늘어난 개수'만 신규 저장.
+
+    1차: 매수 1 + 매도 1 저장. 2차(CSV_SPLIT): 같은 매수 2 + 같은 매도 1 —
+    매수는 기존 1건과 상쇄돼 1건만, 매도는 전량 상쇄. 신규 1건."""
+    from orm import CsvUpload, Trade
+
+    _upload(app_env["client"])                      # CSV: 매수 1 + 매도 1
+    r2 = _upload(app_env["client"], body=CSV_SPLIT)
+    db = app_env["Session"]()
+    assert db.query(Trade).count() == 3             # 2 + 신규 1
+    assert db.query(Trade).filter(Trade.거래구분 == "매수").count() == 2
+    up2 = db.query(CsvUpload).filter(CsvUpload.id == r2.json()["upload_id"]).one()
+    assert up2.row_count == 1
     db.close()
 
 

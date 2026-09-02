@@ -90,21 +90,6 @@ def _trades_to_df(trades: list) -> pd.DataFrame:
     return _standardize(pd.DataFrame(rows))
 
 
-def _extract_new_trades(baseline: pd.DataFrame, new_df: pd.DataFrame):
-    """이전 데이터(baseline)에 없는 거래만 추출. 첫 업로드(baseline 비어있음)면 전체 분석.
-
-    반환: (새 거래 df, 각 행의 new_df 내 위치 배열) — 위치는 3계층 거래별
-    점수(per_trade["row"])를 앙상블 행에 매칭할 때 쓴다."""
-    new_df = new_df.reset_index(drop=True)
-    if baseline.empty:
-        return new_df, np.arange(len(new_df))
-    key = ["날짜", "종목명", "매매구분", "체결수량", "체결단가"]
-    base_keys = baseline[key].drop_duplicates()
-    merged = new_df.merge(base_keys, on=key, how="left", indicator=True)
-    keep = merged["_merge"].to_numpy() == "left_only"
-    return new_df[keep].reset_index(drop=True), np.where(keep)[0]
-
-
 def _parse_user_id(raw) -> int | None:
     if raw is None:
         return None
@@ -215,19 +200,12 @@ def run_pipeline_from_db(
         return result
 
     # ─ Phase 2: 분석 (DB 안 건드림)
+    # 신규 판정은 저장(_store_trades)이 개수 대조로 이미 끝냈다 — upload_id로
+    # 저장된 행 전부가 신규다. 여기서 5키로 또 거르면 분할 체결·같은 날 동일
+    # 조건 재거래가 과거 거래와 겹쳐 잘못 제외된다(2026-09-02, 5키 대조 제거).
     std_df = _trades_to_df(trades)
-    baseline = _trades_to_df(prev_trades)  # 이전 업로드들 = 비교 기준. 없으면 빈 DF → 전체 분석
-    new_trades, new_pos = _extract_new_trades(baseline, std_df)
-
-    if len(new_trades) == 0:
-        result = {**base_payload, "new_trades_count": 0,
-                  "account_verdict": "정상",
-                  "verdict_counts": {"정상": 0, "경고": 0, "이상": 0},
-                  "distribution_check": {"status": "unavailable",
-                                         "deep_excluded": False},
-                  "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
-        result["saved_path"] = save_detection_result(user_id, result)
-        return result
+    baseline = _trades_to_df(prev_trades)  # 이전 업로드들 = 2계층 기준선·3계층 문맥
+    new_trades, new_pos = std_df, np.arange(len(std_df))
 
     # 전체 이력(이전 + 이번) — 1계층 규칙과 3계층이 문맥으로 공유.
     # full_history 행 위치 = len(baseline) + std_df 내 위치.
