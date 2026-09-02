@@ -19,6 +19,7 @@ trades 저장 → 분석(pipeline.detect). 매핑을 업로드 요청이 아니�
 """
 
 import logging
+from collections import Counter
 from datetime import datetime
 
 from database import SessionLocal
@@ -48,13 +49,19 @@ def _store_trades(db, upload_id: int) -> None:
 
     각 행에 업로드 주인(CsvUpload.user_id)을 새긴다 — 조회 API가 본인
     거래만 필터하므로 이게 없으면 업로드한 거래가 화면에 안 보인다.
-    중복 체크는 같은 사용자 범위 내에서 5컬럼(거래일자·종목명·거래구분·
-    거래수량·거래단가) — 증권사 CSV에는 정산금액이 없어 기본값으로 채워지므로
-    중복 키에 넣으면 판정이 왜곡되고, 분석(detect)의 신규 거래 추출 키와도
-    이 5컬럼이 일치한다. 사용자 범위 제한이 없으면 다른 유저의 동일 거래가
-    "중복"으로 오인되어 저장이 스킵된다.
+
+    중복 판정은 같은 사용자 범위에서 5컬럼(거래일자·종목명·거래구분·거래수량·
+    거래단가) 키의 **개수 대조**다: 파일에 같은 키가 F행, DB에 D행이면 F-D행만
+    저장. 존재 여부(있냐 없냐)로 걸렀던 옛 방식은 분할 체결·같은 날 동일 조건
+    재거래처럼 똑같이 생긴 진짜 거래 여러 건 중 첫 건만 남기고 유실시켰다
+    (2026-09-02 수리). 개수 대조면 그 경우 전부 저장되고, 같은 파일 재업로드는
+    여전히 전량 걸러진다(멱등). 정산금액은 증권사 CSV에 없어 기본값으로
+    채워지므로 키에 넣으면 판정이 왜곡된다. 사용자 범위 제한이 없으면 다른
+    유저의 동일 거래가 "중복"으로 오인되어 저장이 스킵된다.
+    detect(분석)는 신규 판정을 여기에 위임한다 — upload_id로 저장된 행 전부가
+    신규다(중복 걸러내기는 이 함수가 유일한 책임 지점).
     """
-    loaded = load_upload(upload_id, db)  # DB(upload_files) 우선, 없으면 디스크
+    loaded = load_upload(upload_id, db)  # upload_files 테이블에서 원본 조회
     if loaded is None:
         raise MappingError(f"업로드 원본 파일 없음: upload_id={upload_id}")
     raw, filename = loaded
@@ -63,18 +70,20 @@ def _store_trades(db, upload_id: int) -> None:
     upload = db.query(CsvUpload).filter(CsvUpload.id == upload_id).first()
     owner_user_id = upload.user_id if upload else None
 
+    # 기존 거래의 5키 개수를 쿼리 1번으로 적재 (행별 존재 쿼리 N번 → 1번)
+    owner_filter = (Trade.user_id == owner_user_id) if owner_user_id is not None \
+        else Trade.user_id.is_(None)
+    existing = Counter(
+        db.query(Trade.거래일자, Trade.종목명, Trade.거래구분,
+                 Trade.거래수량, Trade.거래단가).filter(owner_filter).all())
+
     new_count = 0
     for _, row in out.iterrows():
         거래일자 = row["거래일자"].date()
-        exists = db.query(Trade).filter(
-            Trade.user_id  == owner_user_id,
-            Trade.거래일자 == 거래일자,
-            Trade.종목명   == str(row["종목명"]),
-            Trade.거래구분 == row["거래구분"],
-            Trade.거래수량 == int(row["거래수량"]),
-            Trade.거래단가 == int(row["거래단가"]),
-        ).first()
-        if exists:
+        key = (거래일자, str(row["종목명"]), row["거래구분"],
+               int(row["거래수량"]), int(row["거래단가"]))
+        if existing[key] > 0:
+            existing[key] -= 1  # DB의 기존 1건과 상쇄 — 파일에 더 있는 만큼만 신규
             continue
         db.add(Trade(
             user_id   = owner_user_id,

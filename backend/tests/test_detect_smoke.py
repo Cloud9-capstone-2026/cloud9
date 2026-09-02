@@ -7,32 +7,15 @@ run_pipeline_from_db 자체(DB 세션 필요)는 test_analysis_jobs가 job 단�
 deep=점수>=DEEP_THRESHOLD) → flag 개수 0/1/2+ = 정상/경고/이상.
 """
 
-import pandas as pd
 import pytest
 
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
-from pipeline.detect import DEEP_THRESHOLD, _build_ensemble, _extract_new_trades
+from pipeline.detect import DEEP_THRESHOLD, _build_ensemble
 
-
-def test_extract_first_upload_returns_all(standard_trades):
-    """baseline 비어있음(첫 업로드) → 전체가 신규, 위치는 0..n-1."""
-    empty = pd.DataFrame(columns=standard_trades.columns)
-    new, pos = _extract_new_trades(empty, standard_trades)
-    assert len(new) == len(standard_trades)
-    assert list(pos) == list(range(len(standard_trades)))
-
-
-def test_extract_dedup_returns_only_new(standard_trades):
-    """이전 업로드에 있던 5건 제외 → 신규 3건, new_df 내 위치 보존."""
-    baseline = standard_trades.head(5)
-    new, pos = _extract_new_trades(baseline, standard_trades)
-    assert len(new) == 3
-    assert list(pos) == [5, 6, 7]
-    pd.testing.assert_frame_equal(
-        new.reset_index(drop=True),
-        standard_trades.tail(3).reset_index(drop=True),
-    )
+# 신규 거래 추출(_extract_new_trades)은 2026-09-02 삭제 — 신규 판정은 저장
+# 단계(_store_trades의 5키 개수 대조)가 유일 책임. 분석은 upload_id 소속 행
+# 전부를 신규로 취급한다. 관련 검증은 test_analysis_jobs의 저장 테스트로 이동.
 
 
 def test_rule_and_stat_shapes(standard_trades):
@@ -214,12 +197,12 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
 
 def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
                                                   standard_trades):
-    """분석 기준선(이전 거래)은 업로드 주인 것만 본다.
+    """분석은 upload_id 소속 행 전부를 신규로 취급한다 (2026-09-02 계약).
 
     사용자 A가 올린 것과 동일한 거래를 사용자 B가 올려도 B에게는 전부
-    신규여야 한다 — 스코핑이 없으면 타인 거래에 걸려 신규 0건이 된다
-    (저장 쪽 사용자 범위 중복 체크와 대칭인, 읽기 쪽 회귀 감시).
-    같은 사용자의 재업로드 중복 스킵은 그대로 유지되는지도 함께 확인."""
+    신규다. 재업로드 중복 걸러내기는 저장(_store_trades 개수 대조)의 유일
+    책임 — 저장이 0건이면 분석도 신규 0건으로 끝나는지(빈 업로드 경로)를
+    함께 확인한다. 저장 쪽 검증은 test_analysis_jobs의 분할 체결 테스트."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy.pool import StaticPool
@@ -257,11 +240,14 @@ def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
                                         user_id="user_002")
     assert out_b["new_trades_count"] == len(standard_trades)  # 전부 B의 신규
 
-    add_upload(3, user_id=1)  # 사용자 A가 같은 내용을 재업로드
+    # 사용자 A의 전량 중복 재업로드 — 저장 단계가 다 걸러 upload 3 소속 행이
+    # 없는 상태. 분석은 빈 업로드로 신규 0건 처리해야 한다.
+    db.add(orm.CsvUpload(id=3, file_name="3.csv", user_id=1))
+    db.commit()
     out_a = detect.run_pipeline_from_db(db, upload_id=3, Trade=orm.Trade,
                                         AnalysisResult=orm.AnalysisResult,
                                         user_id="user_001")
-    assert out_a["new_trades_count"] == 0  # 본인 이력에는 걸림 — 중복 스킵 유지
+    assert out_a["new_trades_count"] == 0
     db.close()
 
 

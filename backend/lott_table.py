@@ -88,6 +88,7 @@ def _download() -> bool:
     tmp = dest.with_suffix(".csv.tmp")
     tmp.write_bytes(dl.content)
     tmp.replace(dest)  # 부분 다운로드가 정본이 되지 않도록 원자 교체
+    _load.cache_clear()  # mtime 해상도가 거칠면 (path, mtime) 키가 같아 옛 표가 남는다
     logger.info("복권성 순위표 다운로드 완료: %s → %s", tag, dest)
     return True
 
