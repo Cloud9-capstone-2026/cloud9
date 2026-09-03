@@ -7,7 +7,7 @@ import { PeriodDropdown } from '../components/PeriodDropdown';
 import { Pagination } from '../components/FilterControls';
 import { NotifDetailModal } from '../components/NotifDetailModal';
 import { IconChart } from '../assets/icons';
-import { C, PERIODS } from '../theme/tokens';
+import { C, PERIODS, text } from '../theme/tokens';
 import { NOTIFS } from '../data/mock';
 import { useAppState } from '../state/AppState';
 
@@ -49,9 +49,9 @@ export function NotificationsScreen() {
 
   return (
     <Screen back footer={<Pagination page={page} totalPages={totalPages} onChange={setPage} />}>
-      <Text style={styles.title}>알림</Text>
+      <Text style={text.screenTitle}>알림</Text>
       <View style={styles.subtitleRow}>
-        <Text style={styles.subtitle}>업로드와 분석 상태를 알려드려요</Text>
+        <Text style={text.screenSubtitle}>업로드와 분석 상태를 알려드려요</Text>
         <Pressable onPress={markAllNotifRead}>
           <Text style={styles.markAll}>모두 읽음</Text>
         </Pressable>
@@ -110,9 +110,7 @@ export function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 3 },
-  subtitle: { fontSize: 15, color: C.muted },
   markAll: { fontSize: 13, fontWeight: '500', color: C.blue },
   filterRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 26, marginBottom: 13 },
   card: { paddingVertical: 4 },

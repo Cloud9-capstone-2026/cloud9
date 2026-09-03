@@ -8,10 +8,32 @@ import { IconBack, IconUpload, IconBell } from '../assets/icons';
 import { goToUpload, goToNotifications } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
+export function HeaderActions() {
+  const { unreadNotifCount } = useAppState();
+
+  return (
+    <View style={styles.right}>
+      <Pressable onPress={goToUpload} style={[styles.uploadBtn, shadow.header]}>
+        <IconUpload size={13} />
+        <Text style={styles.uploadLabel}>업로드</Text>
+      </Pressable>
+      <View>
+        <Pressable onPress={goToNotifications} style={[styles.bellBtn, shadow.header]}>
+          <IconBell size={18} />
+        </Pressable>
+        {unreadNotifCount > 0 && (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{unreadNotifCount}</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export function Header({ back }: { back?: boolean }) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { unreadNotifCount } = useAppState();
 
   return (
     <View style={[styles.header, { paddingTop: (insets.top || 0) + 12 }]}>
@@ -24,22 +46,7 @@ export function Header({ back }: { back?: boolean }) {
           <Logo />
         )}
       </View>
-      <View style={styles.right}>
-        <Pressable onPress={goToUpload} style={[styles.uploadBtn, shadow.header]}>
-          <IconUpload size={13} />
-          <Text style={styles.uploadLabel}>업로드</Text>
-        </Pressable>
-        <View>
-          <Pressable onPress={goToNotifications} style={[styles.bellBtn, shadow.header]}>
-            <IconBell size={18} />
-          </Pressable>
-          {unreadNotifCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadNotifCount}</Text>
-            </View>
-          )}
-        </View>
-      </View>
+      <HeaderActions />
     </View>
   );
 }

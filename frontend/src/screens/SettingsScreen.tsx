@@ -5,7 +5,7 @@ import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { IconArrow } from '../assets/icons';
-import { C } from '../theme/tokens';
+import { C, text } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
 import { goToProfile, goToLegal, goToRulesSettings } from '../navigation/navigationRef';
 
@@ -19,13 +19,13 @@ function AccountRow({ label, color, divider, onPress }: { label: string; color?:
 }
 
 export function SettingsScreen() {
-  const { notif, toggleNotif, osNotif, pfName, logout } = useAppState();
+  const { notif, toggleNotif, osNotif, pfName, logout, hasUploaded, toggleHasUploaded } = useAppState();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const notifLocked = osNotif === 'denied';
 
   return (
     <Screen contentStyle={styles.content}>
-      <Text style={styles.title}>설정</Text>
+      <Text style={text.screenTitle}>설정</Text>
 
       <Card style={styles.profileCard}>
         <LinearGradient colors={['#2563eb', '#60a5fa']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.avatarCircle}>
@@ -86,6 +86,24 @@ export function SettingsScreen() {
         </Card>
       </View>
 
+      <View>
+        <Text style={styles.sectionLabel}>개발자 도구</Text>
+        <Card>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.toggleLabel}>업로드 데이터 있음</Text>
+              <Text style={styles.toggleSub}>꺼두면 거래 내역 업로드 전 빈 상태 화면을 미리 볼 수 있어요</Text>
+            </View>
+            <Pressable
+              onPress={toggleHasUploaded}
+              style={[styles.switchTrack, { backgroundColor: hasUploaded ? C.blue : C.border }]}
+            >
+              <View style={[styles.switchKnob, { left: hasUploaded ? 21 : 3 }]} />
+            </Pressable>
+          </View>
+        </Card>
+      </View>
+
       <Text style={styles.footer}>Canary v1.2.0 · © 2026 Canary Analytics</Text>
 
       <ConfirmModal
@@ -103,7 +121,6 @@ export function SettingsScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 22 },
-  title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
   profileCard: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   avatarCircle: {
     width: 52, height: 52, borderRadius: 26,

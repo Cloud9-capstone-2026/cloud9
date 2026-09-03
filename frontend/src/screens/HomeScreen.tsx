@@ -1,22 +1,26 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Screen } from '../components/Screen';
-import { Card } from '../components/Card';
-import { TradeRow } from '../components/TradeRow';
+import { Card, CARD_PADDING } from '../components/Card';
+import { EmptyState } from '../components/EmptyState';
+import { TradeRow, TRADE_ROW_HEIGHT } from '../components/TradeRow';
 import { NewsRow } from '../components/NewsRow';
 import { RingChart } from '../components/charts/RingChart';
-import { MonthlyBarChart } from '../components/charts/MonthlyBarChart';
+import { MonthlyBarChart, MONTHLY_CHART_HEIGHT } from '../components/charts/MonthlyBarChart';
 import { Avatar } from '../assets/Avatar';
-import { C, RISK, riskLevel, BIAS_LABELS, BIAS_COLORS } from '../theme/tokens';
+import { C, RISK, riskLevel, BIAS_LABELS, BIAS_COLORS, text } from '../theme/tokens';
 import { tradesRaw, monthlyData, dartNews, BIAS_SCORES } from '../data/mock';
 import { goToTab, goToNewsFullList, goToReportDetail } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
+const RECENT_TRADES_VISIBLE = 5;
+
 export function HomeScreen() {
-  const { openBiasInfo } = useAppState();
+  const { openBiasInfo, hasUploaded } = useAppState();
   const [chartTab, setChartTab] = useState<'trades' | 'anomaly'>('trades');
 
   const counts = useMemo(() => {
+    if (!hasUploaded) return { danger: 0, caution: 0, safe: 0 };
     let danger = 0, caution = 0, safe = 0;
     tradesRaw.forEach((t) => {
       const r = riskLevel(t.score);
@@ -25,13 +29,15 @@ export function HomeScreen() {
       else safe++;
     });
     return { danger, caution, safe };
-  }, []);
+  }, [hasUploaded]);
 
   return (
     <Screen contentStyle={styles.content}>
       <View>
-        <Text style={styles.greeting}>안녕하세요, 김투자님</Text>
-        <Text style={styles.lastUpload}>마지막 업로드 2026.07.31</Text>
+        <Text style={text.screenTitle}>안녕하세요, 김투자님</Text>
+        <Text style={[text.screenSubtitle, styles.lastUpload]}>
+          {hasUploaded ? '마지막 업로드 2026.07.31' : '아직 업로드한 거래 내역이 없어요'}
+        </Text>
       </View>
 
       <View>
@@ -71,24 +77,6 @@ export function HomeScreen() {
         </View>
         <View style={styles.summaryGrid}>
           <View style={styles.summaryLeftCol}>
-            <Card style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>총 거래 내역</Text>
-              <View style={styles.summaryValueRow}>
-                <Text style={styles.summaryValue}>69</Text>
-                <Text style={styles.summaryUnit}>건</Text>
-              </View>
-              <Text style={[styles.summaryDiff, { color: C.red }]}>+ 12건</Text>
-            </Card>
-            <Card style={styles.summaryCard}>
-              <Text style={styles.summaryLabel}>이상 탐지율</Text>
-              <View style={styles.summaryValueRow}>
-                <Text style={styles.summaryValue}>46.4</Text>
-                <Text style={styles.summaryUnit}>%</Text>
-              </View>
-              <Text style={[styles.summaryDiff, { color: C.blue }]}>- 2.1%</Text>
-            </Card>
-          </View>
-          <View style={styles.summaryRightCol}>
             <Card style={styles.summaryCardWide}>
               <Text style={styles.summaryCardWideTitle}>거래 분석 요약</Text>
               <RingChart
@@ -101,9 +89,9 @@ export function HomeScreen() {
               />
               <View style={styles.legend}>
                 {[
-                  { label: '이상', color: RISK.danger.ring, text: `${counts.danger}건` },
-                  { label: '경고', color: RISK.caution.ring, text: `${counts.caution}건` },
-                  { label: '정상', color: RISK.safe.ring, text: `${counts.safe}건` },
+                  { label: '이상', color: RISK.danger.ring, text: hasUploaded ? `${counts.danger}건` : '-건' },
+                  { label: '경고', color: RISK.caution.ring, text: hasUploaded ? `${counts.caution}건` : '-건' },
+                  { label: '정상', color: RISK.safe.ring, text: hasUploaded ? `${counts.safe}건` : '-건' },
                 ].map((r) => (
                   <View key={r.label} style={styles.legendRow}>
                     <View style={styles.legendLeft}>
@@ -114,6 +102,28 @@ export function HomeScreen() {
                   </View>
                 ))}
               </View>
+            </Card>
+          </View>
+          <View style={styles.summaryRightCol}>
+            <Card style={styles.summaryCard}>
+              <Text style={styles.summaryLabel}>총 거래 내역</Text>
+              <View style={styles.summaryValueRow}>
+                <Text style={styles.summaryValue}>{hasUploaded ? 69 : '-'}</Text>
+                <Text style={styles.summaryUnit}>건</Text>
+              </View>
+              <Text style={[styles.summaryDiff, { color: hasUploaded ? C.red : C.muted }]}>
+                {hasUploaded ? '+ 12건' : '- 건'}
+              </Text>
+            </Card>
+            <Card style={styles.summaryCard}>
+              <Text style={styles.summaryLabel}>이상 탐지율</Text>
+              <View style={styles.summaryValueRow}>
+                <Text style={styles.summaryValue}>{hasUploaded ? 46.4 : '-'}</Text>
+                <Text style={styles.summaryUnit}>%</Text>
+              </View>
+              <Text style={[styles.summaryDiff, { color: hasUploaded ? C.blue : C.muted }]}>
+                {hasUploaded ? '- 2.1%' : '- %'}
+              </Text>
             </Card>
           </View>
         </View>
@@ -135,8 +145,12 @@ export function HomeScreen() {
             );
           })}
         </View>
-        <Card style={styles.chartCard}>
-          <MonthlyBarChart data={monthlyData} activeTab={chartTab} />
+        <Card style={[styles.chartCard, !hasUploaded && styles.chartCardEmpty]}>
+          {hasUploaded ? (
+            <MonthlyBarChart data={monthlyData} activeTab={chartTab} />
+          ) : (
+            <EmptyState title="아직 업로드한 거래 내역이 없어요" />
+          )}
         </Card>
       </View>
 
@@ -161,10 +175,17 @@ export function HomeScreen() {
             <Text style={styles.more}>더보기 &gt;</Text>
           </Pressable>
         </View>
-        <Card>
-          {tradesRaw.slice(0, 5).map((t, i) => (
-            <TradeRow key={t.id} trade={t} index={i} onPress={() => goToReportDetail(t.id)} />
-          ))}
+        <Card style={!hasUploaded && styles.recentTradesCardEmpty}>
+          {hasUploaded ? (
+            tradesRaw.slice(0, RECENT_TRADES_VISIBLE).map((t, i) => (
+              <TradeRow key={t.id} trade={t} index={i} onPress={() => goToReportDetail(t.id)} />
+            ))
+          ) : (
+            <EmptyState
+              title="아직 업로드한 거래 내역이 없어요"
+              subtitle={'거래내역을 업로드 하면\n거래별 분석 리포트가 생성돼요'}
+            />
+          )}
         </Card>
       </View>
     </Screen>
@@ -173,8 +194,7 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 24 },
-  greeting: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3, lineHeight: 28 },
-  lastUpload: { fontSize: 13, color: C.muted, marginTop: 3 },
+  lastUpload: { marginTop: 3 },
   sectionHeaderRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 2, marginBottom: 10,
@@ -193,8 +213,8 @@ const styles = StyleSheet.create({
   biasFill: { height: '100%', borderRadius: 999 },
   biasScore: { fontSize: 12, fontWeight: '500', width: 24, textAlign: 'right' },
   summaryGrid: { flexDirection: 'row', gap: 13 },
-  summaryLeftCol: { flex: 1, gap: 13 },
-  summaryRightCol: { flex: 1.15 },
+  summaryLeftCol: { flex: 1.15 },
+  summaryRightCol: { flex: 1, gap: 13 },
   summaryCard: { flex: 1 },
   summaryCardWide: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   summaryCardWideTitle: { fontSize: 13, fontWeight: '500', color: C.navy, alignSelf: 'flex-start' },
@@ -213,4 +233,8 @@ const styles = StyleSheet.create({
   chartTab: { paddingVertical: 5, paddingTop: 2, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   chartTabActive: { borderBottomColor: C.navy },
   chartCard: { paddingHorizontal: 8, paddingTop: 16, paddingBottom: 10 },
+  // 빈 상태에서도 카드 크기가 그대로 유지되도록, 새로 잰 값이 아니라
+  // 원래 콘텐츠(차트/거래 로우)가 실제로 차지하는 높이를 그대로 계산해서 재사용.
+  chartCardEmpty: { minHeight: MONTHLY_CHART_HEIGHT + 16 + 10, justifyContent: 'center' },
+  recentTradesCardEmpty: { minHeight: TRADE_ROW_HEIGHT * RECENT_TRADES_VISIBLE + CARD_PADDING * 2, justifyContent: 'center' },
 });

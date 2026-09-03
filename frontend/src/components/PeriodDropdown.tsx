@@ -7,7 +7,7 @@ export function PeriodDropdown({ value, onChange }: { value: string; onChange: (
 
   return (
     <View style={styles.wrap}>
-      <Pressable onPress={() => setOpen((v) => !v)} style={[styles.btn, shadow.header]}>
+      <Pressable onPress={() => setOpen((v) => !v)} style={styles.btn}>
         <Text style={styles.btnLabel}>{value}</Text>
         <View style={styles.caret}>
           <Text style={styles.caretChar}>▲</Text>
@@ -39,7 +39,7 @@ export function PeriodDropdown({ value, onChange }: { value: string; onChange: (
 const styles = StyleSheet.create({
   wrap: { position: 'relative', zIndex: 30 },
   btn: {
-    width: 92, backgroundColor: '#FFFFFF', borderRadius: 10, paddingVertical: 5, paddingHorizontal: 11,
+    width: 92, backgroundColor: '#FFFFFF', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 11,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   btnLabel: { fontSize: 13, color: '#64748b' },

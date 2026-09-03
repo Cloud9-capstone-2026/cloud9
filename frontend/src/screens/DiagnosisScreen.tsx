@@ -3,8 +3,9 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Header } from '../components/Header';
+import { CtaButton } from '../components/AuthField';
 import { IconDoc, IconClock, IconClip, IconCheckBig, IconPrev, IconTick } from '../assets/icons';
-import { C, ACCENT, shadow } from '../theme/tokens';
+import { C, ACCENT } from '../theme/tokens';
 import { QUESTIONS } from '../data/mock';
 import { goToTab } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
@@ -74,13 +75,12 @@ export function DiagnosisScreen() {
             </View>
           </View>
           <View style={styles.bottomArea}>
-            <Pressable
-              onPress={() => { setPhase('quiz'); setCurrent(0); setAnswers(new Array(TOTAL).fill(0)); }}
-              style={[styles.ctaBtn, !isOnboarding && shadow.ctaBlue]}
-            >
-              <Text style={styles.ctaText}>검사 시작하기</Text>
-            </Pressable>
             <Text style={styles.ctaSub}>답변은 언제든 다시 검사해서 갱신할 수 있어요</Text>
+            <CtaButton
+              label="검사 시작하기"
+              active
+              onPress={() => { setPhase('quiz'); setCurrent(0); setAnswers(new Array(TOTAL).fill(0)); }}
+            />
           </View>
         </View>
       )}
@@ -153,12 +153,11 @@ export function DiagnosisScreen() {
             </Text>
           </View>
           <View style={styles.bottomArea}>
-            <Pressable
+            <CtaButton
+              label={isOnboarding ? '시작하기' : '성향 분석 보러가기'}
+              active
               onPress={() => (isOnboarding ? completeOnboarding() : goToTab('MyPage'))}
-              style={[styles.ctaBtn, !isOnboarding && shadow.ctaBlue]}
-            >
-              <Text style={styles.ctaText}>{isOnboarding ? '시작하기' : '성향 분석 보러가기'}</Text>
-            </Pressable>
+            />
           </View>
         </View>
       )}
@@ -178,9 +177,7 @@ const styles = StyleSheet.create({
   infoChipLabel: { fontSize: 11, color: C.muted },
   infoChipValue: { fontSize: 13, fontWeight: '600', color: C.navy },
   bottomArea: { paddingVertical: 16, paddingBottom: 28 },
-  ctaBtn: { backgroundColor: C.blue, borderRadius: 999, paddingVertical: 17, alignItems: 'center' },
-  ctaText: { color: '#fff', fontSize: 18, fontWeight: '600', letterSpacing: -0.2 },
-  ctaSub: { textAlign: 'center', fontSize: 13, color: C.muted, marginTop: 10 },
+  ctaSub: { textAlign: 'center', fontSize: 13, color: C.muted, marginBottom: 10 },
   quizRoot: { flex: 1 },
   quizHeader: { paddingHorizontal: 22, paddingTop: 16, paddingBottom: 12 },
   quizProgressRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
@@ -189,14 +186,14 @@ const styles = StyleSheet.create({
   progressTotal: { fontWeight: '400', color: C.muted },
   progressTrack: { height: 4, backgroundColor: C.mutedBg, borderRadius: 999, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: C.blue, borderRadius: 999 },
-  quizBody: { paddingHorizontal: 28, paddingTop: 28 },
+  quizBody: { paddingHorizontal: 28, paddingTop: 170 },
   qLabel: { fontSize: 12, fontWeight: '500', color: C.blue, marginBottom: 16, letterSpacing: 0.8 },
   qText: { fontSize: 21, fontWeight: '600', color: '#111', lineHeight: 30, letterSpacing: -0.3, marginBottom: 56 },
-  optionsRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 54 },
+  optionsRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 60 },
   optionWrap: { width: 54, height: 54, alignItems: 'center', justifyContent: 'flex-end' },
   optionCircle: { alignItems: 'center', justifyContent: 'center' },
   optionVal: { position: 'absolute', top: 60, fontSize: 11, color: C.muted },
   optionEndLabel: { position: 'absolute', top: 74, fontSize: 11, color: C.muted, width: 80, textAlign: 'center' },
   prevWrap: { marginTop: 40, alignItems: 'center' },
-  prevBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  prevBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 12},
 });

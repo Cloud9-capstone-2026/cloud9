@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RuleCardList, rulesAllValid } from '../components/RuleCardList';
+import { CtaButton } from '../components/AuthField';
 import { IconBack } from '../assets/icons';
 import { C, shadow } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
@@ -34,13 +35,7 @@ export function TutRulesEditScreen() {
         </View>
       </ScrollView>
       <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom) + 8 }]}>
-        <Pressable
-          onPress={onConfirm}
-          disabled={!valid}
-          style={[styles.confirmBtn, { backgroundColor: valid ? C.blue : '#e2e8f0' }]}
-        >
-          <Text style={{ color: valid ? '#fff' : '#a5b4c8', fontSize: 17, fontWeight: '600' }}>확인</Text>
-        </Pressable>
+        <CtaButton label="확인" active={valid} onPress={onConfirm} />
       </View>
     </View>
   );
@@ -52,7 +47,6 @@ const styles = StyleSheet.create({
   backBtn: { backgroundColor: C.card, alignSelf: 'flex-start', padding: 8, borderRadius: 20 },
   content: { paddingHorizontal: 22, paddingBottom: 110 },
   title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
-  subtitle: { fontSize: 15, color: C.muted, marginTop: 6, lineHeight: 20 },
+  subtitle: { fontSize: 14, color: C.muted, marginTop: 12, lineHeight: 20 },
   footer: { position: 'absolute', left: 22, right: 22, bottom: 0 },
-  confirmBtn: { borderRadius: 999, paddingVertical: 16, alignItems: 'center' },
 });

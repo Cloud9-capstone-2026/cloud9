@@ -140,6 +140,5 @@ export interface LegalSection {
 }
 export interface LegalContent {
   title: string;
-  meta: string;
   sections: LegalSection[];
 }

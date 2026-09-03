@@ -6,10 +6,13 @@ import { C, shadow } from '../theme/tokens';
 import { IconBack } from '../assets/icons';
 
 export function AuthScreen({
-  back, onBack, children,
+  back, onBack, headerRight, children,
 }: {
   back?: boolean;
   onBack?: () => void;
+  // Extra controls (e.g. upload/notification buttons) shown next to the back
+  // button — used when this layout is reused for main-app sub-screens.
+  headerRight?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -22,13 +25,18 @@ export function AuthScreen({
         contentContainerStyle={[styles.content, { paddingTop: (insets.top || 0) + 12 }]}
         keyboardShouldPersistTaps="handled"
       >
-        {back && (
-          <Pressable
-            onPress={onBack || (() => navigation.goBack())}
-            style={[styles.backBtn, shadow.header]}
-          >
-            <IconBack size={20} />
-          </Pressable>
+        {(back || headerRight) && (
+          <View style={styles.headerRow}>
+            {back ? (
+              <Pressable
+                onPress={onBack || (() => navigation.goBack())}
+                style={[styles.backBtn, shadow.header]}
+              >
+                <IconBack size={20} />
+              </Pressable>
+            ) : <View />}
+            {headerRight}
+          </View>
         )}
         {children}
       </ScrollView>
@@ -39,5 +47,6 @@ export function AuthScreen({
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   content: { paddingHorizontal: 22, paddingBottom: 32, flexGrow: 1 },
-  backBtn: { backgroundColor: C.card, alignSelf: 'flex-start', padding: 8, borderRadius: 20, marginBottom: 18 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  backBtn: { backgroundColor: C.card, alignSelf: 'flex-start', padding: 8, borderRadius: 20 },
 });
