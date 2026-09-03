@@ -5,7 +5,7 @@ import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { IconArrow } from '../assets/icons';
-import { C, text } from '../theme/tokens';
+import { C, text, shadow } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
 import { goToProfile, goToLegal, goToRulesSettings } from '../navigation/navigationRef';
 
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   switchTrack: { width: 44, height: 26, borderRadius: 999, justifyContent: 'center' },
   switchKnob: {
     position: 'absolute', width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
-    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+    ...shadow.knob,
   },
   accountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13 },
   accountLabel: { fontSize: 16, color: C.navy, lineHeight: 21 },

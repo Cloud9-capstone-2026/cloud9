@@ -4,6 +4,10 @@ import { C } from '../theme/tokens';
 import { StatusBadge } from './StatusBadge';
 import type { Journal } from '../data/types';
 
+// 실측 렌더 높이 — 이 로우를 쓰는 카드가 빈 상태일 때 크기를 유지해야 하면
+// 새로 높이를 재지 말고 이 값 * 행 수로 재사용할 것.
+export const JOURNAL_ROW_HEIGHT = 72.8;
+
 export function JournalRow({ journal, index, onPress }: { journal: Journal; index: number; onPress: () => void }) {
   const isBuy = journal.type === 'buy';
   return (

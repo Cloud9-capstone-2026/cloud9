@@ -13,12 +13,16 @@ export function Screen({
   // 이 화면이 하단 탭 화면(TabNavigator) 안에서 쓰여서 둥둥 뜬 탭바가 겹치는 경우 true —
   // footer(페이지네이션)가 탭바에 가리지 않도록 그만큼 여유 공간을 더 줌.
   belowTabBar,
+  // footer와 달리 스크롤과 무관하게 화면 하단에 항상 고정(position:absolute)되는 버튼 등에 사용
+  // (예: 일지 작성의 "저장하기", 탐지 규칙 설정의 "저장하기"와 같은 스타일).
+  floatingFooter,
   children,
 }: {
   back?: boolean;
   contentStyle?: StyleProp<ViewStyle>;
   footer?: React.ReactNode;
   belowTabBar?: boolean;
+  floatingFooter?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
@@ -51,6 +55,11 @@ export function Screen({
           </View>
         )}
       </ScrollView>
+      {floatingFooter && (
+        <View style={[styles.floatingFooter, { paddingBottom: Math.max(16, insets.bottom) + 8 }]}>
+          {floatingFooter}
+        </View>
+      )}
     </View>
   );
 }
@@ -63,4 +72,5 @@ const styles = StyleSheet.create({
   // flexGrow + marginTop:'auto' 조합으로 "하단 고정"을 스크롤 영역 안에서 구현.
   contentWithFooter: { flexGrow: 1, paddingBottom: 0 },
   footer: { marginTop: 'auto', paddingTop: 16, marginHorizontal: -22, paddingHorizontal: 22, backgroundColor: C.bg },
+  floatingFooter: { position: 'absolute', left: 22, right: 22, bottom: 0 },
 });

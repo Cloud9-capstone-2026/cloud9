@@ -34,6 +34,7 @@ interface AppStateValue {
   journals: Journal[];
   saveJournal: (journalId: number | null, patch: { reason: string; emotion: string; review: string }) => void;
   addJournal: (journal: Journal) => void;
+  deleteJournal: (journalId: number) => void;
   isJournaled: (tradeId: number) => boolean;
 
   // 설정 — 알림
@@ -112,6 +113,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [suVerified, setSuVerified] = useState(false);
 
   useEffect(() => {
+    // 로그인 상태 유지된 사용자는 스플래시 화면(App.tsx)이 최소 이만큼은 보인 뒤에
+    // 바로 홈으로 넘어가게 함 — 저장소 조회가 순식간에 끝나서 스플래시가 깜빡이듯
+    // 스쳐 지나가는 걸 방지. 로그인 안 된 사용자는 이 지연 없이 바로 AuthNavigator로
+    // 넘어가고, 거기 있는 SplashScreen이 자기 타이머로 스플래시를 보여줌.
+    const MIN_SPLASH_MS = 1500;
+    const startedAt = Date.now();
     (async () => {
       try {
         const [sessionRaw, onboardingRaw] = await Promise.all([
@@ -121,6 +128,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const savedOnboardingDone = onboardingRaw === '1';
         if (savedOnboardingDone) setOnboardingDone(true);
         if (sessionRaw) {
+          const elapsed = Date.now() - startedAt;
+          if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
           setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
         }
       } catch {
@@ -163,6 +172,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   const addJournal = useCallback((journal: Journal) => {
     setJournals((prev) => (prev.some((j) => j.id === journal.id) ? prev : [journal, ...prev]));
+  }, []);
+
+  const deleteJournal = useCallback((journalId: number) => {
+    setJournals((prev) => prev.filter((j) => j.id !== journalId));
   }, []);
 
   const isJournaled = useCallback(
@@ -254,6 +267,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       journals,
       saveJournal,
       addJournal,
+      deleteJournal,
       isJournaled,
       notif,
       toggleNotif: () => setNotif((v) => !v),
@@ -299,7 +313,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       toggleHasUploaded: () => setHasUploaded((v) => !v),
     }),
     [
-      journals, saveJournal, addJournal, isJournaled, notif,
+      journals, saveJournal, addJournal, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       suVerified, tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,

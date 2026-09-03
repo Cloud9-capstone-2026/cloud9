@@ -40,9 +40,9 @@ export function RulesSettingsScreen() {
         <Pressable
           onPress={onSave}
           disabled={!valid}
-          style={[styles.saveBtn, { backgroundColor: valid ? C.blue : '#e2e8f0' }]}
+          style={[styles.saveBtn, { backgroundColor: valid ? C.blue : C.card }]}
         >
-          <Text style={{ color: valid ? '#fff' : '#a5b4c8', fontSize: 17, fontWeight: '600' }}>저장하기</Text>
+          <Text style={{ color: valid ? '#fff' : C.muted, fontSize: 17, fontWeight: '600' }}>저장하기</Text>
         </Pressable>
       </View>
     </View>
@@ -57,5 +57,5 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '600', color: C.navy, letterSpacing: -0.3 },
   subtitle: { fontSize: 14, color: C.muted, marginTop: 12, lineHeight: 20 },
   footer: { position: 'absolute', left: 22, right: 22, bottom: 0 },
-  saveBtn: { borderRadius: 999, paddingVertical: 16, alignItems: 'center' },
+  saveBtn: { borderRadius: 999, paddingVertical: 17, alignItems: 'center' },
 });

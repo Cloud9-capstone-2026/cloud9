@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, TextInput, StyleSheet } from 'react-native';
-import { C } from '../theme/tokens';
+import { C, shadow } from '../theme/tokens';
 import { RULES, MONEY_LABEL } from '../data/mock';
 import { useAppState } from '../state/AppState';
 
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   switchTrack: { width: 44, height: 26, borderRadius: 999, justifyContent: 'center', flexShrink: 0 },
   switchKnob: {
     position: 'absolute', width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff',
-    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+    ...shadow.knob,
   },
   inputArea: { marginTop: 13, paddingTop: 13, borderTopWidth: 1, borderTopColor: C.border },
   inputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },

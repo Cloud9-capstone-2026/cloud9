@@ -6,6 +6,16 @@ import { LogoStacked } from '../assets/LogoStacked';
 import { C } from '../theme/tokens';
 import type { AuthStackParamList } from '../navigation/types';
 
+// 앱 최초 진입 시 로그인 상태 확인 중에도(App.tsx) 재사용하는 순수 비주얼.
+export function SplashVisual() {
+  return (
+    <View style={styles.root}>
+      <LogoStacked />
+      <Text style={styles.caption}>숫자 너머의 나를 분석하다</Text>
+    </View>
+  );
+}
+
 export function SplashScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
 
@@ -14,12 +24,7 @@ export function SplashScreen() {
     return () => clearTimeout(t);
   }, [navigation]);
 
-  return (
-    <View style={styles.root}>
-      <LogoStacked />
-      <Text style={styles.caption}>숫자 너머의 나를 분석하다</Text>
-    </View>
-  );
+  return <SplashVisual />;
 }
 
 const styles = StyleSheet.create({

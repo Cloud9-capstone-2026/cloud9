@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   bannerTitle: { fontSize: 16, fontWeight: '500', color: C.navy, lineHeight: 21 },
   bannerSub: { fontSize: 13, color: C.muted, marginTop: 4, lineHeight: 20 },
-  bannerCta: { fontSize: 15, fontWeight: '600', color: C.blue, marginLeft: 8 },
+  bannerCta: { fontSize: 14, fontWeight: '600', color: C.blue, marginLeft: 8 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 10 },
   sectionTitle: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
   sectionTitleStandalone: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1, paddingHorizontal: 2, marginBottom: 10 },

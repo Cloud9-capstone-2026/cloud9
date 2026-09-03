@@ -9,13 +9,14 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
 import { OnboardingNavigator } from './src/navigation/OnboardingNavigator';
 import { navigationRef } from './src/navigation/navigationRef';
+import { SplashVisual } from './src/screens/SplashScreen';
 import { C } from './src/theme/tokens';
 
 function AppSwitch() {
   const { authPhase, authReady } = useAppState();
-  // 로그인 상태 유지 여부를 로컬 저장소에서 확인하는 동안 빈 화면(같은 배경색)을 잠깐 보여줘서
-  // "저장된 세션이 있는데도 로그인 화면이 잠깐 보였다가 사라지는" 깜빡임을 방지.
-  if (!authReady) return <View style={styles.phone} />;
+  // 로그인 상태 유지 여부를 로컬 저장소에서 확인하는 동안 실제 스플래시 화면을 보여줘서
+  // "빈 화면이 잠깐 보였다가 사라지는" 깜빡임 대신 로고가 뜬 뒤 바로 목적지 화면으로 넘어가게 함.
+  if (!authReady) return <SplashVisual />;
   if (authPhase === 'auth') return <AuthNavigator />;
   if (authPhase === 'onboarding') return <OnboardingNavigator />;
   return <RootNavigator />;
