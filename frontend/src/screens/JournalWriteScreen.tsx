@@ -5,7 +5,7 @@ import { Screen } from '../components/Screen';
 import { GradientCard } from '../components/GradientCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { C, EMOTIONS, ACCENT, riskLevel, shadow } from '../theme/tokens';
+import { C, EMOTIONS, ACCENT, riskLevel, shadow, text } from '../theme/tokens';
 import { tradesRaw } from '../data/mock';
 import { useAppState } from '../state/AppState';
 import { goToReportDetail } from '../navigation/navigationRef';
@@ -88,7 +88,7 @@ export function JournalWriteScreen() {
         )
       }
     >
-      <Text style={styles.title}>{existing ? '거래 일지' : '일지 작성'}</Text>
+      <Text style={text.screenTitle}>{existing ? '거래 일지' : '일지 작성'}</Text>
 
       <GradientCard colors={['#f8fbff', '#ffffff']}>
         <View style={styles.tradeRow}>
@@ -191,7 +191,6 @@ export function JournalWriteScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 16 },
-  title: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.2 },
   tradeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   tradeStock: { fontSize: 18, fontWeight: '600', color: C.navy, marginBottom: 4, letterSpacing: -0.2 },
   tradeMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
