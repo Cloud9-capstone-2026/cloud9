@@ -52,7 +52,7 @@ export function RadarChart({
           strokeWidth={s.width || 2}
         />
       ))}
-      {dots &&
+      {dots && series[0] &&
         series[0].values.map((v, i) => {
           const [x, y] = pt(i, Math.max(v, 0) / max);
           return <Circle key={`dt${i}`} cx={x} cy={y} r={2} fill={series[0].color} />;

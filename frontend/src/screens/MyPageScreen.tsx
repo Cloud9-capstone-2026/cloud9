@@ -12,9 +12,10 @@ import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
 export function MyPageScreen() {
-  const { openBiasInfo } = useAppState();
+  const { openBiasInfo, hasUploaded } = useAppState();
 
   const topBias = useMemo(() => {
+    if (!hasUploaded) return null;
     const counts: Record<string, number> = {};
     Object.values(analysisData).forEach((a) => {
       const k = a.detail.top_bias;
@@ -26,7 +27,7 @@ export function MyPageScreen() {
       if (c > bestCount) { bestKey = k; bestCount = c; }
     });
     return bestKey ? { label: BIAS_KEY_MAP[bestKey as keyof typeof BIAS_KEY_MAP], count: bestCount } : null;
-  }, []);
+  }, [hasUploaded]);
 
   const insight = useMemo(() => {
     let best = biasComparisonData[0];
@@ -110,16 +111,18 @@ export function MyPageScreen() {
               </View>
             </View>
             <View style={{ marginTop: 10 }}>
-              <DumbbellChart data={biasComparisonData} />
+              <DumbbellChart data={biasComparisonData} empty={!hasUploaded} />
             </View>
-            <View style={styles.insightBlock}>
-              <View style={styles.insightIconBox}>
-                <Text style={styles.insightIconText}>!</Text>
+            {hasUploaded && (
+              <View style={styles.insightBlock}>
+                <View style={styles.insightIconBox}>
+                  <Text style={styles.insightIconText}>!</Text>
+                </View>
+                <Text style={styles.insightText}>
+                  {insight.subject}이 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
+                </Text>
               </View>
-              <Text style={styles.insightText}>
-                {insight.subject}이 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
-              </Text>
-            </View>
+            )}
           </Card>
         </View>
       </View>
@@ -134,10 +137,10 @@ export function MyPageScreen() {
                 <View style={styles.trendHeader}>
                   <Text style={styles.trendLabel}>{BIAS_LABELS[i]}</Text>
                   <Text style={[styles.trendValue, { color: BIAS_COLORS[i] }]}>
-                    {latest}<Text style={styles.trendUnit}>/100</Text>
+                    {hasUploaded ? latest : '-'}<Text style={styles.trendUnit}>/100</Text>
                   </Text>
                 </View>
-                <TrendLineChart data={biasTrend} dataKey={key} color={BIAS_COLORS[i]} />
+                <TrendLineChart data={biasTrend} dataKey={key} color={BIAS_COLORS[i]} empty={!hasUploaded} />
               </Card>
             );
           })}
@@ -151,9 +154,9 @@ const styles = StyleSheet.create({
   content: { gap: 24 },
   subtitle: { marginTop: 3 },
   bannerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  bannerTitle: { fontSize: 16, fontWeight: '500', color: C.navy, lineHeight: 21 },
+  bannerTitle: { fontSize: 15, fontWeight: '500', color: C.navy, lineHeight: 20 },
   bannerSub: { fontSize: 13, color: C.muted, marginTop: 4, lineHeight: 20 },
-  bannerCta: { fontSize: 15, fontWeight: '600', color: C.blue, marginLeft: 8 },
+  bannerCta: { fontSize: 14, fontWeight: '600', color: C.blue, marginLeft: 8 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, marginBottom: 10 },
   sectionTitle: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1 },
   sectionTitleStandalone: { fontSize: 20, fontWeight: '600', color: C.navy, letterSpacing: -0.1, paddingHorizontal: 2, marginBottom: 10 },
@@ -181,7 +184,7 @@ const styles = StyleSheet.create({
   insightBlock: { flexDirection: 'row', gap: 10, backgroundColor: '#eff6ff', borderRadius: 18, padding: 13, marginTop: 16, alignItems: 'flex-start' },
   insightIconBox: { width: 19, height: 19, borderRadius: 10, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   insightIconText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  insightText: { flex: 1, fontSize: 15, color: C.navy, lineHeight: 20 },
+  insightText: { flex: 1, fontSize: 14, color: C.navy, lineHeight: 19 },
   insightNum: { color: C.blue, fontWeight: '600' },
   trendGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 13 },
   trendCard: { width: '46%', flexGrow: 1, borderRadius: 26, padding: 10, paddingTop: 14 },

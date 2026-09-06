@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
+import { EmptyState } from '../components/EmptyState';
 import { JournalRow } from '../components/JournalRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
@@ -12,7 +13,7 @@ import { goToJournalWrite } from '../navigation/navigationRef';
 const PAGE_SIZE = 10;
 
 export function JournalFullListScreen() {
-  const { journals } = useAppState();
+  const { journals, hasUploaded } = useAppState();
   const [type, setType] = useState<TypeFilter>('all');
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
@@ -32,7 +33,7 @@ export function JournalFullListScreen() {
     return list;
   }, [journals, type, risk, search, newest]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = hasUploaded ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);
   const paginated = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
 
@@ -57,11 +58,11 @@ export function JournalFullListScreen() {
       <SearchInput value={search} onChangeText={updateFilter(setSearch)} placeholder="종목명 또는 태그 검색..." />
       <RiskChips value={risk} onChange={updateFilter(setRisk)} />
 
-      {journals.length === 0 ? (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyTitle}>아직 업로드한 거래 내역이 없어요</Text>
-          <Text style={styles.emptySub}>{'거래 내역을 업로드하면\n거래마다 일지를 기록할 수 있어요'}</Text>
-        </View>
+      {!hasUploaded ? (
+        <EmptyState
+          title="아직 업로드한 거래 내역이 없어요"
+          subtitle={'거래 내역을 업로드하면\n거래마다 일지를 기록할 수 있어요'}
+        />
       ) : paginated.length > 0 ? (
         <Card>
           {paginated.map((j, i) => (
@@ -82,7 +83,4 @@ const styles = StyleSheet.create({
   filterRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 },
   filterRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { textAlign: 'center', paddingVertical: 40, color: C.muted, fontSize: 16 },
-  emptyWrap: { alignItems: 'center', paddingVertical: 44, paddingHorizontal: 8 },
-  emptyTitle: { fontSize: 16, color: C.navy, fontWeight: '500', marginBottom: 8 },
-  emptySub: { fontSize: 13, color: C.muted, textAlign: 'center', lineHeight: 19 },
 });

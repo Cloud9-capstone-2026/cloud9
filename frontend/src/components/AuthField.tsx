@@ -176,7 +176,7 @@ const styles = StyleSheet.create({
   cta: { borderRadius: 16, paddingVertical: 17, alignItems: 'center' },
   ctaActive: {
     backgroundColor: C.blue,
-    shadowColor: '#16213b', shadowOpacity: 0.10, shadowOffset: { width: 0, height: 2 }, shadowRadius: 10, elevation: 3,
+    ...shadow.cta,
   },
   ctaInactive: { backgroundColor: '#FFFFFF' },
   ctaText: { fontSize: 17, fontWeight: '600' },

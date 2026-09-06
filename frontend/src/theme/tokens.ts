@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export const C = {
   bg: '#F7F8FA',
   card: '#FFFFFF',
@@ -75,42 +77,44 @@ export const spacing = {
   sectionGap: 24,
 };
 
+// react-native-web(웹)은 구식 shadow* 프롭(shadowColor/shadowOpacity/shadowOffset/shadowRadius)을
+// 더 이상 CSS box-shadow로 자동 변환하지 않고(boxShadow로 써야 함), 반대로 boxShadow는
+// 네이티브에서 New Architecture(Fabric) 여부에 따라 아직 불안정할 수 있어서 —
+// 웹은 boxShadow, 네이티브는 기존 shadow*를 각각 쓰도록 플랫폼별로 나눠서 항상 둘 다 동작하게 함.
+// 화면 전체에서 같은 그림자를 재사용할 수 있게 값도 여기 하나로 모아둠(중복 정의 금지).
+function hexToRgb(hex: string) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
+}
+
+function makeShadow(color: string, opacity: number, offsetX: number, offsetY: number, radius: number, elevation: number) {
+  if (Platform.OS === 'web') {
+    return { boxShadow: [{ offsetX, offsetY, blurRadius: radius, color: `rgba(${hexToRgb(color)}, ${opacity})` }] };
+  }
+  return {
+    shadowColor: color,
+    shadowOpacity: opacity,
+    shadowOffset: { width: offsetX, height: offsetY },
+    shadowRadius: radius,
+    elevation,
+  };
+}
+
 export const shadow = {
-  header: {
-    shadowColor: '#16213b',
-    shadowOpacity: 0.07,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  floating: {
-    shadowColor: '#16213b',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 18,
-    elevation: 6,
-  },
-  ctaBlue: {
-    shadowColor: '#0066FF',
-    shadowOpacity: 0.27,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  modal: {
-    shadowColor: 'rgba(16,24,40,1)',
-    shadowOpacity: 0.22,
-    shadowOffset: { width: 0, height: 12 },
-    shadowRadius: 40,
-    elevation: 16,
-  },
-  dropdown: {
-    shadowColor: '#16213b',
-    shadowOpacity: 0.14,
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 22,
-    elevation: 10,
-  },
+  header: makeShadow('#16213b', 0.07, 0, 2, 10, 2),
+  floating: makeShadow('#16213b', 0.10, 0, 4, 18, 6),
+  ctaBlue: makeShadow('#0066FF', 0.27, 0, 4, 16, 8),
+  modal: makeShadow('#101828', 0.22, 0, 12, 40, 16),
+  dropdown: makeShadow('#16213b', 0.14, 0, 6, 22, 10),
+  // 스위치 노브(설정/규칙/정렬 토글 3곳에서 공통으로 쓰던 그림자)
+  knob: makeShadow('#000000', 0.18, 0, 1, 3, 2),
+  // 공용 CtaButton의 활성 상태 그림자
+  cta: makeShadow('#16213b', 0.10, 0, 2, 10, 3),
+  // 리포트 상세의 이탈도 게이지 마커
+  marker: makeShadow('#000000', 0.20, 0, 1, 4, 2),
 };
 
 export const text = {

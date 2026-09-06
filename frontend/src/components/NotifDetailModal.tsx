@@ -37,6 +37,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '600', color: C.navy, textAlign: 'center' },
   body: { fontSize: 15, color: '#64748b', lineHeight: 22, textAlign: 'center', marginTop: 10 },
   time: { fontSize: 12, color: '#cbd5e1', marginTop: 8, marginBottom: 18 },
-  confirmBtn: { width: '100%', backgroundColor: C.blue, borderRadius: 999, paddingVertical: 14, alignItems: 'center' },
+  confirmBtn: { width: '100%', backgroundColor: C.blue, borderRadius: 999, paddingVertical: 17, alignItems: 'center' },
   confirmText: { fontSize: 16, fontWeight: '500', color: '#fff' },
 });

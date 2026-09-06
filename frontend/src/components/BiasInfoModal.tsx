@@ -12,7 +12,7 @@ export function BiasInfoModal() {
       <View style={styles.overlay}>
         <View style={[styles.card, shadow.modal]}>
           <Text style={styles.title}>이 4가지 투자 편향이 뭔가요?</Text>
-          <View style={{ gap: 14, marginTop: 18, marginBottom: 20 }}>
+          <View style={{ gap: 20, marginTop: 18, marginBottom: 20 }}>
             {BIAS_LABELS.map((label, i) => (
               <View key={label} style={styles.row}>
                 <View style={[styles.dot, { backgroundColor: BIAS_COLORS[i] }]} />
@@ -40,6 +40,6 @@ const styles = StyleSheet.create({
   dot: { width: 7, height: 7, borderRadius: 4, marginTop: 5 },
   name: { fontSize: 15, fontWeight: '600', color: C.navy, marginBottom: 2 },
   desc: { fontSize: 13, color: '#64748b', lineHeight: 19 },
-  confirmBtn: { width: '100%', backgroundColor: C.blue, borderRadius: 999, paddingVertical: 14, alignItems: 'center' },
+  confirmBtn: { width: '100%', backgroundColor: C.blue, borderRadius: 999, paddingVertical: 17, alignItems: 'center' },
   confirmText: { fontSize: 16, fontWeight: '500', color: '#fff' },
 });

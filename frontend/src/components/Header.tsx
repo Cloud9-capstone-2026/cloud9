@@ -31,7 +31,7 @@ export function HeaderActions() {
   );
 }
 
-export function Header({ back }: { back?: boolean }) {
+export function Header({ back, onBackPress }: { back?: boolean; onBackPress?: () => void }) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
 
@@ -39,7 +39,7 @@ export function Header({ back }: { back?: boolean }) {
     <View style={[styles.header, { paddingTop: (insets.top || 0) + 12 }]}>
       <View style={styles.left}>
         {back ? (
-          <Pressable onPress={() => navigation.goBack()} style={[styles.backBtn, shadow.header]}>
+          <Pressable onPress={onBackPress ?? (() => navigation.goBack())} style={[styles.backBtn, shadow.header]}>
             <IconBack size={20} />
           </Pressable>
         ) : (

@@ -79,11 +79,15 @@ export function RiskChips({ value, onChange }: { value: RiskFilter; onChange: (v
   );
 }
 
+const PAGE_WINDOW = 5;
+
 export function Pagination({
   page, totalPages, onChange,
 }: { page: number; totalPages: number; onChange: (page: number) => void }) {
   if (totalPages <= 1) return null;
-  const pages = Array.from({ length: totalPages }, (_, i) => i);
+  const windowStart = Math.floor(page / PAGE_WINDOW) * PAGE_WINDOW;
+  const windowEnd = Math.min(windowStart + PAGE_WINDOW, totalPages);
+  const pages = Array.from({ length: windowEnd - windowStart }, (_, i) => windowStart + i);
   return (
     <View style={styles.pagerRow}>
       <Pressable
@@ -125,7 +129,7 @@ const styles = StyleSheet.create({
   switchTrack: { width: 40, height: 23, borderRadius: 999, justifyContent: 'center' },
   switchKnob: {
     position: 'absolute', width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff',
-    shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+    ...shadow.knob,
   },
   searchWrap: { position: 'relative', marginBottom: 12, justifyContent: 'center' },
   searchIcon: { position: 'absolute', left: 12, zIndex: 1 },

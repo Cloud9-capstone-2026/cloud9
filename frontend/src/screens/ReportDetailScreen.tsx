@@ -5,7 +5,7 @@ import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { NewsRow } from '../components/NewsRow';
 import { LayerRing } from '../components/charts/LayerRing';
-import { C, DEVIATION_GAUGE } from '../theme/tokens';
+import { C, DEVIATION_GAUGE, shadow } from '../theme/tokens';
 import { dartNews } from '../data/mock';
 import { buildReportDetailVM } from './reportDetailLogic';
 import type { RootStackParamList } from '../navigation/types';
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   gaugeMarker: {
     position: 'absolute', top: '50%', marginTop: -6, marginLeft: -6,
     width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#fff',
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2,
+    ...shadow.marker,
   },
   gaugeLabelRow: { flexDirection: 'row', marginTop: 6 },
   gaugeLabel: { flex: 1, textAlign: 'center', fontSize: 10 },
