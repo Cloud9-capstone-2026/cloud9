@@ -8,6 +8,8 @@ import { TAB_BAR_CLEARANCE } from '../navigation/BottomTabBar';
 
 export function Screen({
   back,
+  // back 버튼 기본 동작(navigation.goBack())을 대체 — 뒤로가기 시 되돌려야 할 임시 상태가 있는 화면(예: 탐지 규칙 설정)에서 사용.
+  onBackPress,
   contentStyle,
   footer,
   // 이 화면이 하단 탭 화면(TabNavigator) 안에서 쓰여서 둥둥 뜬 탭바가 겹치는 경우 true —
@@ -19,6 +21,7 @@ export function Screen({
   children,
 }: {
   back?: boolean;
+  onBackPress?: () => void;
   contentStyle?: StyleProp<ViewStyle>;
   footer?: React.ReactNode;
   belowTabBar?: boolean;
@@ -37,7 +40,7 @@ export function Screen({
 
   return (
     <View style={styles.root}>
-      <Header back={back} />
+      <Header back={back} onBackPress={onBackPress} />
       <ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}

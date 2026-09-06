@@ -43,13 +43,16 @@ export function ProfileScreen() {
             </View>
             <Text style={styles.readonlyNote}>이메일은 변경할 수 없어요</Text>
           </View>
-          <Pressable
-            onPress={() => navigation.navigate('ProfileVerify', { mode: 'changePw' })}
-            style={styles.pwRow}
-          >
-            <Text style={styles.pwLabel}>비밀번호 변경</Text>
-            <Text style={styles.pwArrow}>›</Text>
-          </Pressable>
+          <View>
+            <Text style={styles.label}>비밀번호</Text>
+            <Pressable
+              onPress={() => navigation.navigate('ProfileVerify', { mode: 'changePw' })}
+              style={styles.pwRow}
+            >
+              <Text style={styles.pwLabel}>비밀번호 변경</Text>
+              <Text style={styles.pwArrow}>›</Text>
+            </Pressable>
+          </View>
         </View>
 
         <Pressable onPress={() => setWithdrawOpen(true)} style={{ marginTop: 30, alignItems: 'center' }}>
@@ -88,10 +91,10 @@ const styles = StyleSheet.create({
   avatar: { width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center' },
   avatarInitial: { fontSize: 30, fontWeight: '600', color: '#fff' },
   changePhoto: { fontSize: 13, fontWeight: '500', color: C.blue },
-  label: { fontSize: 13, color: C.muted, marginBottom: 6, paddingHorizontal: 2 },
+  label: { fontSize: 15, fontWeight: '500', color: C.navy, marginBottom: 10, paddingHorizontal: 2 },
   input: {
     backgroundColor: '#fff', borderRadius: 20,
-    paddingVertical: 15, paddingHorizontal: 17, fontSize: 16, color: C.navy,
+    paddingVertical: 17, paddingHorizontal: 17, fontSize: 16, color: C.navy,
   },
   readonly: { backgroundColor: '#f1f5f9' },
   readonlyText: { fontSize: 16, color: C.muted },
@@ -102,7 +105,7 @@ const styles = StyleSheet.create({
   },
   pwLabel: { fontSize: 16, color: C.navy },
   pwArrow: { fontSize: 20, color: C.muted },
-  withdraw: { fontSize: 13, color: '#dc2626', textDecorationLine: 'underline' },
+  withdraw: { fontSize: 15, color: '#dc2626', textDecorationLine: 'underline' },
   footer: { position: 'absolute', left: 22, right: 22, bottom: 0 },
-  saveBtn: { borderRadius: 999, paddingVertical: 16, alignItems: 'center' },
+  saveBtn: { borderRadius: 999, paddingVertical: 17, alignItems: 'center' },
 });

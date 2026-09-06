@@ -111,63 +111,69 @@ export function JournalWriteScreen() {
         </View>
       </GradientCard>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>매매 이유</Text>
-        {locked ? (
-          <Text style={styles.textarea}>{reason}</Text>
-        ) : (
-          <TextInput
-            value={reason}
-            onChangeText={setReason}
-            placeholder="이 거래를 한 이유를 작성하세요..."
-            placeholderTextColor={C.muted}
-            style={styles.textarea}
-            multiline
-          />
-        )}
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>당시 감정</Text>
-        <View style={styles.chipsCol}>
-          {EMOTION_ROWS.map((row, ri) => (
-            <View key={ri} style={styles.chipsRow}>
-              {row.map((e) => {
-                const selected = emotion === e;
-                return (
-                  <Pressable
-                    key={e}
-                    onPress={locked ? undefined : () => setEmotion(selected ? '' : e)}
-                    style={[styles.emotionChip, { backgroundColor: selected ? ACCENT : C.mutedBg }]}
-                  >
-                    <Text
-                      numberOfLines={1}
-                      style={{ fontSize: 13, color: selected ? '#fff' : C.muted, fontWeight: selected ? '500' : '400' }}
-                    >
-                      #{e}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ))}
+      <View>
+        <Text style={styles.fieldLabel}>매매 이유</Text>
+        <View style={styles.card}>
+          {locked ? (
+            <Text style={styles.textarea}>{reason}</Text>
+          ) : (
+            <TextInput
+              value={reason}
+              onChangeText={setReason}
+              placeholder="이 거래를 한 이유를 작성하세요..."
+              placeholderTextColor={C.muted}
+              style={styles.textarea}
+              multiline
+            />
+          )}
         </View>
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>복기 · 사후 회고</Text>
-        {locked ? (
-          <Text style={styles.textarea}>{review}</Text>
-        ) : (
-          <TextInput
-            value={review}
-            onChangeText={setReview}
-            placeholder="지금 돌아보면 이 거래는 어땠나요?"
-            placeholderTextColor={C.muted}
-            style={styles.textarea}
-            multiline
-          />
-        )}
+      <View>
+        <Text style={styles.fieldLabel}>당시 감정</Text>
+        <View style={styles.card}>
+          <View style={styles.chipsCol}>
+            {EMOTION_ROWS.map((row, ri) => (
+              <View key={ri} style={styles.chipsRow}>
+                {row.map((e) => {
+                  const selected = emotion === e;
+                  return (
+                    <Pressable
+                      key={e}
+                      onPress={locked ? undefined : () => setEmotion(selected ? '' : e)}
+                      style={[styles.emotionChip, { backgroundColor: selected ? ACCENT : C.mutedBg }]}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={{ fontSize: 13, color: selected ? '#fff' : C.muted, fontWeight: selected ? '500' : '400' }}
+                      >
+                        #{e}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      <View>
+        <Text style={styles.fieldLabel}>복기 · 사후 회고</Text>
+        <View style={styles.card}>
+          {locked ? (
+            <Text style={styles.textarea}>{review}</Text>
+          ) : (
+            <TextInput
+              value={review}
+              onChangeText={setReview}
+              placeholder="지금 돌아보면 이 거래는 어땠나요?"
+              placeholderTextColor={C.muted}
+              style={styles.textarea}
+              multiline
+            />
+          )}
+        </View>
       </View>
 
       <ConfirmModal
@@ -194,10 +200,10 @@ const styles = StyleSheet.create({
   tradeAmount: { fontSize: 16, fontWeight: '500', color: C.navy, marginBottom: 5 },
   reportLinkRow: { marginTop: 12, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10, alignItems: 'flex-end' },
   reportLink: { fontSize: 13, fontWeight: '500', color: C.blue },
+  fieldLabel: { fontSize: 15, fontWeight: '500', color: C.navy, marginBottom: 10 },
   card: { backgroundColor: C.card, borderRadius: 30, padding: 16 },
-  cardTitle: { fontSize: 15, fontWeight: '500', color: C.navy, marginBottom: 10 },
   textarea: {
-    minHeight: 80, padding: 12, backgroundColor: C.mutedBg, borderRadius: 20,
+    minHeight: 100, padding: 12, backgroundColor: C.mutedBg, borderRadius: 20,
     fontSize: 15, color: C.navy, textAlignVertical: 'top', lineHeight: 21,
   },
   chipsCol: { gap: 8 },
