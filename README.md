@@ -121,7 +121,7 @@ cloud9/
 │   ├── models/           # 이상 탐지 (rule_based·zscore·layer3·xai)
 │   ├── pipeline/         # 비동기 잡·CSV 매핑·탐지 파이프라인·분포 점검
 │   ├── alembic/          # DB 마이그레이션
-│   └── tests/            # 빠른 층 테스트 (CI에서 자동 실행)
+│   └── tests/            # 테스트 (CI에서 자동 실행)
 │
 ├── ml/               # 3계층 모델 학습·실험·재현성 도구
 ├── synthetic_data/   # 합성 학습 데이터 생성기 (시뮬레이션·검증)
