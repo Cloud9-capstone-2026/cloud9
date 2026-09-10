@@ -14,10 +14,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from config.settings import get
 load_dotenv()
 
-# .env(로컬 개발용 폴백)를 먼저 채운 뒤, EC2에서는 이 호출이 진짜 비밀값
-# 3개(DATABASE_URL/JWT_SECRET_KEY/GMAIL_APP_PASSWORD)를 Parameter Store
-# 값으로 덮어쓴다. 로컬에서는 IAM 역할이 없어 조용히 실패하고 .env 값이
-# 그대로 유지된다 (2026-08-26, secrets_loader.py 참고).
 from secrets_loader import load_secrets_into_env
 load_secrets_into_env()
 
@@ -29,17 +25,24 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from database import engine, Base, SessionLocal
 from rate_limit import limiter
-from routers import trades, analysis, jobs, auth, survey, rules
+from routers import trades, analysis, jobs, auth, survey, rules, notifications, journals, news
 import uvicorn
 import os
 
 Base.metadata.create_all(bind=engine)
 
-# 이전 프로세스가 남긴 미완료 분석 job 정리 — 재시작으로 끊긴 작업이 running/
-# pending으로 남으면 폴링이 영영 완료 신호를 못 받는다. (pipeline/jobs.py 참조)
 from pipeline.jobs import recover_stale_jobs
+from pipeline.dart_news import refresh_dart_disclosures
 from scheduler import start_scheduler
 recover_stale_jobs()
+
+# 기동 시 1회 즉시 수집 — 스케줄러(3시간 주기)만 믿으면 배포 직후 테이블이
+# 비어 있는 시간이 생긴다. 실패해도 기동을 막으면 안 되므로 예외로 감싼다.
+try:
+    refresh_dart_disclosures()
+except Exception:  # noqa: BLE001
+    pass
+
 start_scheduler()
 
 app = FastAPI(title="Canary API")
@@ -60,6 +63,9 @@ app.include_router(analysis.router, prefix="/analysis", tags=["analysis"])
 app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 app.include_router(survey.router, prefix="/survey", tags=["survey"])
 app.include_router(rules.router, prefix="/rules", tags=["rules"])
+app.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+app.include_router(journals.router, prefix="/journals", tags=["journals"])
+app.include_router(news.router, prefix="/news", tags=["news"])
 
 @app.get("/")
 def root():

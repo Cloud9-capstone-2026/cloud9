@@ -1,5 +1,5 @@
 """
-회원 탈퇴 유예 처리 + CSV 원본 90일 보관 정책 배치.
+회원 탈퇴 유예 처리 + CSV 원본 90일 보관 정책 배치 + DART 공시 갱신 배치.
 
 - process_scheduled_withdrawals: scheduled_deletion_at이 지난 계정을 실제로
   삭제한다. FK에 ondelete=CASCADE를 걸지 않고 애플리케이션 레벨에서 자식→
@@ -7,8 +7,10 @@
   위한 의도적 선택, 2026-09-02).
 - cleanup_old_csv_files: 업로드 90일 지난 원본(upload_files.content)만
   NULL로 비운다. 분석 결과(analysis_results)는 그대로 유지.
+- refresh_dart_disclosures(pipeline/dart_news.py): 최근 7일 OpenDART 공시를
+  캐시에 반영(2026-09-09 추가). 3시간마다 — 일 1만 콜 쿼터 대비 여유 많음.
 
-두 배치 모두 APScheduler BackgroundScheduler로 매일 새벽에 실행한다.
+세 배치 모두 APScheduler BackgroundScheduler로 실행한다.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +19,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from database import SessionLocal
 from orm import (AnalysisJob, AnalysisResult, CsvUpload, SurveyResult, Trade,
                   UploadFile, User, UserRule)
+from pipeline.dart_news import refresh_dart_disclosures
 
 WITHDRAWAL_GRACE_DAYS = 30
 CSV_RETENTION_DAYS = 90
@@ -86,5 +89,6 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone="Asia/Seoul")
     scheduler.add_job(process_scheduled_withdrawals, "cron", hour=3, minute=0, id="process_scheduled_withdrawals")
     scheduler.add_job(cleanup_old_csv_files, "cron", hour=3, minute=30, id="cleanup_old_csv_files")
+    scheduler.add_job(refresh_dart_disclosures, "cron", hour="*/3", id="refresh_dart_disclosures")
     scheduler.start()
     return scheduler
