@@ -199,6 +199,10 @@ class AnalysisResult(Base):
     # 같은 업로드에 재시도가 여러 번 있었을 때 결과가 뒤섞임. nullable=True인 이유:
     # routers/analysis.py의 POST(레거시 직접 저장 경로)는 job 문맥이 없어 None으로 남음.
     job_id      = Column(Integer, ForeignKey("analysis_jobs.id"), nullable=True)
+    # 이 결과가 어느 거래의 것인지 — 분할 체결처럼 내용이 동일한 거래도 1:1 매칭
+    # 가능(거래일지 API가 거래별 risk를 이 키로 조인). nullable=True인 이유:
+    # 이 컬럼 도입 전 행들과, 거래 id 문맥이 없는 POST /analysis 경로는 None.
+    trade_id    = Column(Integer, ForeignKey("trades.id"), nullable=True, index=True)
     rule_score  = Column(Float)
     stat_score  = Column(Float)
     deep_score  = Column(Float)  # 3계층(GRU 태거) 거래 점수 — 옛 이름 lstm_score (2026-08-27 개명)

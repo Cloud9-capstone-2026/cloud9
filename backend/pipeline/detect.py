@@ -169,7 +169,9 @@ def run_pipeline_from_db(
     parsed_uid = _parse_user_id(user_id)
 
     # ─ Phase 1: 읽기 (이번 업로드 + 같은 사용자의 이전 업로드를 baseline으로)
-    trades = db.query(Trade).filter(Trade.upload_id == upload_id).all()
+    # order_by(id): 이 순서가 곧 결과 매칭 계약 — 아래 Phase 3에서 ensemble의
+    # i번째 행을 trades[i]에 trade_id로 연결하므로 순서가 암묵이면 안 된다.
+    trades = db.query(Trade).filter(Trade.upload_id == upload_id).order_by(Trade.id).all()
     # 이전 거래는 이 업로드 주인의 것만 — 남의 거래가 신규 추출 기준·2계층
     # baseline·3계층 시퀀스 문맥에 섞이지 않게 (저장 쪽 _store_trades의 사용자
     # 범위 중복 체크와 대칭). 주인 없는 레거시 행(user_id NULL)은 NULL끼리
@@ -274,12 +276,19 @@ def run_pipeline_from_db(
     # ─ Phase 3: 쓰기 (새 트랜잭션)
     # detail이 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
     # 조회 라우터는 저장분을 그대로 반환하므로 여기 넣지 않으면 전달되지 않는다.
-    for e in ensemble:
+    # trade_id: ensemble은 trades와 같은 순서·길이(위 order_by 계약) — 분할 체결처럼
+    # 내용이 동일한 거래도 id로 1:1 매칭된다. 어긋나면 잘못 매칭된 채 저장되는
+    # 것보다 실패가 낫다(job failed → error_type으로 원인 추적).
+    if len(ensemble) != len(trades):
+        raise RuntimeError(
+            f"결과-거래 개수 불일치: ensemble {len(ensemble)} != trades {len(trades)}")
+    for t, e in zip(trades, ensemble):
         deep = e["deep"] or {}
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
             job_id      = job_id,
+            trade_id    = t.id,
             rule_score  = e["rule"]["score"],
             stat_score  = e["stat"]["score"],
             deep_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None

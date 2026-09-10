@@ -278,6 +278,34 @@ def _pipeline_env(monkeypatch, tmp_path, standard_trades):
     return db, orm, detect
 
 
+def test_results_carry_trade_id_even_for_identical_trades(monkeypatch, tmp_path,
+                                                          standard_trades):
+    """결과 행마다 trade_id가 실제 거래 id와 1:1로 저장된다 — 분할 체결처럼
+    내용이 완전히 동일한 거래도 서로 다른 id로 구분된다(거래일지 risk 조인 계약)."""
+    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+    # 분할 체결 재현: 첫 거래와 내용이 완전히 동일한 행을 하나 더 저장
+    first = db.query(orm.Trade).order_by(orm.Trade.id).first()
+    db.add(orm.Trade(upload_id=1, user_id=1, 거래일자=first.거래일자,
+                     종목명=first.종목명, 거래구분=first.거래구분,
+                     거래수량=first.거래수량, 거래단가=first.거래단가,
+                     거래금액=first.거래금액, 수수료=0, 거래세=0,
+                     정산금액=first.정산금액))
+    db.commit()
+    monkeypatch.setattr(detect, "layer3_score", None)  # 3계층 무관
+
+    detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                AnalysisResult=orm.AnalysisResult,
+                                user_id="user_001")
+
+    trade_ids = [t.id for t in db.query(orm.Trade)
+                 .filter(orm.Trade.upload_id == 1).order_by(orm.Trade.id)]
+    result_ids = [r.trade_id for r in db.query(orm.AnalysisResult)
+                  .order_by(orm.AnalysisResult.id)]
+    assert result_ids == trade_ids           # 순서까지 1:1 (동일 내용 2건 포함)
+    assert len(set(result_ids)) == len(result_ids)  # 중복 매칭 없음
+    db.close()
+
+
 def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
                                                  standard_trades):
     """분포 점검 발동(deep_excluded) 계좌 — 3계층 채점(XAI 포함)이 호출조차
