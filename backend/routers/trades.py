@@ -11,6 +11,10 @@ GET /trades, GET /trades/uploads가 사용자 전체 이력을 무제한으로 �
 추가. 기본값 50, 최대 200(거래는 uploads보다 건수가 많을 수 있어 상한을
 좀 더 넉넉히 둠). 정렬 기준도 명시(거래는 거래일자 내림차순 — 최근 거래
 먼저 보여주는 게 자연스러움, 업로드는 기존처럼 id 내림차순 유지).
+
+[알림 추가 — 2026-09-09]
+업로드 접수 시점에 "upload" 알림을 바로 남긴다(프론트 NotifKind에 upload가
+있어서, 분석 완료/실패와는 별개로 "파일 받았어요" 신호가 필요함).
 """
 from pathlib import Path
 
@@ -20,7 +24,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import get_db
 from orm import Trade, CsvUpload, AnalysisJob, User
-from pipeline.jobs import run_analysis_job
+from pipeline.jobs import create_notification, run_analysis_job
 from pipeline.upload_store import ALLOWED_EXTS, save_upload
 
 router = APIRouter()
@@ -88,6 +92,13 @@ async def upload_trades(background_tasks: BackgroundTasks,
     #    등록이 먼저면 미커밋 행을 못 보는 레이스가 생긴다.
     db.commit()
     db.refresh(job)
+
+    # 4. 업로드 접수 알림 — 분석 완료/실패와 별개로 "파일 받았어요" 신호.
+    create_notification(db, user_id=current_user.id, type_="upload",
+                         message="파일이 업로드되었습니다.",
+                         job_id=job.id, upload_id=csv_upload.id,
+                         file_name=file.filename)
+
     background_tasks.add_task(run_analysis_job, job.id)
 
     return {

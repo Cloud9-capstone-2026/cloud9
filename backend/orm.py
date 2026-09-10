@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, BigInteger, Float, Boolean, JSON, TIMESTAMP, ForeignKey, UniqueConstraint, LargeBinary
+from sqlalchemy import Column, Integer, String, Date, BigInteger, Float, Boolean, JSON, TIMESTAMP, ForeignKey, UniqueConstraint, LargeBinary, Text
 from sqlalchemy.sql import func
 from database import Base
 
@@ -205,3 +205,84 @@ class AnalysisResult(Base):
     is_anomaly  = Column(Boolean)
     detail      = Column(JSON)   # 거래별 상세 전부(판정·flags·규칙·마할라노비스·3계층 근거·분포 점검) — 옛 이름 xai_result
     analyzed_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class Notification(Base):
+    """분석 job 상태 변화(업로드/분석의 성공·실패) 알림 1건.
+
+    jobs.py(run_analysis_job)가 상태 전이 시점에 직접 행을 쌓고, trades.py
+    (upload_trades)가 업로드 접수 시점에 직접 행을 쌓는다 — 폴링 대신 목록/
+    안읽음 뱃지 용도. job_id/upload_id는 눌렀을 때 해당 분석으로 이동하기
+    위한 참조용.
+
+    type 값은 프론트 data/types.ts의 NotifKind와 동일하게 맞춤(2026-09-09,
+    업로드 알림 반영하며 analysis_done/analysis_failed에서 개명):
+    'upload' | 'uploadFail' | 'analysis' | 'analyzeFail'.
+    file_name/trade_count도 NotifRaw.file/count와 대응 — 프론트가 이 값들로
+    알림 문구를 직접 조합한다("trades_july_2026.csv 분석 완료 (69건)" 등).
+    trade_count는 'analysis' 타입에만 값이 있고 나머지는 None.
+
+    user_id는 nullable=False — 알림은 특정 사용자에게 보여줄 용도로만
+    존재하므로 주인 없는 알림은 의미가 없다.
+    """
+    __tablename__ = "notifications"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    user_id     = Column(Integer, ForeignKey("users.id"), nullable=False)
+    type        = Column(String(30), nullable=False)  # 'upload'|'uploadFail'|'analysis'|'analyzeFail'
+    message     = Column(String(255), nullable=False)  # 내부 로그·디버그용 — 프론트 표시 문구는 자체 조합
+    job_id      = Column(Integer, ForeignKey("analysis_jobs.id"), nullable=True)
+    upload_id   = Column(Integer, ForeignKey("csv_uploads.id"), nullable=True)
+    file_name   = Column(String(255), nullable=True)
+    trade_count = Column(Integer, nullable=True)
+    is_read     = Column(Boolean, nullable=False, default=False)
+    created_at  = Column(TIMESTAMP, server_default=func.now())
+
+
+class TradeJournal(Base):
+    """거래 1건당 사용자가 직접 쓰는 매매 일지 1건 (1:1).
+
+    프론트 스펙(JournalWriteScreen.tsx, data/types.ts, 2026-09 확인): 사용자가
+    실제로 입력하는 필드는 emotion(당시 감정, 고정 태그 목록 중 택1)/
+    reason(매매 이유)/review(복기·사후 회고) 3개뿐. 프론트 Journal 타입의
+    stock/date/type/risk/memo는 전부 Trade(및 분석 결과)에서 파생되는 값이라
+    여기 저장 안 하고 조회 시 join/계산으로 채운다(memo = reason 앞 40자,
+    JournalWriteScreen.handleSave와 동일 규칙). risk는 이번 스키마에 포함
+    안 함 — GET /trades가 아직 분석 점수(score)를 안 내려주고 있어 선행
+    작업이 필요.
+
+    (user_id, trade_id) unique — 거래 1건에 일지 1건 원칙(프론트가
+    isJournaled(tradeId)로 존재 여부를 판단하는 것과 일치).
+    """
+    __tablename__ = "trade_journals"
+    __table_args__ = (
+        UniqueConstraint('user_id', 'trade_id', name='uq_trade_journals_user_id_trade_id'),
+    )
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    trade_id   = Column(Integer, ForeignKey("trades.id"), nullable=False)
+    emotion    = Column(String(20), nullable=False)
+    reason     = Column(Text, nullable=False)
+    review     = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+class DartDisclosure(Base):
+    """OpenDART 공시 목록 캐시 1건 (pipeline/dart_news.py가 3시간마다 채움).
+
+    rcept_no(OpenDART 접수번호) unique — 같은 공시 중복 저장 방지, 재수집 시
+    이미 있는 건 스킵. report_type은 report_nm에서 배지용으로 뽑은 짧은
+    유형명(정확한 분류 API가 아니라 문자열 파싱 — pipeline/dart_news.py의
+    _derive_type 참고, edge case 있을 수 있음). title은 report_nm 원문 그대로
+    — OpenDART가 본문 요약을 안 주므로 mock 데이터보다 간결함.
+    """
+    __tablename__ = "dart_disclosures"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    rcept_no        = Column(String(20), unique=True, nullable=False)
+    corp_name       = Column(String(100), nullable=False)
+    report_type     = Column(String(100), nullable=False)
+    title           = Column(String(500), nullable=False)
+    disclosure_date = Column(Date, nullable=False)
+    created_at      = Column(TIMESTAMP, server_default=func.now())

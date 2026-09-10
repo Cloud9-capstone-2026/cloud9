@@ -16,6 +16,12 @@ trades 저장 → 분석(pipeline.detect). 매핑을 업로드 요청이 아니�
 - 실패 원인은 error_reason에 내부 기록만 하고 API 응답에는 내보내지 않는다.
 - 재실행 안전: 거래 저장은 행별 중복 체크라 도중 실패 후 재시도해도 이중
   저장이 없다. 매핑 실패 시에는 아무것도 저장되지 않는다(전부 아니면 전무).
+
+[2026-09-09] 알림 세분화: "파일을 못 읽음"(uploadFail)과 "분석 자체가
+실패함"(analyzeFail)을 구분한다. _store_trades가 던지는 MappingError는
+CSV 매핑/파싱 단계 실패라 uploadFail로, run_pipeline_from_db 쪽 예외는
+analyzeFail로 분리 — 사용자에게 필요한 조치가 다르다(전자는 파일을 다시
+준비해야 하고, 후자는 재시도하면 될 수도 있음).
 """
 
 import logging
@@ -23,7 +29,7 @@ from collections import Counter
 from datetime import datetime
 
 from database import SessionLocal
-from orm import AnalysisJob, AnalysisResult, CsvUpload, Trade
+from orm import AnalysisJob, AnalysisResult, CsvUpload, Notification, Trade
 from pipeline.csv_mapper import MappingError, map_file
 from pipeline.detect import run_pipeline_from_db
 from pipeline.upload_store import load_upload
@@ -31,8 +37,28 @@ from pipeline.upload_store import load_upload
 logger = logging.getLogger(__name__)
 
 
-def notify_done(job_id: int, upload_id: int) -> None:
-    """완료 푸시 알림 구현하게되면....."""
+def create_notification(db, *, user_id: int | None, type_: str, message: str,
+                         job_id: int | None = None, upload_id: int | None = None,
+                         file_name: str | None = None, trade_count: int | None = None) -> None:
+    """알림 행 1개 생성. trades.py(업로드 시점)와 jobs.py(상태 전이 시점)가
+    공유해서 쓴다 — 그래서 밑줄 없는 이름으로 공개.
+
+    user_id가 None이면(고아 데이터 등) 보여줄 대상이 없으므로 스킵.
+    알림 생성 실패가 본 작업(업로드 접수/분석)의 성패에 영향을 주면 안 되므로
+    예외를 삼킨다.
+    """
+    if user_id is None:
+        return
+    try:
+        db.add(Notification(
+            user_id=user_id, type=type_, message=message,
+            job_id=job_id, upload_id=upload_id,
+            file_name=file_name, trade_count=trade_count,
+        ))
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        logger.warning("알림 생성 실패(job=%s) — %r", job_id, e)
 
 
 def _transition(db, job_id: int, from_status: str, values: dict) -> bool:
@@ -44,8 +70,9 @@ def _transition(db, job_id: int, from_status: str, values: dict) -> bool:
     return n == 1
 
 
-def _store_trades(db, upload_id: int) -> None:
+def _store_trades(db, upload_id: int) -> int:
     """원본 파일 매핑 → trades 저장. 실패는 예외로 — 호출부가 job 실패 처리.
+    반환값은 이번에 신규 저장된 거래 건수(알림의 trade_count에 그대로 씀).
 
     각 행에 업로드 주인(CsvUpload.user_id)을 새긴다 — 조회 API가 본인
     거래만 필터하므로 이게 없으면 업로드한 거래가 화면에 안 보인다.
@@ -106,6 +133,7 @@ def _store_trades(db, upload_id: int) -> None:
     db.commit()
     logger.info("upload %s: 거래 %d건 저장 (중복 %d건 스킵)",
                 upload_id, new_count, len(out) - new_count)
+    return new_count
 
 
 def _mark_upload_failed(db, upload_id: int) -> None:
@@ -181,8 +209,27 @@ def run_analysis_job(job_id: int) -> None:
             logger.info("job %s: pending 아님 — 이미 처리 중/완료, 건너뜀", job_id)
             return
         job = db.query(AnalysisJob).filter(AnalysisJob.id == job_id).first()
+        upload = db.query(CsvUpload).filter(CsvUpload.id == job.upload_id).first()
+        file_name = upload.file_name if upload else None
+
         try:
-            _store_trades(db, job.upload_id)
+            new_count = _store_trades(db, job.upload_id)
+        except MappingError as e:
+            # 파일 자체를 못 읽은 경우 — "분석 실패"가 아니라 "업로드 실패"로
+            # 구분한다(사용자가 CSV를 다시 준비해야 하는 케이스).
+            db.rollback()
+            logger.warning("job %s 파일 처리 실패: %r", job_id, e)
+            _mark_upload_failed(db, job.upload_id)
+            _transition(db, job_id, "running",
+                        {"status": "failed", "finished_at": datetime.now(),
+                         "error_reason": repr(e)[:500]})
+            create_notification(db, user_id=job.user_id, type_="uploadFail",
+                                 message="파일을 처리하지 못했습니다.",
+                                 job_id=job_id, upload_id=job.upload_id,
+                                 file_name=file_name)
+            return
+
+        try:
             run_pipeline_from_db(
                 db,
                 upload_id=job.upload_id,
@@ -193,13 +240,20 @@ def run_analysis_job(job_id: int) -> None:
             )
             _transition(db, job_id, "running",
                         {"status": "done", "finished_at": datetime.now()})
-            notify_done(job_id, job.upload_id)
+            create_notification(db, user_id=job.user_id, type_="analysis",
+                                 message="매매 분석이 완료되었습니다.",
+                                 job_id=job_id, upload_id=job.upload_id,
+                                 file_name=file_name, trade_count=new_count)
         except Exception as e:  # noqa: BLE001 — 실패는 상태로 기록, 서버는 계속
             db.rollback()
-            logger.warning("job %s 처리 실패: %r", job_id, e)
+            logger.warning("job %s 분석 실패: %r", job_id, e)
             _mark_upload_failed(db, job.upload_id)
             _transition(db, job_id, "running",
                         {"status": "failed", "finished_at": datetime.now(),
                          "error_reason": repr(e)[:500]})
+            create_notification(db, user_id=job.user_id, type_="analyzeFail",
+                                 message="매매 분석에 실패했습니다.",
+                                 job_id=job_id, upload_id=job.upload_id,
+                                 file_name=file_name)
     finally:
         db.close()
