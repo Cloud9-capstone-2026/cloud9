@@ -4,6 +4,7 @@ import { journals as journalsSeed, RULES, NOTIFS } from '../data/mock';
 import type { Journal } from '../data/types';
 import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
 import * as authApi from '../api/auth';
+import * as surveyApi from '../api/survey';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -105,6 +106,7 @@ interface AppStateValue {
   resendVerification: (email: string) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
   confirmPasswordReset: (email: string, code: string, newPassword: string) => Promise<void>;
+  submitSurvey: (answers: { question_id: string; value: number }[]) => Promise<import('../api/survey').SurveyResult>;
 
   // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
   hasUploaded: boolean;
@@ -256,6 +258,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     await authApi.passwordResetConfirm(email, code, newPassword);
   }, []);
 
+  const submitSurvey = useCallback(async (answers: { question_id: string; value: number }[]) => {
+    return surveyApi.submitSurvey(answers);
+  }, []);
+
   const updateProfileName = useCallback(async (name: string) => {
     const profile = await authApi.updateProfile(name);
     setPfName(profile.name);
@@ -388,6 +394,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       resendVerification,
       requestPasswordReset,
       confirmPasswordReset,
+      submitSurvey,
       hasUploaded,
       toggleHasUploaded: () => setHasUploaded((v) => !v),
     }),
@@ -401,7 +408,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
       biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,
       updateProfileName, changePassword, withdrawAccount,
-      signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset,
+      signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
       hasUploaded,
     ]
   );
