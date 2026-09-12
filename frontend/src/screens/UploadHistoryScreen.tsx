@@ -1,25 +1,37 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { EmptyState } from '../components/EmptyState';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { Pagination } from '../components/FilterControls';
 import { C, PERIODS, text } from '../theme/tokens';
-import { uploadHistoryRaw } from '../data/mock';
+import { formatDate } from '../utils/formatDate';
+import type { UploadHistoryItem } from '../api/trades';
 import { useAppState } from '../state/AppState';
 
 const PAGE_SIZE = 10;
 
 export function UploadHistoryScreen() {
-  const { hasUploaded } = useAppState();
+  const { getUploads } = useAppState();
   const [period, setPeriod] = useState(PERIODS[1]);
   const [page, setPage] = useState(0);
+  const [uploads, setUploads] = useState<UploadHistoryItem[]>([]);
 
-  const totalPages = hasUploaded ? Math.max(1, Math.ceil(uploadHistoryRaw.length / PAGE_SIZE)) : 1;
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      getUploads(200, 0).then((res) => { if (!cancelled) setUploads(res); }).catch(() => {});
+      return () => { cancelled = true; };
+    }, [getUploads])
+  );
+
+  const hasUploads = uploads.length > 0;
+  const totalPages = Math.max(1, Math.ceil(uploads.length / PAGE_SIZE));
   const pageItems = useMemo(
-    () => (hasUploaded ? uploadHistoryRaw.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE) : []),
-    [page, hasUploaded]
+    () => uploads.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+    [page, uploads]
   );
 
   return (
@@ -31,17 +43,23 @@ export function UploadHistoryScreen() {
         <PeriodDropdown value={period} onChange={(v) => { setPeriod(v); setPage(0); }} />
       </View>
 
-      {!hasUploaded ? (
+      {!hasUploads ? (
         <EmptyState title="아직 업로드한 파일이 없어요" />
       ) : (
         <Card>
           {pageItems.map((u, i) => (
             <View key={u.id} style={[styles.row, i > 0 && styles.divider]}>
               <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
-                <Text style={styles.filename} numberOfLines={1}>{u.filename}</Text>
-                <Text style={styles.date}>{u.date}</Text>
+                <Text style={styles.filename} numberOfLines={1}>{u.file_name}</Text>
+                <Text style={styles.date}>{formatDate(u.uploaded_at)}</Text>
               </View>
-              <Text style={styles.count}>{u.count}건</Text>
+              {u.row_count != null ? (
+                <Text style={styles.count}>{u.row_count}건</Text>
+              ) : u.status === 'failed' ? (
+                <Text style={[styles.count, { color: '#dc2626' }]}>분석 실패</Text>
+              ) : (
+                <Text style={[styles.count, { color: C.muted }]}>분석 중</Text>
+              )}
             </View>
           ))}
         </Card>

@@ -11,14 +11,10 @@ import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS
 import { biasComparisonData, analysisData } from '../data/mock';
 import { getCharacter } from '../constants/characterAssets';
 import { buildBiasTrend } from '../utils/buildBiasTrend';
+import { formatDate } from '../utils/formatDate';
 import type { SurveyResult } from '../api/survey';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
 
 export function MyPageScreen() {
   const { openBiasInfo, hasUploaded, getLatestSurvey, getSurveyHistory } = useAppState();

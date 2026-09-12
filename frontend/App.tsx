@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -8,12 +8,23 @@ import { AppStateProvider, useAppState } from './src/state/AppState';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
 import { OnboardingNavigator } from './src/navigation/OnboardingNavigator';
-import { navigationRef } from './src/navigation/navigationRef';
+import { navigationRef, goToAnalyzing } from './src/navigation/navigationRef';
 import { SplashVisual } from './src/screens/SplashScreen';
 import { C } from './src/theme/tokens';
 
 function AppSwitch() {
-  const { authPhase, authReady } = useAppState();
+  const { authPhase, authReady, pendingUpload } = useAppState();
+  const resumedRef = useRef(false);
+
+  // 업로드-분석이 진행 중이던 상태로 앱을 강제종료했다 다시 켠 경우, 홈이 아니라
+  // 분석 중 화면으로 바로 복귀시켜 폴링을 이어간다(한 세션에 한 번만).
+  useEffect(() => {
+    if (authPhase === 'main' && pendingUpload && !resumedRef.current) {
+      resumedRef.current = true;
+      goToAnalyzing();
+    }
+  }, [authPhase, pendingUpload]);
+
   // 로그인 상태 유지 여부를 로컬 저장소에서 확인하는 동안 실제 스플래시 화면을 보여줘서
   // "빈 화면이 잠깐 보였다가 사라지는" 깜빡임 대신 로고가 뜬 뒤 바로 목적지 화면으로 넘어가게 함.
   if (!authReady) return <SplashVisual />;

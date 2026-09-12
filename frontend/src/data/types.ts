@@ -38,13 +38,6 @@ export interface DartNews {
   date: string;
 }
 
-export interface UploadHistoryItem {
-  id: number;
-  date: string;
-  filename: string;
-  count: number;
-}
-
 export interface MonthlyDatum {
   month: string;
   trades: number;

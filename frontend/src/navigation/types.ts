@@ -48,7 +48,9 @@ export type RootStackParamList = {
   Analyzing: undefined;
   UploadDone: undefined;
   UploadFail: undefined;
-  AnalyzeDone: undefined;
+  // uploadId: 분석 완료 후 해당 업로드의 저장 건수(row_count)를 조회하기 위함.
+  // AnalyzingScreen이 clearPendingUpload() 하기 전에 넘겨준다.
+  AnalyzeDone: { uploadId: number } | undefined;
   AnalyzeFail: undefined;
 };
 

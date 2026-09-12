@@ -1,14 +1,15 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { IconCloud, IconFile } from '../assets/icons';
 import { C, text } from '../theme/tokens';
-import { uploadHistoryRaw } from '../data/mock';
+import { formatDate } from '../utils/formatDate';
+import type { UploadHistoryItem } from '../api/trades';
 import { useAppState } from '../state/AppState';
 import { goToUploadHistory } from '../navigation/navigationRef';
 import type { RootStackParamList } from '../navigation/types';
@@ -21,6 +22,8 @@ interface PickedFile {
   meta: string;
   sizeKB: number | null;
   ext: string;
+  uri: string;
+  mimeType: string;
 }
 
 function validate(name: string, sizeBytes: number | null): string | null {
@@ -33,10 +36,19 @@ function validate(name: string, sizeBytes: number | null): string | null {
 
 export function UploadScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { setUpFile, hasUploaded } = useAppState();
+  const { setUpFile, getUploads } = useAppState();
   const [file, setFile] = useState<PickedFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dupOpen, setDupOpen] = useState(false);
+  const [uploads, setUploads] = useState<UploadHistoryItem[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      getUploads(50, 0).then((res) => { if (!cancelled) setUploads(res); }).catch(() => {});
+      return () => { cancelled = true; };
+    }, [getUploads])
+  );
 
   const pickFile = async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -51,13 +63,20 @@ export function UploadScreen() {
     const asset = result.assets[0];
     const ext = (asset.name.split('.').pop() || '').toUpperCase();
     const kb = asset.size ? Math.max(1, Math.round(asset.size / 1024)) : null;
-    setFile({ name: asset.name, meta: `${kb ? `${kb.toLocaleString()} KB · ` : ''}${ext}`, sizeKB: kb, ext });
+    setFile({
+      name: asset.name,
+      meta: `${kb ? `${kb.toLocaleString()} KB · ` : ''}${ext}`,
+      sizeKB: kb,
+      ext,
+      uri: asset.uri,
+      mimeType: asset.mimeType || 'application/octet-stream',
+    });
     setError(validate(asset.name, asset.size ?? null));
   };
 
   const startUpload = () => {
     if (!file) return;
-    setUpFile({ name: file.name, sizeKB: file.sizeKB, ext: file.ext });
+    setUpFile({ name: file.name, sizeKB: file.sizeKB, ext: file.ext, uri: file.uri, mimeType: file.mimeType });
     navigation.navigate('Uploading');
   };
 
@@ -67,7 +86,7 @@ export function UploadScreen() {
       return;
     }
     if (error) return;
-    const isDup = uploadHistoryRaw.some((u) => u.filename === file.name);
+    const isDup = uploads.some((u) => u.file_name === file.name);
     if (isDup) {
       setDupOpen(true);
       return;
@@ -75,7 +94,7 @@ export function UploadScreen() {
     startUpload();
   };
 
-  const recent = hasUploaded ? uploadHistoryRaw.slice(0, 5) : [];
+  const recent = uploads.slice(0, 5);
 
   return (
     <Screen back contentStyle={styles.content}>
@@ -139,10 +158,16 @@ export function UploadScreen() {
             recent.map((u, i) => (
               <View key={u.id} style={[styles.historyRow, i > 0 && styles.historyDivider]}>
                 <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
-                  <Text style={styles.historyFilename} numberOfLines={1}>{u.filename}</Text>
-                  <Text style={styles.historyMeta}>{u.date}</Text>
+                  <Text style={styles.historyFilename} numberOfLines={1}>{u.file_name}</Text>
+                  <Text style={styles.historyMeta}>{formatDate(u.uploaded_at)}</Text>
                 </View>
-                <Text style={styles.historyCount}>{u.count}건</Text>
+                {u.row_count != null ? (
+                  <Text style={styles.historyCount}>{u.row_count}건</Text>
+                ) : u.status === 'failed' ? (
+                  <Text style={[styles.historyCount, { color: '#dc2626' }]}>분석 실패</Text>
+                ) : (
+                  <Text style={[styles.historyCount, { color: C.muted }]}>분석 중</Text>
+                )}
               </View>
             ))
           )}

@@ -5,6 +5,7 @@ import type { Journal } from '../data/types';
 import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
 import * as authApi from '../api/auth';
 import * as surveyApi from '../api/survey';
+import * as tradesApi from '../api/trades';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -15,6 +16,12 @@ const KEEP_LOGIN_STORAGE_KEY = '@canary/keepLogin';
 // 튜토리얼(온보딩)을 한 번이라도 완료했는지 — "로그인 상태 유지"와 별개로 항상 저장됨.
 // 로그아웃하거나 로그인 상태 유지를 꺼도 이 기록은 남아있어서, 다시 로그인하면 튜토리얼을 또 보여주지 않음.
 const ONBOARDING_DONE_STORAGE_KEY = '@canary/onboardingDone';
+
+// 업로드 성공~분석 완료/실패 사이의 "진행 중인 job" 기록. 이 값이 있는 동안은 화면
+// 안에서 뒤로가기로 이탈할 수 없고(각 화면의 BackHandler), 앱을 강제종료했다 다시 켜면
+// 이 값을 보고 분석 중 화면으로 바로 복귀해 폴링을 재개한다. 분석이 끝나 결과 화면까지
+// 도달하면(성공/실패 무관) 지운다.
+const PENDING_UPLOAD_STORAGE_KEY = '@canary/pendingUpload';
 
 type RuleOnMap = Record<string, boolean>;
 type RuleValMap = Record<string, number>;
@@ -29,6 +36,14 @@ export interface UpFile {
   name: string;
   sizeKB: number | null;
   ext: string;
+  uri: string;
+  mimeType: string;
+}
+
+export interface PendingUpload {
+  uploadId: number;
+  jobId: number;
+  fileName: string;
 }
 
 interface AppStateValue {
@@ -73,6 +88,11 @@ interface AppStateValue {
   // 업로드 플로우
   upFile: UpFile | null;
   setUpFile: (f: UpFile | null) => void;
+  uploadFile: (fileUri: string, fileName: string, mimeType: string) => Promise<import('../api/trades').UploadResponse>;
+  pollJobStatus: (jobId: number) => Promise<import('../api/trades').JobStatus>;
+  getUploads: (limit?: number, offset?: number) => Promise<import('../api/trades').UploadHistoryItem[]>;
+  pendingUpload: PendingUpload | null;
+  clearPendingUpload: () => void;
 
   // 알림 목록
   notifRead: Record<number, boolean>;
@@ -138,13 +158,17 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const startedAt = Date.now();
     (async () => {
       try {
-        const [token, keepLoginRaw, onboardingRaw] = await Promise.all([
+        const [token, keepLoginRaw, onboardingRaw, pendingUploadRaw] = await Promise.all([
           getToken(),
           AsyncStorage.getItem(KEEP_LOGIN_STORAGE_KEY),
           AsyncStorage.getItem(ONBOARDING_DONE_STORAGE_KEY),
+          AsyncStorage.getItem(PENDING_UPLOAD_STORAGE_KEY),
         ]);
         const savedOnboardingDone = onboardingRaw === '1';
         if (savedOnboardingDone) setOnboardingDone(true);
+        if (pendingUploadRaw) {
+          try { setPendingUploadState(JSON.parse(pendingUploadRaw)); } catch { /* 손상된 값은 무시 */ }
+        }
         const wantsKeepLogin = keepLoginRaw === '1';
         setKeepLogin(wantsKeepLogin);
         // "로그인 상태 유지"를 껐던 세션이면, 토큰이 저장소에 남아있어도(이전 실행 잔재)
@@ -187,6 +211,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const ruleSnapRef = useRef<RuleSnapshot | null>(null);
 
   const [upFile, setUpFile] = useState<UpFile | null>(null);
+  const [pendingUpload, setPendingUploadState] = useState<PendingUpload | null>(null);
 
   const [notifRead, setNotifRead] = useState<Record<number, boolean>>({});
   const [osNotif, setOsNotif] = useState<'granted' | 'denied' | 'unset'>('unset');
@@ -234,11 +259,34 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
   }, []);
 
+  const clearPendingUpload = useCallback(() => {
+    setPendingUploadState(null);
+    AsyncStorage.removeItem(PENDING_UPLOAD_STORAGE_KEY).catch(() => {});
+  }, []);
+
+  const uploadFile = useCallback(async (fileUri: string, fileName: string, mimeType: string) => {
+    const res = await tradesApi.uploadTrades(fileUri, fileName, mimeType);
+    const pending: PendingUpload = { uploadId: res.upload_id, jobId: res.job_id, fileName };
+    setPendingUploadState(pending);
+    AsyncStorage.setItem(PENDING_UPLOAD_STORAGE_KEY, JSON.stringify(pending)).catch(() => {});
+    return res;
+  }, []);
+
+  const pollJobStatus = useCallback(async (jobId: number) => {
+    return tradesApi.getJobStatus(jobId);
+  }, []);
+
+  const getUploads = useCallback(async (limit?: number, offset?: number) => {
+    return tradesApi.getUploads(limit, offset);
+  }, []);
+
   const logout = useCallback(async () => {
     setAuthPhase('auth');
     await clearToken();
     await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
-  }, []);
+    // 다른 계정이 같은 기기에서 로그인했을 때 남의 진행 중 업로드를 이어받지 않도록.
+    clearPendingUpload();
+  }, [clearPendingUpload]);
 
   // 회원가입 자체는 토큰을 발급받지만(자동 로그인 가능) 제품 결정상 쓰지 않고 버린다 —
   // 가입 후엔 항상 로그인 화면으로 보내서 사용자가 명시적으로 다시 로그인하게 함.
@@ -293,7 +341,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setAuthPhase('auth');
     await clearToken();
     await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
-  }, []);
+    clearPendingUpload();
+  }, [clearPendingUpload]);
 
   // 401(토큰 만료/무효) 응답을 받으면 어느 화면에 있든 로그인 화면으로 돌려보낸다.
   useEffect(() => {
@@ -389,6 +438,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       ruleRevert,
       upFile,
       setUpFile,
+      uploadFile,
+      pollJobStatus,
+      getUploads,
+      pendingUpload,
+      clearPendingUpload,
       notifRead,
       markNotifRead,
       markAllNotifRead,
@@ -422,7 +476,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
-      upFile,
+      upFile, uploadFile, pollJobStatus, getUploads, pendingUpload, clearPendingUpload,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
       biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,

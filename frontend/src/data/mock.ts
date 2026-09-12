@@ -1,5 +1,5 @@
 import type {
-  Trade, Journal, DartNews, UploadHistoryItem, MonthlyDatum,
+  Trade, Journal, DartNews, MonthlyDatum,
   EmotionRadarDatum, BiasComparisonDatum, AnalysisEntry,
   RuleTemplate, TutorialStep, NotifRaw, LegalContent,
 } from './types';
@@ -50,22 +50,6 @@ export const dartNews: DartNews[] = [
   { id: 11, corp: 'KB금융', type: '현금배당', title: 'KB금융 2026년 2분기 분기배당 결정 — 주당 795원', date: '2026.08.01' },
   { id: 12, corp: 'LG화학', type: '주요사항보고', title: 'LG화학 석유화학 부문 일부 사업 양도 검토 관련 조회공시 답변', date: '2026.08.01' },
   { id: 13, corp: '한화에어로스페이스', type: '단일판매계약', title: '한화에어로스페이스 폴란드 K9 자주포 2차 실행계약 체결', date: '2026.07.31' },
-];
-
-export const uploadHistoryRaw: UploadHistoryItem[] = [
-  { id: 1, date: '2026.07.31', filename: 'trades_july_2026.csv', count: 18 },
-  { id: 2, date: '2026.06.30', filename: 'trades_june_2026.csv', count: 11 },
-  { id: 3, date: '2026.05.31', filename: 'trades_may_2026.csv', count: 15 },
-  { id: 4, date: '2026.04.30', filename: 'trades_april_2026.csv', count: 9 },
-  { id: 5, date: '2026.03.31', filename: 'trades_march_2026.csv', count: 14 },
-  { id: 6, date: '2026.02.28', filename: 'trades_feb_2026.csv', count: 7 },
-  { id: 7, date: '2026.01.31', filename: 'trades_jan_2026.csv', count: 12 },
-  { id: 8, date: '2025.12.31', filename: 'trades_dec_2025.csv', count: 21 },
-  { id: 9, date: '2025.11.30', filename: 'trades_nov_2025.csv', count: 8 },
-  { id: 10, date: '2025.10.31', filename: 'trades_oct_2025.csv', count: 16 },
-  { id: 11, date: '2025.09.30', filename: 'trades_sep_2025.csv', count: 10 },
-  { id: 12, date: '2025.08.31', filename: 'trades_aug_2025.csv', count: 13 },
-  { id: 13, date: '2025.07.31', filename: 'trades_july_2025.csv', count: 6 },
 ];
 
 export const emotionRadarData: EmotionRadarDatum[] = [
