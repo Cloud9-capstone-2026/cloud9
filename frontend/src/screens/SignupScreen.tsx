@@ -13,7 +13,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function SignupScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
-  const { suVerified, setSuVerified } = useAppState();
+  const { signup } = useAppState();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
@@ -21,6 +21,8 @@ export function SignupScreen() {
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
   const [terms, setTerms] = useState([false, false, false, false]);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const emailValid = EMAIL_RE.test(email);
   const pw2Mismatch = pw2.length > 0 && pw !== pw2;
@@ -29,10 +31,25 @@ export function SignupScreen() {
   const toggleTerm = (i: number) => setTerms((prev) => prev.map((v, idx) => (idx === i ? !v : v)));
   const toggleAll = () => setTerms((prev) => (allTerms ? prev.map(() => false) : prev.map(() => true)));
 
-  const canSubmit = name.trim().length > 0 && suVerified && pw.length > 0 && pw === pw2 && terms[0] && terms[1] && terms[2];
+  const canSubmit = name.trim().length > 0 && emailValid && pw.length > 0 && pw === pw2 && terms[0] && terms[1] && terms[2] && !submitting;
+
+  const onSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setEmailError(null);
+    try {
+      // 가입 시점에 계정이 바로 생성되고 인증 코드가 발송됨 — 인증은 그다음 화면에서.
+      await signup({ email, password: pw, name: name.trim(), agreedTerms: true });
+      navigation.navigate('Verify', { mode: 'signup', email });
+    } catch (e: any) {
+      setEmailError(e?.response?.data?.detail || '가입에 실패했어요. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <AuthScreen back onBack={() => { setSuVerified(false); navigation.goBack(); }}>
+    <AuthScreen back onBack={() => navigation.goBack()}>
       <AuthTitle>회원가입</AuthTitle>
       <AuthSubtitle>기본 정보를 입력해주세요</AuthSubtitle>
 
@@ -41,30 +58,14 @@ export function SignupScreen() {
 
         <View style={{ marginTop: FIELD_GAP }}>
           <FieldLabel>이메일</FieldLabel>
-          <View style={styles.emailRow}>
-            <View style={{ flex: 1 }}>
-              <AuthInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="name@email.com"
-                editable={!suVerified}
-                keyboardType="email-address"
-              />
-            </View>
-            <Pressable
-              disabled={suVerified || !emailValid}
-              onPress={() => navigation.navigate('Verify', { mode: 'signup' })}
-              style={[
-                styles.verifyBtn,
-                suVerified ? styles.verifyBtnDone : emailValid ? styles.verifyBtnActive : styles.verifyBtnInactive,
-              ]}
-            >
-              <Text style={{ fontSize: 15, fontWeight: '600', color: suVerified ? C.blue : emailValid ? '#fff' : '#94a3b8' }}>
-                {suVerified ? '인증 완료' : '인증하기'}
-              </Text>
-            </Pressable>
-          </View>
-          <ErrorText color={C.blue}>{suVerified ? '이메일 인증이 완료되었어요' : null}</ErrorText>
+          <AuthInput
+            value={email}
+            onChangeText={(v) => { setEmail(v); if (emailError) setEmailError(null); }}
+            placeholder="name@email.com"
+            keyboardType="email-address"
+            error={!!emailError}
+          />
+          <ErrorText>{emailError}</ErrorText>
         </View>
 
         <View style={{ marginTop: HINT_GAP }}>
@@ -97,7 +98,7 @@ export function SignupScreen() {
         </View>
 
         <View style={{ marginTop: FIELD_GAP }}>
-          <CtaButton label="가입하기" active={canSubmit} onPress={() => { setSuVerified(false); navigation.navigate('SignupDone'); }} />
+          <CtaButton label="가입하기" active={canSubmit} onPress={onSubmit} />
         </View>
 
         <View style={[styles.dividerRow, { marginTop: FIELD_GAP }]}>
@@ -116,11 +117,6 @@ export function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  emailRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  verifyBtn: { borderRadius: 16, paddingVertical: 17, paddingHorizontal: 16, justifyContent: 'center' },
-  verifyBtnActive: { backgroundColor: C.blue },
-  verifyBtnInactive: { backgroundColor: '#f1f5f9' },
-  verifyBtnDone: { backgroundColor: '#f1f5f9' },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   dividerLine: { flex: 1, height: 1, backgroundColor: C.border },
   dividerText: { fontSize: 13, color: '#94a3b8' },

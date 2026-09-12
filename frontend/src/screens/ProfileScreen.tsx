@@ -13,10 +13,22 @@ import type { RootStackParamList } from '../navigation/types';
 export function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { pfName, setPfName, logout } = useAppState();
+  const { pfName, pfEmail, updateProfileName, withdrawAccount } = useAppState();
   const [name, setName] = useState(pfName);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const canSave = name.trim().length > 0;
+  const [saving, setSaving] = useState(false);
+  const canSave = name.trim().length > 0 && !saving;
+
+  const onSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await updateProfileName(name.trim());
+      navigation.goBack();
+    } catch {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -39,14 +51,14 @@ export function ProfileScreen() {
           <View>
             <Text style={styles.label}>이메일</Text>
             <View style={[styles.input, styles.readonly]}>
-              <Text style={styles.readonlyText}>kim.invest@email.com</Text>
+              <Text style={styles.readonlyText}>{pfEmail}</Text>
             </View>
             <Text style={styles.readonlyNote}>이메일은 변경할 수 없어요</Text>
           </View>
           <View>
             <Text style={styles.label}>비밀번호</Text>
             <Pressable
-              onPress={() => navigation.navigate('ProfileVerify', { mode: 'changePw' })}
+              onPress={() => navigation.navigate('ChangePassword')}
               style={styles.pwRow}
             >
               <Text style={styles.pwLabel}>비밀번호 변경</Text>
@@ -62,7 +74,7 @@ export function ProfileScreen() {
 
       <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom) + 8 }]}>
         <Pressable
-          onPress={() => { setPfName(name); navigation.goBack(); }}
+          onPress={onSave}
           disabled={!canSave}
           style={[styles.saveBtn, { backgroundColor: canSave ? C.blue : '#e2e8f0' }]}
         >
@@ -76,7 +88,7 @@ export function ProfileScreen() {
         body={'업로드한 거래 내역, 분석 리포트,\n거래일지가 모두 삭제되며 복구할 수 없어요.'}
         confirmLabel="탈퇴하기"
         confirmColor="#dc2626"
-        onConfirm={() => { setWithdrawOpen(false); logout(); }}
+        onConfirm={() => { setWithdrawOpen(false); withdrawAccount(); }}
         onCancel={() => setWithdrawOpen(false)}
       />
     </View>

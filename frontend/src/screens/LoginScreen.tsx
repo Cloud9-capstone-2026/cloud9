@@ -10,28 +10,28 @@ import { C } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
 import type { AuthStackParamList } from '../navigation/types';
 
-const KNOWN_EMAIL = 'test@canary.app';
-const KNOWN_PW = 'test1234!';
-
 export function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
   const { login, keepLogin, setKeepLogin } = useAppState();
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState<'email' | 'pw' | null>(null);
+  // 백엔드가 이메일/비번 오류를 401 하나로 통일해서 내려줘서(어느 쪽이 틀렸는지 구분 불가),
+  // 어느 필드가 문제인지 나눠 보여주는 대신 두 필드 모두 에러 표시 + 공통 문구 하나로 처리.
+  const [error, setError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const onSubmit = () => {
-    if (email !== KNOWN_EMAIL) {
-      setError('email');
-      return;
-    }
-    if (pw !== KNOWN_PW) {
-      setError('pw');
+  const onSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await login(email, pw);
+    } catch (e: any) {
+      setError(true);
       setPw('');
-      return;
+    } finally {
+      setSubmitting(false);
     }
-    login();
   };
 
   return (
@@ -45,24 +45,24 @@ export function LoginScreen() {
           <AuthInput
             label="이메일"
             value={email}
-            onChangeText={(v) => { setEmail(v); if (error) setError(null); }}
+            onChangeText={(v) => { setEmail(v); if (error) setError(false); }}
             placeholder="name@email.com"
             keyboardType="email-address"
-            error={error === 'email'}
+            error={error}
           />
-          <ErrorText>{error === 'email' ? '가입되지 않은 이메일이에요. 다시 확인해주세요.' : null}</ErrorText>
+          <ErrorText>{null}</ErrorText>
         </View>
         <View style={{ marginTop: HINT_GAP }}>
           <PasswordInput
             label="비밀번호"
             value={pw}
-            onChangeText={(v) => { setPw(v); if (error) setError(null); }}
+            onChangeText={(v) => { setPw(v); if (error) setError(false); }}
             placeholder="비밀번호 입력"
             show={showPw}
             onToggleShow={() => setShowPw((v) => !v)}
-            error={error === 'pw'}
+            error={error}
           />
-          <ErrorText>{error === 'pw' ? '비밀번호가 올바르지 않아요. 다시 입력해주세요.' : null}</ErrorText>
+          <ErrorText>{error ? '이메일 또는 비밀번호가 올바르지 않아요. 다시 확인해주세요.' : null}</ErrorText>
         </View>
       </View>
 
@@ -79,7 +79,7 @@ export function LoginScreen() {
       </View>
 
       <View style={{ marginTop: 20 }}>
-        <CtaButton label="로그인" active onPress={onSubmit} />
+        <CtaButton label="로그인" active={!submitting} onPress={onSubmit} />
       </View>
 
       <View style={styles.dividerRow}>

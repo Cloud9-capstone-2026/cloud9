@@ -19,7 +19,7 @@ function AccountRow({ label, color, divider, onPress }: { label: string; color?:
 }
 
 export function SettingsScreen() {
-  const { notif, toggleNotif, osNotif, pfName, logout, hasUploaded, toggleHasUploaded } = useAppState();
+  const { notif, toggleNotif, osNotif, pfName, pfEmail, logout, hasUploaded, toggleHasUploaded } = useAppState();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const notifLocked = osNotif === 'denied';
 
@@ -33,7 +33,7 @@ export function SettingsScreen() {
         </LinearGradient>
         <View style={{ flex: 1 }}>
           <Text style={styles.profileName}>{pfName}</Text>
-          <Text style={styles.profileEmail}>kim.invest@email.com</Text>
+          <Text style={styles.profileEmail}>{pfEmail}</Text>
           <Pressable onPress={goToProfile} style={{ marginTop: 8, alignItems: 'flex-end' }}>
             <Text style={styles.editProfile}>프로필 수정 →</Text>
           </Pressable>

@@ -2,13 +2,14 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useRe
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { journals as journalsSeed, RULES, NOTIFS } from '../data/mock';
 import type { Journal } from '../data/types';
+import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
+import * as authApi from '../api/auth';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
-// "로그인 상태 유지" 체크 시 세션을 남겨두는 저장소 키.
-// 지금은 로그인 여부만 로컬에 저장하는 목업이고, 실제 백엔드 연동 시에는
-// 여기 저장하는 값을 서버가 발급한 토큰으로 바꾸기만 하면 됨 — 저장/복원 흐름 자체는 그대로 재사용.
-const SESSION_STORAGE_KEY = '@canary/session';
+// "로그인 상태 유지" 체크 여부 — 꺼져있으면 앱을 재실행했을 때 토큰이 저장소에
+// 남아있어도 자동 로그인을 시도하지 않는다(로그인 시점에 같이 기록).
+const KEEP_LOGIN_STORAGE_KEY = '@canary/keepLogin';
 
 // 튜토리얼(온보딩)을 한 번이라도 완료했는지 — "로그인 상태 유지"와 별개로 항상 저장됨.
 // 로그아웃하거나 로그인 상태 유지를 꺼도 이 기록은 남아있어서, 다시 로그인하면 튜토리얼을 또 보여주지 않음.
@@ -44,15 +45,13 @@ interface AppStateValue {
   // 인증 / 온보딩 플로우
   authPhase: AuthPhase;
   authReady: boolean;
-  login: () => void;
+  login: (email: string, password: string) => Promise<void>;
   enterMainDirectly: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   completeOnboarding: () => void;
   onboardingDone: boolean;
   keepLogin: boolean;
   setKeepLogin: (v: boolean) => void;
-  suVerified: boolean;
-  setSuVerified: (v: boolean) => void;
 
   // 튜토리얼
   tutStep: number;
@@ -94,6 +93,18 @@ interface AppStateValue {
   // 프로필
   pfName: string;
   setPfName: (v: string) => void;
+  pfEmail: string;
+  updateProfileName: (name: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  withdrawAccount: () => Promise<void>;
+
+  // 회원가입 / 이메일 인증 / 비밀번호 찾기 — 전부 로그인 안 된 상태에서 호출되는 API라 AppState가 아니어도 되지만,
+  // login/logout과 같은 자리에서 관리하는 게 일관적이라 여기 둔다.
+  signup: (params: { email: string; password: string; name: string; agreedTerms: boolean }) => Promise<void>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  resendVerification: (email: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  confirmPasswordReset: (email: string, code: string, newPassword: string) => Promise<void>;
 
   // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
   hasUploaded: boolean;
@@ -110,7 +121,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [keepLogin, setKeepLogin] = useState(true);
-  const [suVerified, setSuVerified] = useState(false);
+  const [pfEmail, setPfEmail] = useState('');
 
   useEffect(() => {
     // 로그인 상태 유지된 사용자는 스플래시 화면(App.tsx)이 최소 이만큼은 보인 뒤에
@@ -121,16 +132,31 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const startedAt = Date.now();
     (async () => {
       try {
-        const [sessionRaw, onboardingRaw] = await Promise.all([
-          AsyncStorage.getItem(SESSION_STORAGE_KEY),
+        const [token, keepLoginRaw, onboardingRaw] = await Promise.all([
+          getToken(),
+          AsyncStorage.getItem(KEEP_LOGIN_STORAGE_KEY),
           AsyncStorage.getItem(ONBOARDING_DONE_STORAGE_KEY),
         ]);
         const savedOnboardingDone = onboardingRaw === '1';
         if (savedOnboardingDone) setOnboardingDone(true);
-        if (sessionRaw) {
-          const elapsed = Date.now() - startedAt;
-          if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
-          setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
+        const wantsKeepLogin = keepLoginRaw === '1';
+        setKeepLogin(wantsKeepLogin);
+        // "로그인 상태 유지"를 껐던 세션이면, 토큰이 저장소에 남아있어도(이전 실행 잔재)
+        // 자동 로그인을 시도하지 않고 지운다 — 원래 mock 로직의 "keepLogin이 false면
+        // 재실행 시 세션이 없는 것처럼 시작" 의도를 실제 토큰 기준으로 그대로 재현.
+        if (token && wantsKeepLogin) {
+          try {
+            const profile = await authApi.getMe();
+            setPfName(profile.name);
+            setPfEmail(profile.email ?? '');
+            const elapsed = Date.now() - startedAt;
+            if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
+            setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
+          } catch {
+            // 토큰 만료/무효 — 응답 인터셉터가 이미 토큰을 지웠으므로 로그인 화면부터 시작
+          }
+        } else if (token) {
+          await clearToken();
         }
       } catch {
         // 저장된 값이 없거나 손상된 경우 로그인 화면부터 시작
@@ -183,34 +209,80 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [journals]
   );
 
-  const login = useCallback(() => {
+  const login = useCallback(async (email: string, password: string) => {
+    const { access_token } = await authApi.login(email, password);
+    await setToken(access_token);
+    // 토큰 자체는(이번 세션 API 호출을 위해) keepLogin과 무관하게 항상 저장하고,
+    // "다음 실행 때 이걸 신뢰해도 되는지"만 이 플래그로 따로 남긴다 — 부팅 시
+    // keepLogin이 꺼져있었으면 남아있는 토큰을 무시하고 지운다.
+    await AsyncStorage.setItem(KEEP_LOGIN_STORAGE_KEY, keepLogin ? '1' : '0');
+    const profile = await authApi.getMe();
+    setPfName(profile.name);
+    setPfEmail(profile.email ?? '');
     setAuthPhase(onboardingDone ? 'main' : 'onboarding');
-    if (keepLogin) {
-      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone })).catch(() => {});
-    }
   }, [onboardingDone, keepLogin]);
 
   const enterMainDirectly = useCallback(() => {
     setOnboardingDone(true);
     setAuthPhase('main');
     AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-    AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone: true })).catch(() => {});
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     setAuthPhase('auth');
-    AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
+    await clearToken();
+    await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
   }, []);
+
+  // 회원가입 자체는 토큰을 발급받지만(자동 로그인 가능) 제품 결정상 쓰지 않고 버린다 —
+  // 가입 후엔 항상 로그인 화면으로 보내서 사용자가 명시적으로 다시 로그인하게 함.
+  const signup = useCallback<AppStateValue['signup']>(async (params) => {
+    await authApi.signup(params);
+  }, []);
+
+  const verifyEmail = useCallback(async (email: string, code: string) => {
+    await authApi.verifyEmail(email, code);
+  }, []);
+
+  const resendVerification = useCallback(async (email: string) => {
+    await authApi.resendVerification(email);
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    await authApi.passwordResetRequest(email);
+  }, []);
+
+  const confirmPasswordReset = useCallback(async (email: string, code: string, newPassword: string) => {
+    await authApi.passwordResetConfirm(email, code, newPassword);
+  }, []);
+
+  const updateProfileName = useCallback(async (name: string) => {
+    const profile = await authApi.updateProfile(name);
+    setPfName(profile.name);
+  }, []);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    await authApi.changePassword(currentPassword, newPassword);
+  }, []);
+
+  const withdrawAccount = useCallback(async () => {
+    await authApi.withdraw();
+    setAuthPhase('auth');
+    await clearToken();
+    await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
+  }, []);
+
+  // 401(토큰 만료/무효) 응답을 받으면 어느 화면에 있든 로그인 화면으로 돌려보낸다.
+  useEffect(() => {
+    setUnauthorizedHandler(() => { logout(); });
+  }, [logout]);
 
   const completeOnboarding = useCallback(() => {
     setOnboardingDone(true);
     setAuthPhase('main');
     setNotifPermModalOpen(true);
     AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-    if (keepLogin) {
-      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone: true })).catch(() => {});
-    }
-  }, [keepLogin]);
+  }, []);
 
   const toggleRule = useCallback((id: string) => {
     setRuleOn((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -280,8 +352,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       onboardingDone,
       keepLogin,
       setKeepLogin,
-      suVerified,
-      setSuVerified,
       tutStep,
       setTutStep,
       rulesConfirmed,
@@ -309,18 +379,30 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       closeBiasInfo,
       pfName,
       setPfName,
+      pfEmail,
+      updateProfileName,
+      changePassword,
+      withdrawAccount,
+      signup,
+      verifyEmail,
+      resendVerification,
+      requestPasswordReset,
+      confirmPasswordReset,
       hasUploaded,
       toggleHasUploaded: () => setHasUploaded((v) => !v),
     }),
     [
       journals, saveJournal, addJournal, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
-      suVerified, tutStep, rulesConfirmed,
+      tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
       upFile,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
-      biasInfo, openBiasInfo, closeBiasInfo, pfName, hasUploaded,
+      biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,
+      updateProfileName, changePassword, withdrawAccount,
+      signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset,
+      hasUploaded,
     ]
   );
 
