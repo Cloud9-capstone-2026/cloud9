@@ -1,56 +1,8 @@
-import { RISK, biasColorOf, BIAS_KEYS, BIAS_KEY_MAP, FEATURE_POOL, BiasKey } from '../theme/tokens';
-import { tradesRaw, analysisData } from '../data/mock';
-import type { EvidenceFeature } from '../data/types';
-
-function seed(s: string): number {
-  let x = 7;
-  for (let i = 0; i < s.length; i++) x = (x * 31 + s.charCodeAt(i)) % 9973;
-  return x;
-}
-
-export function rankedFeatures(biasKey: string, features: EvidenceFeature[]) {
-  const map: Record<string, number> = {};
-  features.forEach((f) => { map[f.feature] = f.attribution; });
-  const all = FEATURE_POOL.map((name) => {
-    let a = map[name];
-    if (a === undefined) {
-      const s2 = seed(biasKey + name);
-      a = ((s2 % 350) / 100) * (s2 % 2 ? 1 : -1);
-    }
-    return { name, a };
-  });
-  all.sort((p, q) => Math.abs(q.a) - Math.abs(p.a));
-  return all.map((f, i) => ({
-    rank: i + 1,
-    name: f.name,
-    dir: f.a > 0 ? '▲ 편향 강화' : '▼ 편향 약화',
-    dirColor: f.a > 0 ? '#DC2626' : '#0066FF',
-  }));
-}
-
-// 탐지 규칙 설정(§5.2)의 7종 명칭과 표시를 일치시키기 위한 매핑.
-// analysisData의 triggered_rules에는 규칙 개편 이전의 구 명칭이 섞여 있어 변환한다.
-const RULE_NAME_MAP: Record<string, string> = {
-  일중_반복매매: '일중_반복매매',
-  당일_왕복매매: '당일_왕복매매',
-  최소_보유기간: '최소_보유기간',
-  손실_후_재진입: '손실_후_재진입',
-  물타기_반복: '물타기_반복',
-  '1회_매수금액_상한': '1회_매수금액_상한',
-  일일_매매대금_상한: '일일_매매대금_상한',
-  집중매매: '일일_매매대금_상한',
-  반복매수: '물타기_반복',
-};
-
-function canonicalRules(raw: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  raw.forEach((r) => {
-    const name = RULE_NAME_MAP[r] || r;
-    if (!seen.has(name)) { seen.add(name); out.push(name); }
-  });
-  return out;
-}
+import { RISK, biasColorOf, BIAS_KEYS, BIAS_KEY_MAP } from '../theme/tokens';
+import { formatDate } from '../utils/formatDate';
+import { verdictToRisk } from '../utils/matchTradeAnalysis';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult, AnalysisEvidenceFeature } from '../api/analysis';
 
 const DEV_SEGS = [
   { max: 1, label: '평소와 비슷해요' },
@@ -59,57 +11,154 @@ const DEV_SEGS = [
   { max: Infinity, label: '평소보다 많이 달라요' },
 ];
 
-export function buildReportDetailVM(tradeId: number) {
-  const trade = tradesRaw.find((x) => x.id === tradeId) || tradesRaw[0];
-  const ana = analysisData[tradeId] || analysisData[1];
-  const xai = ana.detail;
-  const verdictRisk = xai.verdict === '이상' ? 'danger' : xai.verdict === '경고' ? 'caution' : 'safe';
-  const lstmFailed = ana.deep_score === null;
+// evidence의 attribution(로짓, 내부 단위)은 화면에 숫자로 노출하지 않고 순위·방향만 쓴다 —
+// 서버가 실제로 돌려준 feature만 랭킹하고, 없는 걸 지어내지 않는다.
+function rankedFeatures(features: AnalysisEvidenceFeature[]) {
+  return [...features]
+    .sort((a, b) => Math.abs(b.attribution) - Math.abs(a.attribution))
+    .map((f, i) => ({
+      rank: i + 1,
+      name: f.feature,
+      dir: f.attribution > 0 ? '▲ 편향 강화' : '▼ 편향 약화',
+      dirColor: f.attribution > 0 ? '#DC2626' : '#0066FF',
+    }));
+}
 
-  const layerDefs = [
-    { label: '규칙 기반', score: Math.round(ana.rule_score * 100), triggered: xai.flags.rule, failed: false },
-    { label: '통계 분석', score: Math.round(ana.stat_score * 100), triggered: xai.flags.stat, failed: false },
-    { label: '딥러닝', score: ana.deep_score !== null ? Math.round(ana.deep_score * 100) : 0, triggered: !!xai.flags.deep, failed: lstmFailed },
+interface RankedFeature {
+  rank: number;
+  name: string;
+  dir: string;
+  dirColor: string;
+}
+
+interface BiasRow {
+  key: string;
+  name: string;
+  score: number;
+  isTop: boolean;
+  color: string;
+}
+
+interface EvidenceRow {
+  key: string;
+  name: string;
+  color: string;
+  isTop: boolean;
+  tradePct: number;
+  tradeLabel: string;
+  contextLabel: string;
+  ranked: RankedFeature[];
+}
+
+interface ReportDetailVM {
+  stock: string;
+  analyzedAt: string | null;
+  rows: { k: string; v: string }[];
+  layerSummary: string;
+  verdict: string;
+  verdictColor: string;
+  layers: { label: string; score: number; triggered: boolean; failed: boolean }[];
+  lstmFailed: boolean;
+  rules: string[];
+  hasDeviation: boolean;
+  devLabel: string;
+  sigmaText: string;
+  markerPct: number;
+  markerColor: string;
+  activeSeg: number;
+  showBias: boolean;
+  biasRows: BiasRow[];
+  showEvidence: boolean;
+  evidence: EvidenceRow[];
+}
+
+function tradeRows(trade: TradeRaw) {
+  return [
+    { k: '거래구분', v: trade.거래구분 },
+    { k: '거래일자', v: formatDate(trade.거래일자) },
+    { k: '거래단가', v: `${trade.거래단가.toLocaleString()}원` },
+    { k: '수량', v: `${trade.거래수량}주` },
+    { k: '거래금액', v: `${trade.거래금액.toLocaleString()}원` },
+    { k: '실거래금액(정산)', v: `${trade.정산금액.toLocaleString()}원` },
   ];
+}
 
-  const sigma = xai.mahalanobis;
-  let activeSeg = DEV_SEGS.findIndex((x) => sigma < x.max);
-  if (activeSeg < 0) activeSeg = 3;
+export function buildReportDetailVM(trade: TradeRaw, ana: AnalysisResult | null): ReportDetailVM {
+  // 매칭되는 분석 결과가 없는 경우(분석 전이거나, upload_id+날짜+종목명 매칭이 안 된 드문 케이스) —
+  // 거래 정보는 보여주되 분석 관련 섹션은 전부 숨긴다.
+  if (!ana) {
+    return {
+      stock: trade.종목명,
+      analyzedAt: null as string | null,
+      rows: tradeRows(trade),
+      layerSummary: '분석 결과가 아직 없어요',
+      verdict: '-',
+      verdictColor: RISK.safe.color,
+      layers: [
+        { label: '규칙 기반', score: 0, triggered: false, failed: true },
+        { label: '통계 분석', score: 0, triggered: false, failed: true },
+        { label: '딥러닝', score: 0, triggered: false, failed: true },
+      ],
+      lstmFailed: true,
+      rules: ['없음'],
+      hasDeviation: false,
+      devLabel: '',
+      sigmaText: '',
+      markerPct: 0,
+      markerColor: '#9CA3AF',
+      activeSeg: 0,
+      showBias: false,
+      biasRows: [],
+      showEvidence: false,
+      evidence: [],
+    };
+  }
 
+  const xai = ana.detail;
+  const verdictRisk = verdictToRisk(xai.verdict);
+  const lstmFailed = ana.deep_score == null;
+  const hasDeviation = xai.mahalanobis != null;
+
+  let activeSeg = 0;
+  if (hasDeviation) {
+    activeSeg = DEV_SEGS.findIndex((x) => (xai.mahalanobis as number) < x.max);
+    if (activeSeg < 0) activeSeg = 3;
+  }
+
+  const showBias = !lstmFailed && !!xai.bias_scores;
   const showEvidence = !lstmFailed && !!xai.evidence;
-  const priceNum = Number(trade.price.replace(/,/g, ''));
-  const computedAmount = priceNum * trade.qty;
 
   return {
-    stock: trade.stock,
-    rows: [
-      { k: '거래구분', v: trade.type === 'buy' ? '매수' : '매도' },
-      { k: '거래일자', v: trade.date },
-      { k: '거래단가', v: `${trade.price}원` },
-      { k: '수량', v: `${trade.qty}주` },
-      { k: '거래금액', v: computedAmount ? `${computedAmount.toLocaleString()}원` : '-' },
-      { k: '실거래금액', v: `${trade.amount}원` },
-    ],
-    layerSummary: `${xai.layers_available}개 계층 중 ${layerDefs.filter((l) => l.triggered).length}개 탐지`,
+    stock: trade.종목명,
+    analyzedAt: formatDate(ana.analyzed_at),
+    rows: tradeRows(trade),
+    layerSummary: `${xai.layers_available}개 계층 중 ${[xai.flags.rule, xai.flags.stat, xai.flags.deep].filter(Boolean).length}개 탐지`,
     verdict: xai.verdict,
     verdictColor: RISK[verdictRisk].color,
-    layers: layerDefs,
+    layers: [
+      { label: '규칙 기반', score: Math.round((ana.rule_score ?? 0) * 100), triggered: !!xai.flags.rule, failed: ana.rule_score == null },
+      { label: '통계 분석', score: Math.round((ana.stat_score ?? 0) * 100), triggered: !!xai.flags.stat, failed: ana.stat_score == null },
+      { label: '딥러닝', score: ana.deep_score != null ? Math.round(ana.deep_score * 100) : 0, triggered: !!xai.flags.deep, failed: lstmFailed },
+    ],
     lstmFailed,
-    rules: xai.triggered_rules.length ? canonicalRules(xai.triggered_rules).map((r) => `#${r}`) : ['없음'],
-    devLabel: DEV_SEGS[activeSeg].label,
-    sigmaText: `${sigma}σ`,
-    markerPct: Math.min(sigma / 4, 0.97) * 100,
+    rules: xai.triggered_rules && xai.triggered_rules.length ? xai.triggered_rules.map((r) => `#${r}`) : ['없음'],
+    hasDeviation,
+    devLabel: hasDeviation ? DEV_SEGS[activeSeg].label : '측정할 수 없어요',
+    sigmaText: hasDeviation ? `${xai.mahalanobis}σ` : '-',
+    markerPct: hasDeviation ? Math.min((xai.mahalanobis as number) / 4, 0.97) * 100 : 0,
     markerColor: activeSeg === 0 ? '#9CA3AF' : '#EF4444',
     activeSeg,
-    showBias: !lstmFailed,
-    biasRows: BIAS_KEYS.map((k) => {
-      const score = Math.round((xai.bias_scores[k] || 0) * 100);
-      const isTop = k === xai.top_bias;
-      return { key: k, name: BIAS_KEY_MAP[k], score, isTop, color: biasColorOf(k) };
-    }),
+    showBias,
+    biasRows: showBias
+      ? BIAS_KEYS.map((k) => {
+          const score = Math.round((xai.bias_scores![k] || 0) * 100);
+          const isTop = k === xai.top_bias;
+          return { key: k, name: BIAS_KEY_MAP[k], score, isTop, color: biasColorOf(k) };
+        })
+      : [],
     showEvidence,
     evidence: showEvidence
-      ? BIAS_KEYS.map((k: BiasKey) => {
+      ? BIAS_KEYS.map((k) => {
           const ev = xai.evidence![k];
           return {
             key: k,
@@ -119,7 +168,7 @@ export function buildReportDetailVM(tradeId: number) {
             tradePct: ev.trade_share * 100,
             tradeLabel: `${Math.round(ev.trade_share * 100)}%`,
             contextLabel: `${Math.round(ev.context_share * 100)}%`,
-            ranked: rankedFeatures(k, ev.features),
+            ranked: rankedFeatures(ev.features),
           };
         })
       : [],

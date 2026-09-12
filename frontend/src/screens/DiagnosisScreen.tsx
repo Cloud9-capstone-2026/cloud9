@@ -6,33 +6,57 @@ import { Header } from '../components/Header';
 import { CtaButton } from '../components/AuthField';
 import { IconDoc, IconClock, IconClip, IconCheckBig, IconPrev, IconTick } from '../assets/icons';
 import { C, ACCENT } from '../theme/tokens';
-import { QUESTIONS } from '../data/mock';
+import { SURVEY_QUESTIONS, shuffleQuestions } from '../data/surveyQuestions';
 import { goToTab } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
 type Phase = 'intro' | 'quiz' | 'done';
 const CIRCLE_SIZES = [54, 46, 38, 46, 54];
-const TOTAL = QUESTIONS.length;
+const TOTAL = SURVEY_QUESTIONS.length;
 
 export function DiagnosisScreen() {
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const isOnboarding = route.name === 'OnboardingDiagnosis';
-  const { completeOnboarding } = useAppState();
+  const { completeOnboarding, submitSurvey } = useAppState();
   const [phase, setPhase] = useState<Phase>('intro');
   const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState<number[]>(new Array(TOTAL).fill(0));
+  // 화면에 보여줄 순서 — "검사 시작하기" 누를 때 한 번만 섞고 검사가 끝날 때까지 유지.
+  const [shuffled, setShuffled] = useState(SURVEY_QUESTIONS);
+  // question_id를 키로 저장 — 화면 표시 순서와 무관하게 원래 문항에 정확히 매핑됨.
+  const [answers, setAnswers] = useState<Record<string, number>>({});
+  const [submitError, setSubmitError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const submit = async (finalAnswers: Record<string, number>) => {
+    // 20문항 전부 응답 + question_id 중복/누락 없는지 마지막 방어 검증.
+    const payload = SURVEY_QUESTIONS.map((q) => ({ question_id: q.id, value: finalAnswers[q.id] }));
+    if (payload.some((a) => !a.value) || new Set(payload.map((a) => a.question_id)).size !== TOTAL) {
+      setSubmitError(true);
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError(false);
+    try {
+      await submitSurvey(payload);
+    } catch {
+      setSubmitError(true);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const answer = (val: number) => {
-    const next = answers.slice();
-    next[current] = val;
+    const qid = shuffled[current].id;
+    const next = { ...answers, [qid]: val };
     setAnswers(next);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       setCurrent((c) => {
         if (c < TOTAL - 1) return c + 1;
         setPhase('done');
+        submit(next);
         return c;
       });
     }, 480);
@@ -79,7 +103,13 @@ export function DiagnosisScreen() {
             <CtaButton
               label="검사 시작하기"
               active
-              onPress={() => { setPhase('quiz'); setCurrent(0); setAnswers(new Array(TOTAL).fill(0)); }}
+              onPress={() => {
+                setShuffled(shuffleQuestions());
+                setAnswers({});
+                setSubmitError(false);
+                setCurrent(0);
+                setPhase('quiz');
+              }}
             />
           </View>
         </View>
@@ -101,10 +131,10 @@ export function DiagnosisScreen() {
 
           <View style={styles.quizBody}>
             <Text style={styles.qLabel}>Q{current + 1}</Text>
-            <Text style={styles.qText}>{QUESTIONS[current]}</Text>
+            <Text style={styles.qText}>{shuffled[current].text}</Text>
             <View style={styles.optionsRow}>
               {[1, 2, 3, 4, 5].map((val, i) => {
-                const isSel = answers[current] === val;
+                const isSel = answers[shuffled[current].id] === val;
                 const size = CIRCLE_SIZES[i];
                 return (
                   <View key={val} style={styles.optionWrap}>
@@ -149,14 +179,19 @@ export function DiagnosisScreen() {
             </View>
             <Text style={styles.doneTitle}>검사 완료!</Text>
             <Text style={styles.introDesc}>
-              {isOnboarding ? '준비는 모두 끝났어요.\n이제 나 자신을 분석할 차례예요.' : '총 20문항에 모두 답해주셨어요.\n결과를 분석 중이에요.'}
+              {submitError
+                ? '결과 제출에 실패했어요.\n다시 시도해주세요.'
+                : isOnboarding ? '준비는 모두 끝났어요.\n이제 나 자신을 분석할 차례예요.' : '총 20문항에 모두 답해주셨어요.\n결과를 분석 중이에요.'}
             </Text>
           </View>
           <View style={styles.bottomArea}>
             <CtaButton
-              label={isOnboarding ? '시작하기' : '성향 분석 보러가기'}
-              active
-              onPress={() => (isOnboarding ? completeOnboarding() : goToTab('MyPage'))}
+              label={submitError ? '다시 시도' : isOnboarding ? '시작하기' : '성향 분석 보러가기'}
+              active={!submitting}
+              onPress={() => {
+                if (submitError) { submit(answers); return; }
+                if (isOnboarding) completeOnboarding(); else goToTab('MyPage');
+              }}
             />
           </View>
         </View>

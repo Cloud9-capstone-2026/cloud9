@@ -1,20 +1,41 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { TradeRow } from '../components/TradeRow';
 import { EmptyState } from '../components/EmptyState';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
-import { C, riskLevel, PERIODS, text } from '../theme/tokens';
-import { tradesRaw } from '../data/mock';
+import { C, PERIODS, text } from '../theme/tokens';
+import type { Trade } from '../data/types';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult } from '../api/analysis';
+import { formatDate } from '../utils/formatDate';
+import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { goToReportDetail } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
 const PAGE_SIZE = 10;
 
+function toTradeShape(t: TradeRaw): Trade {
+  return {
+    id: t.id,
+    stock: t.종목명,
+    date: formatDate(t.거래일자),
+    type: t.거래구분 === '매도' ? 'sell' : 'buy',
+    price: t.거래단가.toLocaleString(),
+    qty: t.거래수량,
+    amount: t.거래금액.toLocaleString(),
+    score: 0,
+    deviation: 0,
+  };
+}
+
 export function ReportListScreen() {
-  const { hasUploaded } = useAppState();
+  const { getAllTrades, getAllAnalysis } = useAppState();
+  const [trades, setTrades] = useState<TradeRaw[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
   const [type, setType] = useState<TypeFilter>('all');
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
@@ -23,18 +44,49 @@ export function ReportListScreen() {
   const [page, setPage] = useState(0);
   const isDefaultFilter = type === 'all' && risk === 'all' && search === '';
 
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          if (!cancelled) {
+            setTrades(tradesRes);
+            setAnalysis(analysisRes);
+          }
+        } catch {
+          // 네트워크 실패 — 이전 값 유지
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [getAllTrades, getAllAnalysis])
+  );
+
+  const hasData = trades.length > 0;
+  const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
+
+  const withRisk = useMemo(
+    () => trades.map((t) => {
+      const match = findAnalysisForTrade(analysisLookup, t);
+      return { trade: t, risk: match ? verdictToRisk(match.detail.verdict) : null };
+    }),
+    [trades, analysisLookup]
+  );
+
   const filtered = useMemo(() => {
-    let list = tradesRaw.filter((t) => {
-      if (type !== 'all' && t.type !== type) return false;
-      if (risk !== 'all' && riskLevel(t.score) !== risk) return false;
-      if (search && !t.stock.includes(search)) return false;
+    let list = withRisk.filter(({ trade: t, risk: r }) => {
+      const tType = t.거래구분 === '매도' ? 'sell' : 'buy';
+      if (type !== 'all' && tType !== type) return false;
+      if (risk !== 'all' && r !== risk) return false;
+      if (search && !t.종목명.includes(search)) return false;
       return true;
     });
+    // 서버가 이미 거래일자 내림차순으로 주므로 newest는 그대로, oldest만 뒤집는다.
     if (!newest) list = [...list].reverse();
     return list;
-  }, [type, risk, search, newest]);
+  }, [withRisk, type, risk, search, newest]);
 
-  const totalPages = hasUploaded ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
+  const totalPages = hasData ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);
   const paginated = filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE);
 
@@ -59,15 +111,15 @@ export function ReportListScreen() {
       <SearchInput value={search} onChangeText={updateFilter(setSearch)} placeholder="종목명 검색..." />
       <RiskChips value={risk} onChange={updateFilter(setRisk)} />
 
-      {!hasUploaded ? (
+      {!hasData ? (
         <EmptyState
           title="아직 업로드한 거래 내역이 없어요"
           subtitle={'거래내역을 업로드 하면\n거래별 분석 리포트가 생성돼요'}
         />
       ) : paginated.length > 0 ? (
         <Card>
-          {paginated.map((t, i) => (
-            <TradeRow key={t.id} trade={t} index={i} onPress={() => goToReportDetail(t.id)} />
+          {paginated.map(({ trade: t, risk: r }, i) => (
+            <TradeRow key={t.id} trade={toTradeShape(t)} index={i} risk={r} onPress={() => goToReportDetail(t.id)} />
           ))}
         </Card>
       ) : (

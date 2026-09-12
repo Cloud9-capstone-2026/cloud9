@@ -6,17 +6,19 @@ export type TabParamList = {
   Settings: undefined;
 };
 
-export type CodeMode = 'signup' | 'reset' | 'changePw';
+// 'changePw'는 더 이상 이메일 인증코드 화면을 쓰지 않음(로그인 상태에서 현재
+// 비밀번호로 바로 바꾸는 방식으로 변경 — ChangePasswordScreen 참고) — CodeMode에서 제외.
+export type CodeMode = 'signup' | 'reset';
 export type LegalKind = 'terms' | 'privacy';
 
 export type AuthStackParamList = {
   Splash: undefined;
   Login: undefined;
   Signup: undefined;
-  Verify: { mode: CodeMode };
+  Verify: { mode: CodeMode; email: string };
   SignupDone: undefined;
   FindPw: undefined;
-  ResetPw: { mode: CodeMode };
+  ResetPw: { email: string; code: string };
   SocialExtra: undefined;
   Legal: { kind: LegalKind; variant: 'auth' | 'app' };
 };
@@ -39,15 +41,16 @@ export type RootStackParamList = {
   Notifications: undefined;
   UploadHistory: undefined;
   Profile: undefined;
-  ProfileVerify: { mode: CodeMode };
-  ProfileResetPw: { mode: CodeMode };
+  ChangePassword: undefined;
   Legal: { kind: LegalKind; variant: 'auth' | 'app' };
   RulesSettings: undefined;
   Uploading: undefined;
   Analyzing: undefined;
   UploadDone: undefined;
   UploadFail: undefined;
-  AnalyzeDone: undefined;
+  // uploadId: 분석 완료 후 해당 업로드의 저장 건수(row_count)를 조회하기 위함.
+  // AnalyzingScreen이 clearPendingUpload() 하기 전에 넘겨준다.
+  AnalyzeDone: { uploadId: number } | undefined;
   AnalyzeFail: undefined;
 };
 

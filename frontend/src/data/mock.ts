@@ -1,6 +1,6 @@
 import type {
-  Trade, Journal, DartNews, UploadHistoryItem, MonthlyDatum,
-  EmotionRadarDatum, BiasComparisonDatum, BiasTrendDatum, AnalysisEntry,
+  Trade, Journal, DartNews,
+  EmotionRadarDatum, AnalysisEntry,
   RuleTemplate, TutorialStep, NotifRaw, LegalContent,
 } from './types';
 
@@ -19,14 +19,6 @@ export const tradesRaw: Trade[] = [
   { id: 12, stock: '한화에어로스페이스', date: '2026.06.18', type: 'buy', price: '195,000', qty: 10, amount: '1,949,000', score: 37, deviation: 0.95 },
 ];
 
-export const monthlyData: MonthlyDatum[] = [
-  { month: '2월', trades: 8, anomalies: 3 },
-  { month: '3월', trades: 12, anomalies: 5 },
-  { month: '4월', trades: 7, anomalies: 2 },
-  { month: '5월', trades: 15, anomalies: 8 },
-  { month: '6월', trades: 11, anomalies: 4 },
-  { month: '7월', trades: 18, anomalies: 9 },
-];
 
 export const journals: Journal[] = [
   { id: 1, stock: '삼성전자', date: '2026.07.28', type: 'buy', emotion: '확신', risk: 'danger', memo: '실적 개선 기대감으로 매수.', reason: '2분기 영업이익이 시장 기대치를 상회했고 HBM 수주가 가속화되는 상황. 반도체 슈퍼사이클 진입 시그널로 판단해 매수.', review: '매수 직후 2.3% 하락했으나 이후 회복. 장기적 관점에서는 올바른 판단이었다고 생각.' },
@@ -52,74 +44,18 @@ export const dartNews: DartNews[] = [
   { id: 13, corp: '한화에어로스페이스', type: '단일판매계약', title: '한화에어로스페이스 폴란드 K9 자주포 2차 실행계약 체결', date: '2026.07.31' },
 ];
 
-export const uploadHistoryRaw: UploadHistoryItem[] = [
-  { id: 1, date: '2026.07.31', filename: 'trades_july_2026.csv', count: 18 },
-  { id: 2, date: '2026.06.30', filename: 'trades_june_2026.csv', count: 11 },
-  { id: 3, date: '2026.05.31', filename: 'trades_may_2026.csv', count: 15 },
-  { id: 4, date: '2026.04.30', filename: 'trades_april_2026.csv', count: 9 },
-  { id: 5, date: '2026.03.31', filename: 'trades_march_2026.csv', count: 14 },
-  { id: 6, date: '2026.02.28', filename: 'trades_feb_2026.csv', count: 7 },
-  { id: 7, date: '2026.01.31', filename: 'trades_jan_2026.csv', count: 12 },
-  { id: 8, date: '2025.12.31', filename: 'trades_dec_2025.csv', count: 21 },
-  { id: 9, date: '2025.11.30', filename: 'trades_nov_2025.csv', count: 8 },
-  { id: 10, date: '2025.10.31', filename: 'trades_oct_2025.csv', count: 16 },
-  { id: 11, date: '2025.09.30', filename: 'trades_sep_2025.csv', count: 10 },
-  { id: 12, date: '2025.08.31', filename: 'trades_aug_2025.csv', count: 13 },
-  { id: 13, date: '2025.07.31', filename: 'trades_july_2025.csv', count: 6 },
-];
-
 export const emotionRadarData: EmotionRadarDatum[] = [
   { e: '조급함', value: 4 }, { e: '욕심', value: 2 }, { e: '두려움', value: 1 },
   { e: '확신', value: 3 }, { e: '홧김', value: 0 }, { e: '미련', value: 1 },
   { e: '불안', value: 1 }, { e: '무심함', value: 0 }, { e: '후회', value: 2 }, { e: '흥분', value: 1 },
 ];
 
-// 검사 결과(self) vs 실제 거래 데이터(trading) 비교 — 8/31 업데이트로 값 변경
-export const biasComparisonData: BiasComparisonDatum[] = [
-  { subject: '처분효과', self: 72, trading: 48 },
-  { subject: '과잉확신', self: 38, trading: 69 },
-  { subject: '복권형선호', self: 56, trading: 78 },
-  { subject: '군집거래', self: 64, trading: 44 },
-];
-
-export const biasTrend: BiasTrendDatum[] = [
-  { date: '3월', tested: true, 처분효과: 58, 과잉확신: 38, 복권형선호: 62, 군집거래: 52 },
-  { date: '4월', tested: false, 처분효과: 58, 과잉확신: 38, 복권형선호: 62, 군집거래: 52 },
-  { date: '5월', tested: true, 처분효과: 65, 과잉확신: 42, 복권형선호: 70, 군집거래: 58 },
-  { date: '6월', tested: false, 처분효과: 65, 과잉확신: 42, 복권형선호: 70, 군집거래: 58 },
-  { date: '7월', tested: true, 처분효과: 68, 과잉확신: 42, 복권형선호: 74, 군집거래: 61 },
-];
-
-export const BIAS_SCORES = [68, 42, 74, 61];
 
 export const BIAS_DESCS = [
   '이익 난 종목은 서둘러 팔고, 손실 난 종목은 오래 붙잡는 경향이에요.',
   '자신의 판단을 과하게 믿어 필요 이상으로 자주 사고 파는 경향이에요.',
   '큰 수익 가능성만 보고 변동성이 큰 종목을 선호하는 경향이에요.',
   '다른 투자자들의 움직임이나 시장 분위기를 따라 사고파는 경향이에요.',
-];
-
-export const QUESTIONS: string[] = [
-  '수익이 조금이라도 나면, 더 오를 수 있어도 일단 팔아서 이익을 확정하고 싶다.',
-  '손실 중인 종목은 손실을 확정하기 싫어서 계속 들고 있는 편이다.',
-  '나는 오른 종목보다 내린 종목을 더 오래 보유하는 경향이 있다.',
-  '손실이 나면 "다시 오를 때까지 기다리자"고 스스로를 설득하곤 한다.',
-  '목표 수익률에 도달하지 않았어도, 손실 여부와 상관없이 계획한 시점에 매도하는 편이다.',
-  '내 투자 판단은 대체로 다른 투자자들보다 정확하다고 생각한다.',
-  '수익이 났을 때는 내 실력이나 분석 덕분이라고 생각하는 편이다.',
-  '손실이 났을 때는 운이 나빴거나 시장 상황 탓이라고 생각하는 편이다.',
-  '주가가 오르는 시기엔 평소보다 더 자주 거래하고 싶어진다.',
-  '내가 잘 안다고 생각하는 종목이라도, 내 판단이 틀릴 수 있다고 자주 생각한다.',
-  '적은 돈으로 크게 오를 수 있는 종목에 끌린다.',
-  '주가가 낮은 종목(이른바 "동전주")에 관심이 가는 편이다.',
-  '하루 만에 급등할 것 같은 종목을 종종 매수한다.',
-  '안정적으로 조금씩 오르는 종목보다 크게 오르내리는 종목이 더 흥미롭다.',
-  '여러 종목에 나눠 투자하기보다 소수 종목에 집중하는 편이다.',
-  '요즘 화제가 되는 종목이면 나도 사보고 싶어진다.',
-  '다른 사람들이 많이 사는 종목을 보면 나도 사야 할 것 같은 기분이 든다.',
-  '급등 중인 종목을 보면 놓칠까봐 따라서 매수한 적이 있다.',
-  '커뮤니티나 지인이 추천한 종목을 스스로 분석하지 않고 매수한 적이 있다.',
-  '다른 사람들이 어떤 종목을 사고팔든 내 투자 결정에는 영향을 주지 않는다.',
 ];
 
 export const analysisData: Record<number, AnalysisEntry> = {

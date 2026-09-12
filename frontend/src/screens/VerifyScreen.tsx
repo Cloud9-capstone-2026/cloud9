@@ -1,21 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { AuthScreen } from '../components/AuthScreen';
 import { CtaButton, ErrorText, AuthTitle, AuthSubtitle, FIELD_GAP } from '../components/AuthField';
 import { C } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
-
-const CORRECT_CODE = '123456';
+import type { AuthStackParamList } from '../navigation/types';
 
 export function VerifyScreen() {
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
-  const mode: 'signup' | 'reset' | 'changePw' = route.params?.mode || 'signup';
-  const { setSuVerified } = useAppState();
+  const route = useRoute<RouteProp<AuthStackParamList, 'Verify'>>();
+  const { mode, email } = route.params;
+  const { verifyEmail, resendVerification, requestPasswordReset } = useAppState();
   const [code, setCode] = useState('');
   const [sec, setSec] = useState(179);
   const [error, setError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -26,34 +26,42 @@ export function VerifyScreen() {
   const mm = String(Math.floor(sec / 60)).padStart(2, '0');
   const ss = String(sec % 60).padStart(2, '0');
 
-  const email = mode === 'signup' ? '입력하신 이메일' : '가입하신 이메일';
-
   const onChangeCode = (v: string) => {
     const digits = v.replace(/[^0-9]/g, '').slice(0, 6);
     setCode(digits);
     if (error) setError(false);
   };
 
-  const onSubmit = () => {
-    if (code !== CORRECT_CODE) {
-      setCode('');
-      setError(true);
-      return;
-    }
+  const onSubmit = async () => {
+    if (submitting) return;
     if (mode === 'signup') {
-      setSuVerified(true);
-      navigation.goBack();
-    } else if (mode === 'reset') {
-      navigation.navigate('ResetPw', { mode: 'reset' });
+      setSubmitting(true);
+      try {
+        await verifyEmail(email, code);
+        navigation.navigate('SignupDone');
+      } catch (e: any) {
+        setCode('');
+        setError(true);
+      } finally {
+        setSubmitting(false);
+      }
     } else {
-      navigation.navigate('ProfileResetPw', { mode: 'changePw' });
+      // 'reset'은 코드를 여기서 따로 검증하는 API가 없음 — 형식만 맞으면 다음 화면(새
+      // 비밀번호 입력)으로 넘어가고, 실제 코드 유효성은 그 화면의 최종 제출에서 확인됨.
+      navigation.navigate('ResetPw', { email, code });
     }
   };
 
-  const resend = () => {
+  const resend = async () => {
     setSec(179);
     setCode('');
     setError(false);
+    try {
+      if (mode === 'signup') await resendVerification(email);
+      else await requestPasswordReset(email);
+    } catch {
+      // 재전송 실패는 조용히 무시 — 타이머는 이미 리셋했고, 사용자는 그냥 다시 눌러볼 수 있음
+    }
   };
 
   return (
@@ -94,7 +102,7 @@ export function VerifyScreen() {
       </View>
 
       <View style={{ marginTop: 'auto', paddingTop: FIELD_GAP }}>
-        <CtaButton label="확인" active={code.length === 6} onPress={onSubmit} />
+        <CtaButton label="확인" active={code.length === 6 && !submitting} onPress={onSubmit} />
       </View>
     </AuthScreen>
   );

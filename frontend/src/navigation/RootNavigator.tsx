@@ -12,8 +12,7 @@ import { DiagnosisScreen } from '../screens/DiagnosisScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { UploadHistoryScreen } from '../screens/UploadHistoryScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
-import { VerifyScreen } from '../screens/VerifyScreen';
-import { ResetPwScreen } from '../screens/ResetPwScreen';
+import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import { LegalScreen } from '../screens/LegalScreen';
 import { RulesSettingsScreen } from '../screens/RulesSettingsScreen';
 import { UploadingScreen } from '../screens/UploadingScreen';
@@ -42,8 +41,7 @@ export function RootNavigator() {
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="UploadHistory" component={UploadHistoryScreen} />
         <Stack.Screen name="Profile" component={ProfileScreen} />
-        <Stack.Screen name="ProfileVerify" component={VerifyScreen} />
-        <Stack.Screen name="ProfileResetPw" component={ResetPwScreen} />
+        <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
         <Stack.Screen name="Legal" component={LegalScreen} />
         <Stack.Screen name="RulesSettings" component={RulesSettingsScreen} />
         <Stack.Screen name="Uploading" component={UploadingScreen} options={{ gestureEnabled: false }} />

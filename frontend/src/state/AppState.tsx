@@ -2,17 +2,28 @@ import React, { createContext, useContext, useState, useCallback, useMemo, useRe
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { journals as journalsSeed, RULES, NOTIFS } from '../data/mock';
 import type { Journal } from '../data/types';
+import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
+import * as authApi from '../api/auth';
+import * as surveyApi from '../api/survey';
+import * as tradesApi from '../api/trades';
+import * as analysisApi from '../api/analysis';
+import * as rulesApi from '../api/rules';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
-// "로그인 상태 유지" 체크 시 세션을 남겨두는 저장소 키.
-// 지금은 로그인 여부만 로컬에 저장하는 목업이고, 실제 백엔드 연동 시에는
-// 여기 저장하는 값을 서버가 발급한 토큰으로 바꾸기만 하면 됨 — 저장/복원 흐름 자체는 그대로 재사용.
-const SESSION_STORAGE_KEY = '@canary/session';
+// "로그인 상태 유지" 체크 여부 — 꺼져있으면 앱을 재실행했을 때 토큰이 저장소에
+// 남아있어도 자동 로그인을 시도하지 않는다(로그인 시점에 같이 기록).
+const KEEP_LOGIN_STORAGE_KEY = '@canary/keepLogin';
 
 // 튜토리얼(온보딩)을 한 번이라도 완료했는지 — "로그인 상태 유지"와 별개로 항상 저장됨.
 // 로그아웃하거나 로그인 상태 유지를 꺼도 이 기록은 남아있어서, 다시 로그인하면 튜토리얼을 또 보여주지 않음.
 const ONBOARDING_DONE_STORAGE_KEY = '@canary/onboardingDone';
+
+// 업로드 성공~분석 완료/실패 사이의 "진행 중인 job" 기록. 이 값이 있는 동안은 화면
+// 안에서 뒤로가기로 이탈할 수 없고(각 화면의 BackHandler), 앱을 강제종료했다 다시 켜면
+// 이 값을 보고 분석 중 화면으로 바로 복귀해 폴링을 재개한다. 분석이 끝나 결과 화면까지
+// 도달하면(성공/실패 무관) 지운다.
+const PENDING_UPLOAD_STORAGE_KEY = '@canary/pendingUpload';
 
 type RuleOnMap = Record<string, boolean>;
 type RuleValMap = Record<string, number>;
@@ -27,6 +38,14 @@ export interface UpFile {
   name: string;
   sizeKB: number | null;
   ext: string;
+  uri: string;
+  mimeType: string;
+}
+
+export interface PendingUpload {
+  uploadId: number;
+  jobId: number;
+  fileName: string;
 }
 
 interface AppStateValue {
@@ -44,15 +63,13 @@ interface AppStateValue {
   // 인증 / 온보딩 플로우
   authPhase: AuthPhase;
   authReady: boolean;
-  login: () => void;
+  login: (email: string, password: string) => Promise<void>;
   enterMainDirectly: () => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   completeOnboarding: () => void;
   onboardingDone: boolean;
   keepLogin: boolean;
   setKeepLogin: (v: boolean) => void;
-  suVerified: boolean;
-  setSuVerified: (v: boolean) => void;
 
   // 튜토리얼
   tutStep: number;
@@ -69,10 +86,20 @@ interface AppStateValue {
   setRuleMoney: (id: string, val: number) => void;
   ruleSnap: () => void;
   ruleRevert: () => void;
+  loadRules: () => Promise<void>;
+  saveRules: () => Promise<void>;
 
   // 업로드 플로우
   upFile: UpFile | null;
   setUpFile: (f: UpFile | null) => void;
+  uploadFile: (fileUri: string, fileName: string, mimeType: string) => Promise<import('../api/trades').UploadResponse>;
+  pollJobStatus: (jobId: number) => Promise<import('../api/trades').JobStatus>;
+  getUploads: (limit?: number, offset?: number) => Promise<import('../api/trades').UploadHistoryItem[]>;
+  // 페이지네이션(최대 200/회)을 내부에서 다 순회해서 사용자의 전체 분석 결과를 모아 돌려준다.
+  getAllAnalysis: () => Promise<import('../api/analysis').AnalysisResult[]>;
+  getAllTrades: () => Promise<import('../api/trades').TradeRaw[]>;
+  pendingUpload: PendingUpload | null;
+  clearPendingUpload: () => void;
 
   // 알림 목록
   notifRead: Record<number, boolean>;
@@ -94,6 +121,23 @@ interface AppStateValue {
   // 프로필
   pfName: string;
   setPfName: (v: string) => void;
+  pfEmail: string;
+  updateProfileName: (name: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  withdrawAccount: () => Promise<void>;
+
+  // 회원가입 / 이메일 인증 / 비밀번호 찾기 — 전부 로그인 안 된 상태에서 호출되는 API라 AppState가 아니어도 되지만,
+  // login/logout과 같은 자리에서 관리하는 게 일관적이라 여기 둔다.
+  signup: (params: { email: string; password: string; name: string; agreedTerms: boolean }) => Promise<void>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  resendVerification: (email: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  confirmPasswordReset: (email: string, code: string, newPassword: string) => Promise<void>;
+  submitSurvey: (answers: { question_id: string; value: number }[]) => Promise<import('../api/survey').SurveyResult>;
+  // 자가진단 이력이 아예 없으면(한 번도 검사 안 함) 404 대신 null을 돌려준다 — 백엔드의
+  // "명시적으로 404"를 프론트 쪽에서 "빈 상태"로 변환하는 지점.
+  getLatestSurvey: () => Promise<import('../api/survey').SurveyResult | null>;
+  getSurveyHistory: (limit?: number) => Promise<import('../api/survey').SurveyResult[]>;
 
   // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
   hasUploaded: boolean;
@@ -110,7 +154,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [keepLogin, setKeepLogin] = useState(true);
-  const [suVerified, setSuVerified] = useState(false);
+  const [pfEmail, setPfEmail] = useState('');
 
   useEffect(() => {
     // 로그인 상태 유지된 사용자는 스플래시 화면(App.tsx)이 최소 이만큼은 보인 뒤에
@@ -121,16 +165,35 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const startedAt = Date.now();
     (async () => {
       try {
-        const [sessionRaw, onboardingRaw] = await Promise.all([
-          AsyncStorage.getItem(SESSION_STORAGE_KEY),
+        const [token, keepLoginRaw, onboardingRaw, pendingUploadRaw] = await Promise.all([
+          getToken(),
+          AsyncStorage.getItem(KEEP_LOGIN_STORAGE_KEY),
           AsyncStorage.getItem(ONBOARDING_DONE_STORAGE_KEY),
+          AsyncStorage.getItem(PENDING_UPLOAD_STORAGE_KEY),
         ]);
         const savedOnboardingDone = onboardingRaw === '1';
         if (savedOnboardingDone) setOnboardingDone(true);
-        if (sessionRaw) {
-          const elapsed = Date.now() - startedAt;
-          if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
-          setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
+        if (pendingUploadRaw) {
+          try { setPendingUploadState(JSON.parse(pendingUploadRaw)); } catch { /* 손상된 값은 무시 */ }
+        }
+        const wantsKeepLogin = keepLoginRaw === '1';
+        setKeepLogin(wantsKeepLogin);
+        // "로그인 상태 유지"를 껐던 세션이면, 토큰이 저장소에 남아있어도(이전 실행 잔재)
+        // 자동 로그인을 시도하지 않고 지운다 — 원래 mock 로직의 "keepLogin이 false면
+        // 재실행 시 세션이 없는 것처럼 시작" 의도를 실제 토큰 기준으로 그대로 재현.
+        if (token && wantsKeepLogin) {
+          try {
+            const profile = await authApi.getMe();
+            setPfName(profile.name);
+            setPfEmail(profile.email ?? '');
+            const elapsed = Date.now() - startedAt;
+            if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
+            setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
+          } catch {
+            // 토큰 만료/무효 — 응답 인터셉터가 이미 토큰을 지웠으므로 로그인 화면부터 시작
+          }
+        } else if (token) {
+          await clearToken();
         }
       } catch {
         // 저장된 값이 없거나 손상된 경우 로그인 화면부터 시작
@@ -155,6 +218,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const ruleSnapRef = useRef<RuleSnapshot | null>(null);
 
   const [upFile, setUpFile] = useState<UpFile | null>(null);
+  const [pendingUpload, setPendingUploadState] = useState<PendingUpload | null>(null);
 
   const [notifRead, setNotifRead] = useState<Record<number, boolean>>({});
   const [osNotif, setOsNotif] = useState<'granted' | 'denied' | 'unset'>('unset');
@@ -183,34 +247,149 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     [journals]
   );
 
-  const login = useCallback(() => {
+  const login = useCallback(async (email: string, password: string) => {
+    const { access_token } = await authApi.login(email, password);
+    await setToken(access_token);
+    // 토큰 자체는(이번 세션 API 호출을 위해) keepLogin과 무관하게 항상 저장하고,
+    // "다음 실행 때 이걸 신뢰해도 되는지"만 이 플래그로 따로 남긴다 — 부팅 시
+    // keepLogin이 꺼져있었으면 남아있는 토큰을 무시하고 지운다.
+    await AsyncStorage.setItem(KEEP_LOGIN_STORAGE_KEY, keepLogin ? '1' : '0');
+    const profile = await authApi.getMe();
+    setPfName(profile.name);
+    setPfEmail(profile.email ?? '');
     setAuthPhase(onboardingDone ? 'main' : 'onboarding');
-    if (keepLogin) {
-      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone })).catch(() => {});
-    }
   }, [onboardingDone, keepLogin]);
 
   const enterMainDirectly = useCallback(() => {
     setOnboardingDone(true);
     setAuthPhase('main');
     AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-    AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone: true })).catch(() => {});
   }, []);
 
-  const logout = useCallback(() => {
-    setAuthPhase('auth');
-    AsyncStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
+  const clearPendingUpload = useCallback(() => {
+    setPendingUploadState(null);
+    AsyncStorage.removeItem(PENDING_UPLOAD_STORAGE_KEY).catch(() => {});
   }, []);
+
+  const uploadFile = useCallback(async (fileUri: string, fileName: string, mimeType: string) => {
+    const res = await tradesApi.uploadTrades(fileUri, fileName, mimeType);
+    const pending: PendingUpload = { uploadId: res.upload_id, jobId: res.job_id, fileName };
+    setPendingUploadState(pending);
+    AsyncStorage.setItem(PENDING_UPLOAD_STORAGE_KEY, JSON.stringify(pending)).catch(() => {});
+    return res;
+  }, []);
+
+  const pollJobStatus = useCallback(async (jobId: number) => {
+    return tradesApi.getJobStatus(jobId);
+  }, []);
+
+  const getUploads = useCallback(async (limit?: number, offset?: number) => {
+    return tradesApi.getUploads(limit, offset);
+  }, []);
+
+  const getAllAnalysis = useCallback(async () => {
+    const PAGE = 200;
+    const MAX_PAGES = 10; // 안전장치 — 최대 2000건까지만 순회
+    let offset = 0;
+    const all: import('../api/analysis').AnalysisResult[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const page = await analysisApi.getAnalysis(PAGE, offset);
+      all.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
+  }, []);
+
+  const getAllTrades = useCallback(async () => {
+    const PAGE = 200;
+    const MAX_PAGES = 10;
+    let offset = 0;
+    const all: import('../api/trades').TradeRaw[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const page = await tradesApi.getTrades(PAGE, offset);
+      all.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
+  }, []);
+
+  const logout = useCallback(async () => {
+    setAuthPhase('auth');
+    await clearToken();
+    await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
+    // 다른 계정이 같은 기기에서 로그인했을 때 남의 진행 중 업로드를 이어받지 않도록.
+    clearPendingUpload();
+  }, [clearPendingUpload]);
+
+  // 회원가입 자체는 토큰을 발급받지만(자동 로그인 가능) 제품 결정상 쓰지 않고 버린다 —
+  // 가입 후엔 항상 로그인 화면으로 보내서 사용자가 명시적으로 다시 로그인하게 함.
+  const signup = useCallback<AppStateValue['signup']>(async (params) => {
+    await authApi.signup(params);
+  }, []);
+
+  const verifyEmail = useCallback(async (email: string, code: string) => {
+    await authApi.verifyEmail(email, code);
+  }, []);
+
+  const resendVerification = useCallback(async (email: string) => {
+    await authApi.resendVerification(email);
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string) => {
+    await authApi.passwordResetRequest(email);
+  }, []);
+
+  const confirmPasswordReset = useCallback(async (email: string, code: string, newPassword: string) => {
+    await authApi.passwordResetConfirm(email, code, newPassword);
+  }, []);
+
+  const submitSurvey = useCallback(async (answers: { question_id: string; value: number }[]) => {
+    return surveyApi.submitSurvey(answers);
+  }, []);
+
+  const getLatestSurvey = useCallback(async () => {
+    try {
+      return await surveyApi.getLatestSurvey();
+    } catch (e: any) {
+      if (e?.response?.status === 404) return null;
+      throw e;
+    }
+  }, []);
+
+  const getSurveyHistory = useCallback(async (limit?: number) => {
+    return surveyApi.getSurveyHistory(limit);
+  }, []);
+
+  const updateProfileName = useCallback(async (name: string) => {
+    const profile = await authApi.updateProfile(name);
+    setPfName(profile.name);
+  }, []);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    await authApi.changePassword(currentPassword, newPassword);
+  }, []);
+
+  const withdrawAccount = useCallback(async () => {
+    await authApi.withdraw();
+    setAuthPhase('auth');
+    await clearToken();
+    await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
+    clearPendingUpload();
+  }, [clearPendingUpload]);
+
+  // 401(토큰 만료/무효) 응답을 받으면 어느 화면에 있든 로그인 화면으로 돌려보낸다.
+  useEffect(() => {
+    setUnauthorizedHandler(() => { logout(); });
+  }, [logout]);
 
   const completeOnboarding = useCallback(() => {
     setOnboardingDone(true);
     setAuthPhase('main');
     setNotifPermModalOpen(true);
     AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-    if (keepLogin) {
-      AsyncStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ onboardingDone: true })).catch(() => {});
-    }
-  }, [keepLogin]);
+  }, []);
 
   const toggleRule = useCallback((id: string) => {
     setRuleOn((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -237,6 +416,42 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       ruleSnapRef.current = null;
     }
   }, []);
+
+  // 서버의 규칙 7종 상태를 불러와 ruleOn/ruleVal/ruleMoney에 채운다. 백엔드는
+  // 규칙당 param 필드 하나뿐이라, RULES(mock.ts) 템플릿의 isMoney/unit 여부를 보고
+  // ruleVal(횟수·일수)과 ruleMoney(금액) 중 어디에 넣을지 프론트에서 나눠 담는다.
+  const loadRules = useCallback(async () => {
+    const items = await rulesApi.getRules();
+    const nextOn: RuleOnMap = {};
+    const nextVal: RuleValMap = {};
+    const nextMoney: RuleValMap = {};
+    items.forEach((item) => {
+      nextOn[item.rule_id] = item.enabled;
+      const template = RULES.find((r) => r.id === item.rule_id);
+      const param = item.param ?? template?.defaultVal ?? 0;
+      if (template?.isMoney) nextMoney[item.rule_id] = param;
+      else if (template && template.unit !== null) nextVal[item.rule_id] = param;
+    });
+    setRuleOn(nextOn);
+    setRuleValState(nextVal);
+    setRuleMoneyState(nextMoney);
+    ruleSnapRef.current = { ruleOn: nextOn, ruleVal: nextVal, ruleMoney: nextMoney };
+  }, []);
+
+  // 7종 규칙 전부를 현재 로컬 상태 그대로 PUT — 두 맵(ruleVal/ruleMoney)을 다시
+  // param 필드 하나로 합친다. same_day_roundtrip처럼 파라미터가 없는 규칙은 null.
+  const saveRules = useCallback(async () => {
+    await Promise.all(RULES.map((template) => {
+      const enabled = !!ruleOn[template.id];
+      const param = template.isMoney
+        ? (ruleMoney[template.id] || null)
+        : template.unit !== null
+          ? (ruleVal[template.id] ?? null)
+          : null;
+      return rulesApi.setRule(template.id, enabled, param);
+    }));
+    ruleSnapRef.current = { ruleOn, ruleVal, ruleMoney };
+  }, [ruleOn, ruleVal, ruleMoney]);
 
   const markNotifRead = useCallback((idx: number) => {
     setNotifRead((prev) => ({ ...prev, [idx]: true }));
@@ -280,8 +495,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       onboardingDone,
       keepLogin,
       setKeepLogin,
-      suVerified,
-      setSuVerified,
       tutStep,
       setTutStep,
       rulesConfirmed,
@@ -294,8 +507,17 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setRuleMoney,
       ruleSnap,
       ruleRevert,
+      loadRules,
+      saveRules,
       upFile,
       setUpFile,
+      uploadFile,
+      pollJobStatus,
+      getUploads,
+      getAllAnalysis,
+      getAllTrades,
+      pendingUpload,
+      clearPendingUpload,
       notifRead,
       markNotifRead,
       markAllNotifRead,
@@ -309,18 +531,34 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       closeBiasInfo,
       pfName,
       setPfName,
+      pfEmail,
+      updateProfileName,
+      changePassword,
+      withdrawAccount,
+      signup,
+      verifyEmail,
+      resendVerification,
+      requestPasswordReset,
+      confirmPasswordReset,
+      submitSurvey,
+      getLatestSurvey,
+      getSurveyHistory,
       hasUploaded,
       toggleHasUploaded: () => setHasUploaded((v) => !v),
     }),
     [
       journals, saveJournal, addJournal, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
-      suVerified, tutStep, rulesConfirmed,
-      ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
-      upFile,
+      tutStep, rulesConfirmed,
+      ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert, loadRules, saveRules,
+      upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, getAllTrades, pendingUpload, clearPendingUpload,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
-      biasInfo, openBiasInfo, closeBiasInfo, pfName, hasUploaded,
+      biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,
+      updateProfileName, changePassword, withdrawAccount,
+      signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
+      getLatestSurvey, getSurveyHistory,
+      hasUploaded,
     ]
   );
 
