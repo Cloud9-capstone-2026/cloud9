@@ -28,7 +28,12 @@ export function TrendLineChart({
       ))}
       {!empty && (
         <Polyline
-          points={data.map((d, i) => `${x(i)},${y(d[dataKey])}`).join(' ')}
+          // 값이 null인 달(그 이전엔 검사 이력 자체가 없음)은 선 연결에서 제외 —
+          // 데이터가 있는 지점들끼리만 이어지고, 그 앞은 자연스럽게 빈 채로 남는다.
+          points={data
+            .map((d, i) => (d[dataKey] == null ? null : `${x(i)},${y(d[dataKey] as number)}`))
+            .filter((p): p is string => p !== null)
+            .join(' ')}
           fill="none"
           stroke={color}
           strokeWidth={1.6}
@@ -38,12 +43,14 @@ export function TrendLineChart({
         />
       )}
       {!empty && data.map((d, i) => {
+        const v = d[dataKey];
+        if (v == null) return null;
         const isLatest = i === n - 1;
         return (
           <Circle
             key={`p${i}`}
             cx={x(i)}
-            cy={y(d[dataKey])}
+            cy={y(v)}
             r={isLatest ? 3.2 : 2.4}
             fill={d.tested ? color : '#fff'}
             stroke={color}

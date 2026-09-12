@@ -107,6 +107,10 @@ interface AppStateValue {
   requestPasswordReset: (email: string) => Promise<void>;
   confirmPasswordReset: (email: string, code: string, newPassword: string) => Promise<void>;
   submitSurvey: (answers: { question_id: string; value: number }[]) => Promise<import('../api/survey').SurveyResult>;
+  // 자가진단 이력이 아예 없으면(한 번도 검사 안 함) 404 대신 null을 돌려준다 — 백엔드의
+  // "명시적으로 404"를 프론트 쪽에서 "빈 상태"로 변환하는 지점.
+  getLatestSurvey: () => Promise<import('../api/survey').SurveyResult | null>;
+  getSurveyHistory: (limit?: number) => Promise<import('../api/survey').SurveyResult[]>;
 
   // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
   hasUploaded: boolean;
@@ -262,6 +266,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return surveyApi.submitSurvey(answers);
   }, []);
 
+  const getLatestSurvey = useCallback(async () => {
+    try {
+      return await surveyApi.getLatestSurvey();
+    } catch (e: any) {
+      if (e?.response?.status === 404) return null;
+      throw e;
+    }
+  }, []);
+
+  const getSurveyHistory = useCallback(async (limit?: number) => {
+    return surveyApi.getSurveyHistory(limit);
+  }, []);
+
   const updateProfileName = useCallback(async (name: string) => {
     const profile = await authApi.updateProfile(name);
     setPfName(profile.name);
@@ -395,6 +412,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       requestPasswordReset,
       confirmPasswordReset,
       submitSurvey,
+      getLatestSurvey,
+      getSurveyHistory,
       hasUploaded,
       toggleHasUploaded: () => setHasUploaded((v) => !v),
     }),
@@ -409,6 +428,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,
       updateProfileName, changePassword, withdrawAccount,
       signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
+      getLatestSurvey, getSurveyHistory,
       hasUploaded,
     ]
   );

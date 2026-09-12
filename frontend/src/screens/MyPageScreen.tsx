@@ -1,18 +1,51 @@
-import React, { useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
 import { DumbbellChart } from '../components/charts/DumbbellChart';
 import { TrendLineChart } from '../components/charts/TrendLineChart';
 import { Avatar } from '../assets/Avatar';
-import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEY_MAP, text } from '../theme/tokens';
-import { biasComparisonData, biasTrend, BIAS_SCORES, analysisData } from '../data/mock';
+import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, BIAS_KEY_MAP, text } from '../theme/tokens';
+import { biasComparisonData, analysisData } from '../data/mock';
+import { getCharacter } from '../constants/characterAssets';
+import { buildBiasTrend } from '../utils/buildBiasTrend';
+import type { SurveyResult } from '../api/survey';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function MyPageScreen() {
-  const { openBiasInfo, hasUploaded } = useAppState();
+  const { openBiasInfo, hasUploaded, getLatestSurvey, getSurveyHistory } = useAppState();
+  // undefined = 아직 조회 안 됨(로딩), null = 조회했지만 결과 없음(검사 이력 없음)
+  const [latest, setLatest] = useState<SurveyResult | null | undefined>(undefined);
+  const [history, setHistory] = useState<SurveyResult[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [latestRes, historyRes] = await Promise.all([getLatestSurvey(), getSurveyHistory(20)]);
+          if (!cancelled) {
+            setLatest(latestRes);
+            setHistory(historyRes);
+          }
+        } catch {
+          // 네트워크 실패 시 기존 값 유지 — 화면은 이전 상태(또는 빈 상태)로 남는다.
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [getLatestSurvey, getSurveyHistory])
+  );
+
+  const trend = useMemo(() => buildBiasTrend(history), [history]);
+  const character = latest ? getCharacter(latest.type_code) : null;
 
   const topBias = useMemo(() => {
     if (!hasUploaded) return null;
@@ -61,27 +94,34 @@ export function MyPageScreen() {
       <View>
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>나의 투자 성향</Text>
-          <Text style={styles.updateDate}>최종 업데이트 2026.07.31</Text>
+          <Text style={styles.updateDate}>{latest ? `최종 업데이트 ${formatDate(latest.created_at)}` : ''}</Text>
         </View>
         <Card>
           <View style={styles.personaTitleRow}>
-            <Text style={styles.personaName}>불안한 동조자</Text>
+            <Text style={styles.personaName}>{character ? character.name : '검사 결과가 없어요'}</Text>
             <Pressable onPress={openBiasInfo} style={styles.infoBtn}>
               <Text style={styles.infoBtnText}>?</Text>
             </Pressable>
           </View>
           <View style={styles.personaRow}>
-            <Avatar size={100} />
+            {character?.image ? (
+              <Image source={character.image} style={{ width: 100, height: 100, borderRadius: 50 }} />
+            ) : (
+              <Avatar size={100} />
+            )}
             <View style={styles.biasBars}>
-              {BIAS_LABELS.map((label, i) => (
-                <View key={label} style={styles.biasBarRow}>
-                  <Text style={styles.biasLabel}>{label}</Text>
-                  <View style={styles.biasTrack}>
-                    <View style={[styles.biasFill, { width: `${BIAS_SCORES[i]}%`, backgroundColor: BIAS_COLORS[i] }]} />
+              {BIAS_LABELS.map((label, i) => {
+                const score = latest ? Math.round(latest.scores[BIAS_KEYS[i]].normalized) : null;
+                return (
+                  <View key={label} style={styles.biasBarRow}>
+                    <Text style={styles.biasLabel}>{label}</Text>
+                    <View style={styles.biasTrack}>
+                      <View style={[styles.biasFill, { width: `${score ?? 0}%`, backgroundColor: BIAS_COLORS[i] }]} />
+                    </View>
+                    <Text style={[styles.biasScore, { color: BIAS_COLORS[i] }]}>{score ?? '-'}</Text>
                   </View>
-                  <Text style={[styles.biasScore, { color: BIAS_COLORS[i] }]}>{BIAS_SCORES[i]}</Text>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
         </Card>
@@ -131,16 +171,17 @@ export function MyPageScreen() {
         <Text style={styles.sectionTitleStandalone}>검사 히스토리</Text>
         <View style={styles.trendGrid}>
           {BIAS_TREND_KEYS.map((key, i) => {
-            const latest = biasTrend[biasTrend.length - 1][key];
+            const lastRow = trend[trend.length - 1];
+            const latestVal = lastRow ? lastRow[key] : null;
             return (
               <Card key={key} style={styles.trendCard}>
                 <View style={styles.trendHeader}>
                   <Text style={styles.trendLabel}>{BIAS_LABELS[i]}</Text>
                   <Text style={[styles.trendValue, { color: BIAS_COLORS[i] }]}>
-                    {hasUploaded ? latest : '-'}<Text style={styles.trendUnit}>/100</Text>
+                    {latestVal ?? '-'}<Text style={styles.trendUnit}>/100</Text>
                   </Text>
                 </View>
-                <TrendLineChart data={biasTrend} dataKey={key} color={BIAS_COLORS[i]} empty={!hasUploaded} />
+                <TrendLineChart data={trend} dataKey={key} color={BIAS_COLORS[i]} />
               </Card>
             );
           })}

@@ -64,11 +64,13 @@ export interface BiasComparisonDatum {
 
 export interface BiasTrendDatum {
   date: string;
+  // tested=true(그 달에 실제 검사) → 채워진 점, false(직전 검사값을 이어옴) → 빈 점,
+  // 값 자체가 null(그 달 이전엔 검사 이력이 아예 없음) → 점을 그리지 않음.
   tested: boolean;
-  처분효과: number;
-  과잉확신: number;
-  복권형선호: number;
-  군집거래: number;
+  처분효과: number | null;
+  과잉확신: number | null;
+  복권형선호: number | null;
+  군집거래: number | null;
 }
 
 export interface EvidenceFeature {

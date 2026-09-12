@@ -1,6 +1,6 @@
 import type {
   Trade, Journal, DartNews, UploadHistoryItem, MonthlyDatum,
-  EmotionRadarDatum, BiasComparisonDatum, BiasTrendDatum, AnalysisEntry,
+  EmotionRadarDatum, BiasComparisonDatum, AnalysisEntry,
   RuleTemplate, TutorialStep, NotifRaw, LegalContent,
 } from './types';
 
@@ -82,14 +82,7 @@ export const biasComparisonData: BiasComparisonDatum[] = [
   { subject: '군집거래', self: 64, trading: 44 },
 ];
 
-export const biasTrend: BiasTrendDatum[] = [
-  { date: '3월', tested: true, 처분효과: 58, 과잉확신: 38, 복권형선호: 62, 군집거래: 52 },
-  { date: '4월', tested: false, 처분효과: 58, 과잉확신: 38, 복권형선호: 62, 군집거래: 52 },
-  { date: '5월', tested: true, 처분효과: 65, 과잉확신: 42, 복권형선호: 70, 군집거래: 58 },
-  { date: '6월', tested: false, 처분효과: 65, 과잉확신: 42, 복권형선호: 70, 군집거래: 58 },
-  { date: '7월', tested: true, 처분효과: 68, 과잉확신: 42, 복권형선호: 74, 군집거래: 61 },
-];
-
+// HomeScreen의 "나의 투자 성향" 미니 요약 카드가 아직 이 mock을 씀 — 실제 연동 시 교체 필요.
 export const BIAS_SCORES = [68, 42, 74, 61];
 
 export const BIAS_DESCS = [
