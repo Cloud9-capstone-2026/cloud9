@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -13,12 +13,28 @@ import type { OnboardingStackParamList } from '../navigation/types';
 export function TutRulesEditScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<OnboardingStackParamList>>();
   const insets = useSafeAreaInsets();
-  const { ruleOn, ruleVal, ruleMoney, ruleRevert, setRulesConfirmed } = useAppState();
+  const { ruleOn, ruleVal, ruleMoney, loadRules, ruleRevert, saveRules, setRulesConfirmed } = useAppState();
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadRules().catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const valid = rulesAllValid(ruleOn, ruleVal, ruleMoney);
 
   const onBack = () => { ruleRevert(); navigation.goBack(); };
-  const onConfirm = () => { setRulesConfirmed(true); navigation.goBack(); };
+  const onConfirm = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await saveRules();
+      setRulesConfirmed(true);
+      navigation.goBack();
+    } catch {
+      setSaving(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -35,7 +51,7 @@ export function TutRulesEditScreen() {
         </View>
       </ScrollView>
       <View style={[styles.footer, { paddingBottom: Math.max(16, insets.bottom) + 8 }]}>
-        <CtaButton label="확인" active={valid} onPress={onConfirm} />
+        <CtaButton label="확인" active={valid && !saving} onPress={onConfirm} />
       </View>
     </View>
   );

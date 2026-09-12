@@ -7,6 +7,7 @@ import * as authApi from '../api/auth';
 import * as surveyApi from '../api/survey';
 import * as tradesApi from '../api/trades';
 import * as analysisApi from '../api/analysis';
+import * as rulesApi from '../api/rules';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -85,6 +86,8 @@ interface AppStateValue {
   setRuleMoney: (id: string, val: number) => void;
   ruleSnap: () => void;
   ruleRevert: () => void;
+  loadRules: () => Promise<void>;
+  saveRules: () => Promise<void>;
 
   // 업로드 플로우
   upFile: UpFile | null;
@@ -414,6 +417,42 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // 서버의 규칙 7종 상태를 불러와 ruleOn/ruleVal/ruleMoney에 채운다. 백엔드는
+  // 규칙당 param 필드 하나뿐이라, RULES(mock.ts) 템플릿의 isMoney/unit 여부를 보고
+  // ruleVal(횟수·일수)과 ruleMoney(금액) 중 어디에 넣을지 프론트에서 나눠 담는다.
+  const loadRules = useCallback(async () => {
+    const items = await rulesApi.getRules();
+    const nextOn: RuleOnMap = {};
+    const nextVal: RuleValMap = {};
+    const nextMoney: RuleValMap = {};
+    items.forEach((item) => {
+      nextOn[item.rule_id] = item.enabled;
+      const template = RULES.find((r) => r.id === item.rule_id);
+      const param = item.param ?? template?.defaultVal ?? 0;
+      if (template?.isMoney) nextMoney[item.rule_id] = param;
+      else if (template && template.unit !== null) nextVal[item.rule_id] = param;
+    });
+    setRuleOn(nextOn);
+    setRuleValState(nextVal);
+    setRuleMoneyState(nextMoney);
+    ruleSnapRef.current = { ruleOn: nextOn, ruleVal: nextVal, ruleMoney: nextMoney };
+  }, []);
+
+  // 7종 규칙 전부를 현재 로컬 상태 그대로 PUT — 두 맵(ruleVal/ruleMoney)을 다시
+  // param 필드 하나로 합친다. same_day_roundtrip처럼 파라미터가 없는 규칙은 null.
+  const saveRules = useCallback(async () => {
+    await Promise.all(RULES.map((template) => {
+      const enabled = !!ruleOn[template.id];
+      const param = template.isMoney
+        ? (ruleMoney[template.id] || null)
+        : template.unit !== null
+          ? (ruleVal[template.id] ?? null)
+          : null;
+      return rulesApi.setRule(template.id, enabled, param);
+    }));
+    ruleSnapRef.current = { ruleOn, ruleVal, ruleMoney };
+  }, [ruleOn, ruleVal, ruleMoney]);
+
   const markNotifRead = useCallback((idx: number) => {
     setNotifRead((prev) => ({ ...prev, [idx]: true }));
   }, []);
@@ -468,6 +507,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setRuleMoney,
       ruleSnap,
       ruleRevert,
+      loadRules,
+      saveRules,
       upFile,
       setUpFile,
       uploadFile,
@@ -509,7 +550,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       journals, saveJournal, addJournal, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
-      ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
+      ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert, loadRules, saveRules,
       upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, getAllTrades, pendingUpload, clearPendingUpload,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
