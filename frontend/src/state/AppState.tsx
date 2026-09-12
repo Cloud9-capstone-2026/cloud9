@@ -6,6 +6,7 @@ import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/c
 import * as authApi from '../api/auth';
 import * as surveyApi from '../api/survey';
 import * as tradesApi from '../api/trades';
+import * as analysisApi from '../api/analysis';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -91,6 +92,8 @@ interface AppStateValue {
   uploadFile: (fileUri: string, fileName: string, mimeType: string) => Promise<import('../api/trades').UploadResponse>;
   pollJobStatus: (jobId: number) => Promise<import('../api/trades').JobStatus>;
   getUploads: (limit?: number, offset?: number) => Promise<import('../api/trades').UploadHistoryItem[]>;
+  // 페이지네이션(최대 200/회)을 내부에서 다 순회해서 사용자의 전체 분석 결과를 모아 돌려준다.
+  getAllAnalysis: () => Promise<import('../api/analysis').AnalysisResult[]>;
   pendingUpload: PendingUpload | null;
   clearPendingUpload: () => void;
 
@@ -280,6 +283,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return tradesApi.getUploads(limit, offset);
   }, []);
 
+  const getAllAnalysis = useCallback(async () => {
+    const PAGE = 200;
+    const MAX_PAGES = 10; // 안전장치 — 최대 2000건까지만 순회
+    let offset = 0;
+    const all: import('../api/analysis').AnalysisResult[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const page = await analysisApi.getAnalysis(PAGE, offset);
+      all.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
+  }, []);
+
   const logout = useCallback(async () => {
     setAuthPhase('auth');
     await clearToken();
@@ -441,6 +458,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       uploadFile,
       pollJobStatus,
       getUploads,
+      getAllAnalysis,
       pendingUpload,
       clearPendingUpload,
       notifRead,
@@ -476,7 +494,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
-      upFile, uploadFile, pollJobStatus, getUploads, pendingUpload, clearPendingUpload,
+      upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, pendingUpload, clearPendingUpload,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
       biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,

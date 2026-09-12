@@ -1,6 +1,6 @@
 import type {
   Trade, Journal, DartNews, MonthlyDatum,
-  EmotionRadarDatum, BiasComparisonDatum, AnalysisEntry,
+  EmotionRadarDatum, AnalysisEntry,
   RuleTemplate, TutorialStep, NotifRaw, LegalContent,
 } from './types';
 
@@ -56,14 +56,6 @@ export const emotionRadarData: EmotionRadarDatum[] = [
   { e: '조급함', value: 4 }, { e: '욕심', value: 2 }, { e: '두려움', value: 1 },
   { e: '확신', value: 3 }, { e: '홧김', value: 0 }, { e: '미련', value: 1 },
   { e: '불안', value: 1 }, { e: '무심함', value: 0 }, { e: '후회', value: 2 }, { e: '흥분', value: 1 },
-];
-
-// 검사 결과(self) vs 실제 거래 데이터(trading) 비교 — 8/31 업데이트로 값 변경
-export const biasComparisonData: BiasComparisonDatum[] = [
-  { subject: '처분효과', self: 72, trading: 48 },
-  { subject: '과잉확신', self: 38, trading: 69 },
-  { subject: '복권형선호', self: 56, trading: 78 },
-  { subject: '군집거래', self: 64, trading: 44 },
 ];
 
 // HomeScreen의 "나의 투자 성향" 미니 요약 카드가 아직 이 mock을 씀 — 실제 연동 시 교체 필요.

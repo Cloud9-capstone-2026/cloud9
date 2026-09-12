@@ -7,66 +7,65 @@ import { GradientCard } from '../components/GradientCard';
 import { DumbbellChart } from '../components/charts/DumbbellChart';
 import { TrendLineChart } from '../components/charts/TrendLineChart';
 import { Avatar } from '../assets/Avatar';
-import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, BIAS_KEY_MAP, text } from '../theme/tokens';
-import { biasComparisonData, analysisData } from '../data/mock';
+import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, text } from '../theme/tokens';
 import { getCharacter } from '../constants/characterAssets';
 import { buildBiasTrend } from '../utils/buildBiasTrend';
+import { buildBiasComparison, computeTopBias } from '../utils/buildBiasComparison';
 import { formatDate } from '../utils/formatDate';
 import type { SurveyResult } from '../api/survey';
+import type { AnalysisResult } from '../api/analysis';
+import type { BiasComparisonDatum } from '../data/types';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
+// 검사도 거래도 없을 때 DumbbellChart의 그리드·라벨만 보여주기 위한 자리표시자(empty=true라 값은 안 쓰임).
+const EMPTY_COMPARISON: BiasComparisonDatum[] = BIAS_TREND_KEYS.map((subject) => ({ subject, self: 0, trading: 0 }));
+
 export function MyPageScreen() {
-  const { openBiasInfo, hasUploaded, getLatestSurvey, getSurveyHistory } = useAppState();
+  const { openBiasInfo, getLatestSurvey, getSurveyHistory, getAllAnalysis } = useAppState();
   // undefined = 아직 조회 안 됨(로딩), null = 조회했지만 결과 없음(검사 이력 없음)
   const [latest, setLatest] = useState<SurveyResult | null | undefined>(undefined);
   const [history, setHistory] = useState<SurveyResult[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
         try {
-          const [latestRes, historyRes] = await Promise.all([getLatestSurvey(), getSurveyHistory(20)]);
+          const [latestRes, historyRes, analysisRes] = await Promise.all([
+            getLatestSurvey(), getSurveyHistory(20), getAllAnalysis(),
+          ]);
           if (!cancelled) {
             setLatest(latestRes);
             setHistory(historyRes);
+            setAnalysis(analysisRes);
           }
         } catch {
           // 네트워크 실패 시 기존 값 유지 — 화면은 이전 상태(또는 빈 상태)로 남는다.
         }
       })();
       return () => { cancelled = true; };
-    }, [getLatestSurvey, getSurveyHistory])
+    }, [getLatestSurvey, getSurveyHistory, getAllAnalysis])
   );
 
   const trend = useMemo(() => buildBiasTrend(history), [history]);
   const character = latest ? getCharacter(latest.type_code) : null;
+  const hasAnalysis = analysis.length > 0;
 
-  const topBias = useMemo(() => {
-    if (!hasUploaded) return null;
-    const counts: Record<string, number> = {};
-    Object.values(analysisData).forEach((a) => {
-      const k = a.detail.top_bias;
-      counts[k] = (counts[k] || 0) + 1;
-    });
-    let bestKey: string | null = null;
-    let bestCount = 0;
-    Object.entries(counts).forEach(([k, c]) => {
-      if (c > bestCount) { bestKey = k; bestCount = c; }
-    });
-    return bestKey ? { label: BIAS_KEY_MAP[bestKey as keyof typeof BIAS_KEY_MAP], count: bestCount } : null;
-  }, [hasUploaded]);
+  const topBias = useMemo(() => computeTopBias(analysis), [analysis]);
+  const comparison = useMemo(() => buildBiasComparison(latest ?? null, analysis), [latest, analysis]);
 
   const insight = useMemo(() => {
-    let best = biasComparisonData[0];
+    if (comparison.length === 0) return null;
+    let best = comparison[0];
     let bestDiff = -1;
-    biasComparisonData.forEach((d) => {
+    comparison.forEach((d) => {
       const diff = Math.abs(d.trading - d.self);
       if (diff > bestDiff) { bestDiff = diff; best = d; }
     });
     return { subject: best.subject, diff: bestDiff, bigger: best.trading > best.self };
-  }, []);
+  }, [comparison]);
 
   return (
     <Screen contentStyle={styles.content}>
@@ -147,9 +146,9 @@ export function MyPageScreen() {
               </View>
             </View>
             <View style={{ marginTop: 10 }}>
-              <DumbbellChart data={biasComparisonData} empty={!hasUploaded} />
+              <DumbbellChart data={comparison.length > 0 ? comparison : EMPTY_COMPARISON} empty={!hasAnalysis || !latest} />
             </View>
-            {hasUploaded && (
+            {hasAnalysis && latest && insight && (
               <View style={styles.insightBlock}>
                 <View style={styles.insightIconBox}>
                   <Text style={styles.insightIconText}>!</Text>
