@@ -278,7 +278,7 @@ export function HomeScreen() {
                   key={t.id}
                   trade={toTradeShape(t)}
                   index={i}
-                  risk={match ? verdictToRisk(match.detail.verdict) : 'safe'}
+                  risk={match ? verdictToRisk(match.detail.verdict) : null}
                   onPress={() => goToReportDetail(t.id)}
                 />
               );

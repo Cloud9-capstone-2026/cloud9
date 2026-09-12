@@ -1,13 +1,18 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, ScrollView, NativeSyntheticEvent, NativeScrollEvent, StyleSheet } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useRoute, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { NewsRow } from '../components/NewsRow';
+import { Spinner } from '../components/FlowOverlay';
 import { LayerRing } from '../components/charts/LayerRing';
 import { C, DEVIATION_GAUGE, shadow } from '../theme/tokens';
 import { dartNews } from '../data/mock';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult } from '../api/analysis';
+import { buildAnalysisLookup, findAnalysisForTrade } from '../utils/matchTradeAnalysis';
 import { buildReportDetailVM } from './reportDetailLogic';
+import { useAppState } from '../state/AppState';
 import type { RootStackParamList } from '../navigation/types';
 
 const SEG_LABELS = ['~1σ', '~2σ', '~3σ', '3σ+'];
@@ -15,7 +20,35 @@ const SEG_LABELS = ['~1σ', '~2σ', '~3σ', '3σ+'];
 export function ReportDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'ReportDetail'>>();
   const { tradeId } = route.params;
-  const d = useMemo(() => buildReportDetailVM(tradeId), [tradeId]);
+  const { getAllTrades, getAllAnalysis } = useAppState();
+  const [trades, setTrades] = useState<TradeRaw[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          if (!cancelled) {
+            setTrades(tradesRes);
+            setAnalysis(analysisRes);
+          }
+        } catch {
+          // 네트워크 실패 — 이전 값 유지
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [getAllTrades, getAllAnalysis])
+  );
+
+  const trade = useMemo(() => trades.find((t) => t.id === tradeId), [trades, tradeId]);
+  const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
+  const matchedAnalysis = trade ? findAnalysisForTrade(analysisLookup, trade) : null;
+  const d = useMemo(
+    () => (trade ? buildReportDetailVM(trade, matchedAnalysis) : null),
+    [trade, matchedAnalysis]
+  );
   const [evOpen, setEvOpen] = useState<Record<string, boolean>>({});
   const [ruleScroll, setRuleScroll] = useState({ pos: 0, trackH: 0, contentH: 0 });
 
@@ -24,18 +57,27 @@ export function ReportDetailScreen() {
     const maxScroll = Math.max(1, contentSize.height - layoutMeasurement.height);
     setRuleScroll({ pos: contentOffset.y / maxScroll, trackH: layoutMeasurement.height, contentH: contentSize.height });
   };
-  const ruleCount = d.rules.length;
+  const ruleCount = d?.rules.length ?? 0;
   const showRuleScrollbar = ruleCount > 4;
   const thumbRatio = Math.max(0.28, 4 / Math.max(ruleCount, 1));
   const thumbH = ruleScroll.trackH * thumbRatio;
   const thumbTop = (ruleScroll.trackH - thumbH) * ruleScroll.pos;
   const relatedNews = useMemo(() => dartNews.slice(0, 3), []);
 
+  // 아직 목록을 못 받아왔거나(로딩), 이 tradeId에 해당하는 거래를 못 찾은 경우.
+  if (!d) {
+    return (
+      <Screen back contentStyle={styles.loadingContent}>
+        <Spinner />
+      </Screen>
+    );
+  }
+
   return (
     <Screen back contentStyle={styles.content}>
       <View style={styles.headerRow}>
         <Text style={styles.stockName}>{d.stock}</Text>
-        <Text style={styles.dateText}>분석일자 2026.07.31</Text>
+        <Text style={styles.dateText}>{d.analyzedAt ? `분석일자 ${d.analyzedAt}` : ''}</Text>
       </View>
 
       <View>
@@ -241,6 +283,7 @@ export function ReportDetailScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 22 },
+  loadingContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   headerRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', paddingBottom: 2 },
   stockName: { fontSize: 27, fontWeight: '700', color: C.navy, letterSpacing: -0.5 },
   dateText: { fontSize: 13, color: C.muted },

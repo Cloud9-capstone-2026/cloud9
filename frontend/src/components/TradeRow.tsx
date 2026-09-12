@@ -10,9 +10,11 @@ import type { Trade } from '../data/types';
 export const TRADE_ROW_HEIGHT = 72.8;
 
 // risk를 명시적으로 주면 그대로 쓰고(실제 분석 결과의 verdict), 안 주면 기존처럼
-// trade.score로 추정한다(mock 전용 화면 하위호환).
-export function TradeRow({ trade, index, onPress, risk: riskOverride }: { trade: Trade; index: number; onPress: () => void; risk?: RiskLevel }) {
-  const risk = riskOverride ?? riskLevel(trade.score);
+// trade.score로 추정한다(mock 전용 화면 하위호환). null을 주면 — 매칭되는 분석 결과가
+// 없는 거래 — 뱃지를 안 보이게 하되(잘못된 정상/이상 판정을 지어내지 않음) 자리는
+// 그대로 차지하게 해서 다른 행들과 레이아웃이 안 틀어지게 한다.
+export function TradeRow({ trade, index, onPress, risk: riskOverride }: { trade: Trade; index: number; onPress: () => void; risk?: RiskLevel | null }) {
+  const risk = riskOverride === undefined ? riskLevel(trade.score) : riskOverride;
   const isBuy = trade.type === 'buy';
   return (
     <Pressable
@@ -28,7 +30,9 @@ export function TradeRow({ trade, index, onPress, risk: riskOverride }: { trade:
       </View>
       <View style={styles.right}>
         <Text style={styles.amount}>{trade.amount}원</Text>
-        <StatusBadge risk={risk} />
+        <View style={risk ? undefined : styles.badgeHidden}>
+          <StatusBadge risk={risk ?? 'safe'} />
+        </View>
       </View>
     </Pressable>
   );
@@ -44,4 +48,5 @@ const styles = StyleSheet.create({
   type: { fontSize: 13, fontWeight: '500' },
   right: { alignItems: 'flex-end', flexShrink: 0 },
   amount: { fontSize: 16, fontWeight: '500', color: C.navy, marginBottom: 5 },
+  badgeHidden: { opacity: 0 },
 });
