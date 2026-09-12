@@ -94,6 +94,7 @@ interface AppStateValue {
   getUploads: (limit?: number, offset?: number) => Promise<import('../api/trades').UploadHistoryItem[]>;
   // 페이지네이션(최대 200/회)을 내부에서 다 순회해서 사용자의 전체 분석 결과를 모아 돌려준다.
   getAllAnalysis: () => Promise<import('../api/analysis').AnalysisResult[]>;
+  getAllTrades: () => Promise<import('../api/trades').TradeRaw[]>;
   pendingUpload: PendingUpload | null;
   clearPendingUpload: () => void;
 
@@ -297,6 +298,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return all;
   }, []);
 
+  const getAllTrades = useCallback(async () => {
+    const PAGE = 200;
+    const MAX_PAGES = 10;
+    let offset = 0;
+    const all: import('../api/trades').TradeRaw[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const page = await tradesApi.getTrades(PAGE, offset);
+      all.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
+  }, []);
+
   const logout = useCallback(async () => {
     setAuthPhase('auth');
     await clearToken();
@@ -459,6 +474,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       pollJobStatus,
       getUploads,
       getAllAnalysis,
+      getAllTrades,
       pendingUpload,
       clearPendingUpload,
       notifRead,
@@ -494,7 +510,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert,
-      upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, pendingUpload, clearPendingUpload,
+      upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, getAllTrades, pendingUpload, clearPendingUpload,
       notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
       biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,

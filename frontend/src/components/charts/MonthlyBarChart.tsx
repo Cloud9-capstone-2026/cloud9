@@ -1,26 +1,45 @@
-import React from 'react';
-import Svg, { Rect, Polyline, Circle, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
-import { C, ACCENT } from '../../theme/tokens';
-import type { MonthlyDatum } from '../../data/types';
+import React, { useEffect, useRef, useState } from 'react';
+import Svg, { Rect, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { C } from '../../theme/tokens';
 
 // 이 차트의 고정 렌더 높이 — 카드가 빈 상태일 때 크기를 유지해야 하면 이 값을 그대로 재사용할 것.
 export const MONTHLY_CHART_HEIGHT = 158;
 
-export function MonthlyBarChart({ data, activeTab }: { data: MonthlyDatum[]; activeTab: 'trades' | 'anomaly' }) {
+const ANIM_MS = 600;
+
+function useGrowProgress(dep: unknown) {
+  const [progress, setProgress] = useState(0);
+  const rafRef = useRef<number | null>(null);
+  useEffect(() => {
+    setProgress(0);
+    const startedAt = Date.now();
+    const step = () => {
+      const t = Math.min(1, (Date.now() - startedAt) / ANIM_MS);
+      // ease-out
+      setProgress(1 - Math.pow(1 - t, 3));
+      if (t < 1) rafRef.current = requestAnimationFrame(step);
+    };
+    rafRef.current = requestAnimationFrame(step);
+    return () => { if (rafRef.current != null) cancelAnimationFrame(rafRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dep]);
+  return progress;
+}
+
+// 월별 거래내역 — 막대가 아래에서 위로 자라나는 모션. Y축은 이 차트 자신의 최댓값(6개월 중)을
+// 4등분해서 눈금을 매긴다(다른 차트와 스케일을 공유하지 않음).
+export function MonthlyBarChart({ months, values }: { months: string[]; values: number[] }) {
+  const progress = useGrowProgress(values.join(','));
   const W = 356, H = MONTHLY_CHART_HEIGHT, padL = 26, padB = 24, padT = 8;
   const plotH = H - padB - padT;
-  const n = data.length;
-  const step = (W - padL - 8) / n;
-  const maxV = 20;
+  const n = months.length;
+  const step = n > 0 ? (W - padL - 8) / n : 0;
+  const maxV = Math.max(1, ...values);
+  const ticks = [0, maxV / 4, maxV / 2, (maxV * 3) / 4, maxV];
   const y = (v: number) => padT + plotH - (v / maxV) * plotH;
 
-  const barOpacity = activeTab === 'trades' ? 1 : 0.13;
-  const lineOpacity = activeTab === 'anomaly' ? 1 : 0.1;
-
-  const points = data.map((d, i) => `${padL + i * step + step / 2},${y(d.anomalies)}`).join(' ');
-
   return (
-    <Svg viewBox={`0 0 ${W} ${H}`} width="100%" height={158}>
+    <Svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}>
       <Defs>
         <LinearGradient id="canaryBarGrad" x1="0" y1="0" x2="0" y2="1">
           <Stop offset="0%" stopColor="#1d4ed8" />
@@ -28,22 +47,21 @@ export function MonthlyBarChart({ data, activeTab }: { data: MonthlyDatum[]; act
           <Stop offset="100%" stopColor="#3b82f6" stopOpacity={0.72} />
         </LinearGradient>
       </Defs>
-      {[0, 5, 10, 15, 20].map((v) => (
-        <SvgText key={`y${v}`} x={padL - 8} y={y(v) + 4} textAnchor="end" fill={C.muted} fontSize={10}>{v}</SvgText>
+      {ticks.map((v, i) => (
+        <SvgText key={`y${i}`} x={padL - 8} y={y(v) + 4} textAnchor="end" fill={C.muted} fontSize={10}>{Math.round(v)}</SvgText>
       ))}
-      {data.map((d, i) => {
+      {values.map((v, i) => {
         const bw = 22;
         const x = padL + i * step + (step - bw) / 2;
+        const fullTop = y(v);
+        const fullH = padT + plotH - fullTop;
+        const animH = fullH * progress;
         return (
-          <Rect key={`b${i}`} x={x} y={y(d.trades)} width={bw} height={padT + plotH - y(d.trades)} rx={4} fill="url(#canaryBarGrad)" opacity={barOpacity} />
+          <Rect key={`b${i}`} x={x} y={padT + plotH - animH} width={bw} height={animH} rx={4} fill="url(#canaryBarGrad)" />
         );
       })}
-      <Polyline points={points} fill="none" stroke={ACCENT} strokeWidth={2.5} strokeLinejoin="round" opacity={lineOpacity} />
-      {data.map((d, i) => (
-        <Circle key={`d${i}`} cx={padL + i * step + step / 2} cy={y(d.anomalies)} r={4} fill={ACCENT} opacity={lineOpacity} />
-      ))}
-      {data.map((d, i) => (
-        <SvgText key={`x${i}`} x={padL + i * step + step / 2} y={H - 6} textAnchor="middle" fill={C.muted} fontSize={11}>{d.month}</SvgText>
+      {months.map((m, i) => (
+        <SvgText key={`x${i}`} x={padL + i * step + step / 2} y={H - 6} textAnchor="middle" fill={C.muted} fontSize={11}>{m}</SvgText>
       ))}
     </Svg>
   );

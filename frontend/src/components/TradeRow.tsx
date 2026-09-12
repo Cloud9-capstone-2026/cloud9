@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { C, riskLevel } from '../theme/tokens';
+import { C, riskLevel, RiskLevel } from '../theme/tokens';
 import { StatusBadge } from './StatusBadge';
 import type { Trade } from '../data/types';
 
@@ -9,8 +9,10 @@ import type { Trade } from '../data/types';
 // (로우 안의 폰트 크기나 뱃지 패딩을 바꾸면 이 값도 다시 재서 갱신해야 함.)
 export const TRADE_ROW_HEIGHT = 72.8;
 
-export function TradeRow({ trade, index, onPress }: { trade: Trade; index: number; onPress: () => void }) {
-  const risk = riskLevel(trade.score);
+// risk를 명시적으로 주면 그대로 쓰고(실제 분석 결과의 verdict), 안 주면 기존처럼
+// trade.score로 추정한다(mock 전용 화면 하위호환).
+export function TradeRow({ trade, index, onPress, risk: riskOverride }: { trade: Trade; index: number; onPress: () => void; risk?: RiskLevel }) {
+  const risk = riskOverride ?? riskLevel(trade.score);
   const isBuy = trade.type === 'buy';
   return (
     <Pressable

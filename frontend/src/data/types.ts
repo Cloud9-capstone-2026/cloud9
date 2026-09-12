@@ -38,12 +38,6 @@ export interface DartNews {
   date: string;
 }
 
-export interface MonthlyDatum {
-  month: string;
-  trades: number;
-  anomalies: number;
-}
-
 export interface EmotionRadarDatum {
   e: string;
   value: number;

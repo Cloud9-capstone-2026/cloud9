@@ -1,5 +1,5 @@
 import type {
-  Trade, Journal, DartNews, MonthlyDatum,
+  Trade, Journal, DartNews,
   EmotionRadarDatum, AnalysisEntry,
   RuleTemplate, TutorialStep, NotifRaw, LegalContent,
 } from './types';
@@ -19,14 +19,6 @@ export const tradesRaw: Trade[] = [
   { id: 12, stock: '한화에어로스페이스', date: '2026.06.18', type: 'buy', price: '195,000', qty: 10, amount: '1,949,000', score: 37, deviation: 0.95 },
 ];
 
-export const monthlyData: MonthlyDatum[] = [
-  { month: '2월', trades: 8, anomalies: 3 },
-  { month: '3월', trades: 12, anomalies: 5 },
-  { month: '4월', trades: 7, anomalies: 2 },
-  { month: '5월', trades: 15, anomalies: 8 },
-  { month: '6월', trades: 11, anomalies: 4 },
-  { month: '7월', trades: 18, anomalies: 9 },
-];
 
 export const journals: Journal[] = [
   { id: 1, stock: '삼성전자', date: '2026.07.28', type: 'buy', emotion: '확신', risk: 'danger', memo: '실적 개선 기대감으로 매수.', reason: '2분기 영업이익이 시장 기대치를 상회했고 HBM 수주가 가속화되는 상황. 반도체 슈퍼사이클 진입 시그널로 판단해 매수.', review: '매수 직후 2.3% 하락했으나 이후 회복. 장기적 관점에서는 올바른 판단이었다고 생각.' },
@@ -58,8 +50,6 @@ export const emotionRadarData: EmotionRadarDatum[] = [
   { e: '불안', value: 1 }, { e: '무심함', value: 0 }, { e: '후회', value: 2 }, { e: '흥분', value: 1 },
 ];
 
-// HomeScreen의 "나의 투자 성향" 미니 요약 카드가 아직 이 mock을 씀 — 실제 연동 시 교체 필요.
-export const BIAS_SCORES = [68, 42, 74, 61];
 
 export const BIAS_DESCS = [
   '이익 난 종목은 서둘러 팔고, 손실 난 종목은 오래 붙잡는 경향이에요.',
