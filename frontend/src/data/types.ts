@@ -20,11 +20,6 @@ export interface DartNews {
   date: string;
 }
 
-export interface EmotionRadarDatum {
-  e: string;
-  value: number;
-}
-
 export interface BiasComparisonDatum {
   subject: string;
   self: number;

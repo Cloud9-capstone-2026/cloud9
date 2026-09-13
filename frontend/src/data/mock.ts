@@ -1,14 +1,6 @@
 import type {
-  EmotionRadarDatum,
   RuleTemplate, TutorialStep, LegalContent,
 } from './types';
-
-
-export const emotionRadarData: EmotionRadarDatum[] = [
-  { e: '조급함', value: 4 }, { e: '욕심', value: 2 }, { e: '두려움', value: 1 },
-  { e: '확신', value: 3 }, { e: '홧김', value: 0 }, { e: '미련', value: 1 },
-  { e: '불안', value: 1 }, { e: '무심함', value: 0 }, { e: '후회', value: 2 }, { e: '흥분', value: 1 },
-];
 
 
 export const BIAS_DESCS = [

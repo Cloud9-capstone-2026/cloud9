@@ -7,8 +7,7 @@ import { GradientCard } from '../components/GradientCard';
 import { EmptyState } from '../components/EmptyState';
 import { JournalRow, JOURNAL_ROW_HEIGHT } from '../components/JournalRow';
 import { RadarChart } from '../components/charts/RadarChart';
-import { C, ACCENT, shadow, text } from '../theme/tokens';
-import { emotionRadarData } from '../data/mock';
+import { C, ACCENT, EMOTIONS, shadow, text } from '../theme/tokens';
 import type { TradeRaw } from '../api/trades';
 import type { AnalysisResult } from '../api/analysis';
 import { formatDate } from '../utils/formatDate';
@@ -44,6 +43,17 @@ export function JournalListScreen() {
   );
 
   const hasUploaded = trades.length > 0;
+  const hasJournals = journals.length > 0;
+  // 전체 거래일지 중 각 감정 태그가 차지하는 비율(%) — 레이더 차트 축 10개는 항상
+  // EMOTIONS 순서 고정, 값은 0~100 사이의 백분율(태그 건수 / 전체 일지 건수 * 100).
+  const emotionPercents = useMemo(() => {
+    const total = journals.length;
+    if (total === 0) return EMOTIONS.map(() => 0);
+    return EMOTIONS.map((e) => {
+      const count = journals.filter((j) => j.emotion === e).length;
+      return Math.round((count / total) * 1000) / 10;
+    });
+  }, [journals]);
   const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
   const tradeById = useMemo(() => new Map(trades.map((t) => [t.id, t])), [trades]);
 
@@ -93,14 +103,14 @@ export function JournalListScreen() {
           <Text style={styles.radarTitle}>감정 태그 분석</Text>
           <View style={styles.radarWrap}>
             <RadarChart
-              axes={emotionRadarData.map((d) => d.e)}
-              series={hasUploaded ? [{ values: emotionRadarData.map((d) => d.value), color: ACCENT, fillOpacity: 0.28, width: 1.5 }] : []}
+              axes={EMOTIONS}
+              series={hasJournals ? [{ values: emotionPercents, color: ACCENT, fillOpacity: 0.28, width: 1.5 }] : []}
               size={165}
               radius={50}
-              max={5}
+              max={100}
               fontSize={8}
               height={160}
-              dots={hasUploaded}
+              dots={hasJournals}
             />
           </View>
         </Card>
