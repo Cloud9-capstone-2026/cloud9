@@ -8,6 +8,7 @@ import { PeriodDropdown } from '../components/PeriodDropdown';
 import { Pagination } from '../components/FilterControls';
 import { C, PERIODS, text } from '../theme/tokens';
 import { formatDate } from '../utils/formatDate';
+import { isWithinPeriod } from '../utils/periodFilter';
 import type { UploadHistoryItem } from '../api/trades';
 import { useAppState } from '../state/AppState';
 
@@ -28,10 +29,14 @@ export function UploadHistoryScreen() {
   );
 
   const hasUploads = uploads.length > 0;
-  const totalPages = Math.max(1, Math.ceil(uploads.length / PAGE_SIZE));
+  const filtered = useMemo(
+    () => uploads.filter((u) => isWithinPeriod(u.uploaded_at, period)),
+    [uploads, period]
+  );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = useMemo(
-    () => uploads.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
-    [page, uploads]
+    () => filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+    [page, filtered]
   );
 
   return (

@@ -1,23 +1,67 @@
-import React, { useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card, CARD_PADDING } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
 import { EmptyState } from '../components/EmptyState';
 import { JournalRow, JOURNAL_ROW_HEIGHT } from '../components/JournalRow';
 import { RadarChart } from '../components/charts/RadarChart';
-import { C, ACCENT, shadow, text } from '../theme/tokens';
-import { emotionRadarData, tradesRaw } from '../data/mock';
+import { C, ACCENT, EMOTIONS, shadow, text } from '../theme/tokens';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult } from '../api/analysis';
+import { formatDate } from '../utils/formatDate';
+import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { useAppState } from '../state/AppState';
 import { goToJournalFullList, goToJournalPending, goToJournalWrite } from '../navigation/navigationRef';
 
 const RECENT_JOURNALS_VISIBLE = 5;
 
 export function JournalListScreen() {
-  const { journals, isJournaled, hasUploaded } = useAppState();
+  const { journals, refreshJournals, isJournaled, getAllTrades, getAllAnalysis } = useAppState();
+  const [trades, setTrades] = useState<TradeRaw[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          if (!cancelled) {
+            setTrades(tradesRes);
+            setAnalysis(analysisRes);
+          }
+        } catch {
+          // 네트워크 실패 — 이전 값 유지
+        }
+      })();
+      // 일지 목록은 별도 상태(AppState)라 실패해도 위 거래/분석 표시를 막으면 안 되므로 독립적으로 불러온다.
+      refreshJournals().catch(() => {});
+      return () => { cancelled = true; };
+    }, [getAllTrades, getAllAnalysis, refreshJournals])
+  );
+
+  const hasUploaded = trades.length > 0;
+  const hasJournals = journals.length > 0;
+  // 전체 거래일지 중 각 감정 태그가 차지하는 비율(%) — 레이더 차트 축 10개는 항상
+  // EMOTIONS 순서 고정, 값은 0~100 사이의 백분율(태그 건수 / 전체 일지 건수 * 100).
+  const emotionPercents = useMemo(() => {
+    const total = journals.length;
+    if (total === 0) return EMOTIONS.map(() => 0);
+    return EMOTIONS.map((e) => {
+      const count = journals.filter((j) => j.emotion === e).length;
+      return Math.round((count / total) * 1000) / 10;
+    });
+  }, [journals]);
+  const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
+  const tradeById = useMemo(() => new Map(trades.map((t) => [t.id, t])), [trades]);
+
+  // 일지를 쓸 수 있는 대상 = 분석 결과가 있는(=정상적으로 분석까지 끝난) 거래만 —
+  // JournalPendingScreen의 정의와 동일하게 맞춰서 이 배너 숫자와 실제 목록 건수가 일치하게 한다.
   const pendingCount = useMemo(
-    () => (hasUploaded ? tradesRaw.filter((t) => !isJournaled(t.id)).length : 0),
-    [isJournaled, hasUploaded]
+    () => trades.filter((t) => findAnalysisForTrade(analysisLookup, t) !== null && !isJournaled(t.id)).length,
+    [trades, analysisLookup, isJournaled]
   );
   const topTag = useMemo(() => {
     if (!hasUploaded) return null;
@@ -28,6 +72,15 @@ export function JournalListScreen() {
     Object.entries(counts).forEach(([k, c]) => { if (c > bestCount) { best = k; bestCount = c; } });
     return best ? { tag: best, count: bestCount } : null;
   }, [journals, hasUploaded]);
+
+  const recentJournals = useMemo(
+    () => journals.slice(0, RECENT_JOURNALS_VISIBLE).map((j) => {
+      const t = tradeById.get(j.trade_id);
+      const match = t ? findAnalysisForTrade(analysisLookup, t) : null;
+      return { journal: j, risk: match ? verdictToRisk(match.detail.verdict) : null };
+    }),
+    [journals, tradeById, analysisLookup]
+  );
 
   return (
     <Screen contentStyle={styles.content}>
@@ -50,14 +103,14 @@ export function JournalListScreen() {
           <Text style={styles.radarTitle}>감정 태그 분석</Text>
           <View style={styles.radarWrap}>
             <RadarChart
-              axes={emotionRadarData.map((d) => d.e)}
-              series={hasUploaded ? [{ values: emotionRadarData.map((d) => d.value), color: ACCENT, fillOpacity: 0.28, width: 1.5 }] : []}
+              axes={EMOTIONS}
+              series={hasJournals ? [{ values: emotionPercents, color: ACCENT, fillOpacity: 0.28, width: 1.5 }] : []}
               size={165}
               radius={50}
-              max={5}
+              max={100}
               fontSize={8}
               height={160}
-              dots={hasUploaded}
+              dots={hasJournals}
             />
           </View>
         </Card>
@@ -86,8 +139,14 @@ export function JournalListScreen() {
         </View>
         <Card style={!hasUploaded && styles.recentCardEmpty}>
           {hasUploaded ? (
-            journals.slice(0, RECENT_JOURNALS_VISIBLE).map((j, i) => (
-              <JournalRow key={j.id} journal={j} index={i} onPress={() => goToJournalWrite(j.id)} />
+            recentJournals.map(({ journal: j, risk: r }, i) => (
+              <JournalRow
+                key={j.id}
+                journal={{ ...j, date: formatDate(j.date) }}
+                risk={r}
+                index={i}
+                onPress={() => goToJournalWrite(j.id)}
+              />
             ))
           ) : (
             <EmptyState

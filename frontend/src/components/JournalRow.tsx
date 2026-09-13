@@ -1,15 +1,16 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { C } from '../theme/tokens';
+import { C, RiskLevel } from '../theme/tokens';
 import { StatusBadge } from './StatusBadge';
-import type { Journal } from '../data/types';
+import type { JournalApiItem } from '../api/journals';
 
 // 실측 렌더 높이 — 이 로우를 쓰는 카드가 빈 상태일 때 크기를 유지해야 하면
 // 새로 높이를 재지 말고 이 값 * 행 수로 재사용할 것.
 export const JOURNAL_ROW_HEIGHT = 72.8;
 
-export function JournalRow({ journal, index, onPress }: { journal: Journal; index: number; onPress: () => void }) {
-  const isBuy = journal.type === 'buy';
+// risk가 null이면(매칭되는 분석 결과가 없는 거래) 배지만 숨기고 자리는 유지한다 — TradeRow와 동일한 규칙.
+export function JournalRow({ journal, risk, index, onPress }: { journal: JournalApiItem; risk: RiskLevel | null; index: number; onPress: () => void }) {
+  const isBuy = journal.type === '매수';
   return (
     <Pressable onPress={onPress} style={[styles.row, index > 0 && styles.divider]}>
       <View style={styles.left}>
@@ -21,7 +22,9 @@ export function JournalRow({ journal, index, onPress }: { journal: Journal; inde
       </View>
       <View style={styles.right}>
         <Text style={styles.emotion}>#{journal.emotion}</Text>
-        <StatusBadge risk={journal.risk} />
+        <View style={risk ? undefined : styles.badgeHidden}>
+          <StatusBadge risk={risk ?? 'safe'} />
+        </View>
       </View>
     </Pressable>
   );
@@ -37,4 +40,5 @@ const styles = StyleSheet.create({
   type: { fontSize: 13, fontWeight: '500' },
   right: { alignItems: 'flex-end', flexShrink: 0 },
   emotion: { fontSize: 15, fontWeight: '600', color: C.navy, marginBottom: 5 },
+  badgeHidden: { opacity: 0 },
 });

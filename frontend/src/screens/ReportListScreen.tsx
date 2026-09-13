@@ -12,6 +12,7 @@ import type { Trade } from '../data/types';
 import type { TradeRaw } from '../api/trades';
 import type { AnalysisResult } from '../api/analysis';
 import { formatDate } from '../utils/formatDate';
+import { isWithinPeriod } from '../utils/periodFilter';
 import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { goToReportDetail } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
@@ -62,16 +63,18 @@ export function ReportListScreen() {
     }, [getAllTrades, getAllAnalysis])
   );
 
-  const hasData = trades.length > 0;
   const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
 
+  // 분석까지 정상적으로 끝난(매칭되는 분석 결과가 있는) 거래만 보여준다 — 분석이 안 된
+  // 거래는 백엔드의 알려진 job 실패 정리 버그로 인해 남아있는 것이라 사용자에게 노출하지 않는다.
   const withRisk = useMemo(
-    () => trades.map((t) => {
-      const match = findAnalysisForTrade(analysisLookup, t);
-      return { trade: t, risk: match ? verdictToRisk(match.detail.verdict) : null };
-    }),
+    () => trades
+      .map((t) => ({ trade: t, match: findAnalysisForTrade(analysisLookup, t) }))
+      .filter((x): x is { trade: TradeRaw; match: AnalysisResult } => x.match !== null)
+      .map(({ trade, match }) => ({ trade, risk: verdictToRisk(match.detail.verdict) })),
     [trades, analysisLookup]
   );
+  const hasData = withRisk.length > 0;
 
   const filtered = useMemo(() => {
     let list = withRisk.filter(({ trade: t, risk: r }) => {
@@ -79,12 +82,13 @@ export function ReportListScreen() {
       if (type !== 'all' && tType !== type) return false;
       if (risk !== 'all' && r !== risk) return false;
       if (search && !t.종목명.includes(search)) return false;
+      if (!isWithinPeriod(t.거래일자, period)) return false;
       return true;
     });
     // 서버가 이미 거래일자 내림차순으로 주므로 newest는 그대로, oldest만 뒤집는다.
     if (!newest) list = [...list].reverse();
     return list;
-  }, [withRisk, type, risk, search, newest]);
+  }, [withRisk, type, risk, search, newest, period]);
 
   const totalPages = hasData ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);

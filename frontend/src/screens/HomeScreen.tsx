@@ -11,8 +11,7 @@ import { MonthlyBarChart, MONTHLY_CHART_HEIGHT } from '../components/charts/Mont
 import { AnomalyTrendChart } from '../components/charts/AnomalyTrendChart';
 import { Avatar } from '../assets/Avatar';
 import { C, RISK, BIAS_LABELS, BIAS_COLORS, BIAS_KEYS, text } from '../theme/tokens';
-import { dartNews } from '../data/mock';
-import type { Trade } from '../data/types';
+import type { Trade, DartNews } from '../data/types';
 import type { SurveyResult } from '../api/survey';
 import type { AnalysisResult } from '../api/analysis';
 import type { TradeRaw, UploadHistoryItem } from '../api/trades';
@@ -40,12 +39,13 @@ function toTradeShape(t: TradeRaw): Trade {
 }
 
 export function HomeScreen() {
-  const { openBiasInfo, pfName, getLatestSurvey, getAllTrades, getAllAnalysis, getUploads } = useAppState();
+  const { openBiasInfo, pfName, getLatestSurvey, getAllTrades, getAllAnalysis, getUploads, getNews } = useAppState();
   const [chartTab, setChartTab] = useState<'trades' | 'anomaly'>('trades');
   const [latest, setLatest] = useState<SurveyResult | null | undefined>(undefined);
   const [trades, setTrades] = useState<TradeRaw[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
   const [uploads, setUploads] = useState<UploadHistoryItem[]>([]);
+  const [news, setNews] = useState<DartNews[]>([]);
 
   useFocusEffect(
     useCallback(() => {
@@ -65,12 +65,20 @@ export function HomeScreen() {
           // 네트워크 실패 시 기존 값 유지
         }
       })();
+      // DART 뉴스는 별도 API라 실패해도(예: 아직 수집된 공시가 없음) 위 핵심 데이터 표시를
+      // 막으면 안 되므로 독립적으로 불러온다.
+      getNews(3, 0)
+        .then((newsRes) => {
+          if (!cancelled) setNews(newsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
+        })
+        .catch(() => {});
       return () => { cancelled = true; };
-    }, [getLatestSurvey, getAllTrades, getAllAnalysis, getUploads])
+    }, [getLatestSurvey, getAllTrades, getAllAnalysis, getUploads, getNews])
   );
 
   const character = latest ? getCharacter(latest.type_code) : null;
-  const hasData = trades.length > 0;
+  // 분석까지 끝난 거래 기준 — 분석 안 된 거래(백엔드 job 실패 정리 버그로 남은 것)는 집계에서 제외.
+  const hasData = analysis.length > 0;
 
   const counts = useMemo(() => {
     let danger = 0, caution = 0, safe = 0;
@@ -92,10 +100,9 @@ export function HomeScreen() {
   const latestUploadId = uploads[0]?.id;
   const diff = useMemo(() => {
     if (latestUploadId == null) return null;
-    const beforeTrades = trades.filter((t) => t.upload_id !== latestUploadId).length;
-    const tradesDiff = trades.length - beforeTrades;
-
     const beforeAnalysis = analysis.filter((a) => a.upload_id !== latestUploadId);
+    const tradesDiff = analysis.length - beforeAnalysis.length;
+
     const beforeRate = beforeAnalysis.length > 0
       ? Math.round((beforeAnalysis.filter((a) => a.is_anomaly).length / beforeAnalysis.length) * 1000) / 10
       : 0;
@@ -113,7 +120,10 @@ export function HomeScreen() {
   );
 
   const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
-  const recentTrades = trades.slice(0, RECENT_TRADES_VISIBLE);
+  const recentTrades = useMemo(
+    () => trades.filter((t) => findAnalysisForTrade(analysisLookup, t) !== null).slice(0, RECENT_TRADES_VISIBLE),
+    [trades, analysisLookup]
+  );
   const lastUploadDate = uploads[0]?.uploaded_at ? formatDate(uploads[0].uploaded_at) : null;
 
   return (
@@ -200,7 +210,7 @@ export function HomeScreen() {
             <Card style={styles.summaryCard}>
               <Text style={styles.summaryLabel}>총 거래 내역</Text>
               <View style={styles.summaryValueRow}>
-                <Text style={styles.summaryValue}>{hasData ? trades.length : '-'}</Text>
+                <Text style={styles.summaryValue}>{hasData ? analysis.length : '-'}</Text>
                 <Text style={styles.summaryUnit}>건</Text>
               </View>
               <Text style={[styles.summaryDiff, { color: hasData ? C.red : C.muted }]}>
@@ -250,13 +260,13 @@ export function HomeScreen() {
 
       <View>
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>오늘의 주요 소식</Text>
+          <Text style={styles.sectionTitle}>최근 주요 공시·뉴스</Text>
           <Pressable onPress={goToNewsFullList}>
             <Text style={styles.more}>더보기 &gt;</Text>
           </Pressable>
         </View>
         <Card>
-          {dartNews.slice(0, 3).map((n, i) => (
+          {news.map((n, i) => (
             <NewsRow key={n.id} news={n} index={i} />
           ))}
         </Card>

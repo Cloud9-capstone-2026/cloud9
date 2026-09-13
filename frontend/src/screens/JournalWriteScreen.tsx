@@ -1,12 +1,16 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useRoute, useFocusEffect, useNavigation, RouteProp } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { GradientCard } from '../components/GradientCard';
 import { StatusBadge } from '../components/StatusBadge';
+import { Spinner } from '../components/FlowOverlay';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { C, EMOTIONS, ACCENT, riskLevel, shadow, text } from '../theme/tokens';
-import { tradesRaw } from '../data/mock';
+import { C, EMOTIONS, ACCENT, shadow, text } from '../theme/tokens';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult } from '../api/analysis';
+import { formatDate } from '../utils/formatDate';
+import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { useAppState } from '../state/AppState';
 import { goToReportDetail } from '../navigation/navigationRef';
 import type { RootStackParamList } from '../navigation/types';
@@ -18,15 +22,41 @@ const EMOTION_ROWS = [EMOTIONS.slice(0, 5), EMOTIONS.slice(5)];
 export function JournalWriteScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'JournalWrite'>>();
   const navigation = useNavigation();
-  const { journals, saveJournal, addJournal, deleteJournal } = useAppState();
+  const { journals, refreshJournals, saveJournal, createJournalEntry, deleteJournal, getAllTrades, getAllAnalysis } = useAppState();
   const { journalId, tradeId } = route.params;
 
+  const [trades, setTrades] = useState<TradeRaw[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          if (!cancelled) {
+            setTrades(tradesRes);
+            setAnalysis(analysisRes);
+          }
+        } catch {
+          // 네트워크 실패 — 이전 값 유지
+        }
+      })();
+      // 일지 목록은 별도 상태(AppState)라 실패해도 위 거래/분석 표시를 막으면 안 되므로 독립적으로 불러온다.
+      refreshJournals().catch(() => {});
+      return () => { cancelled = true; };
+    }, [getAllTrades, getAllAnalysis, refreshJournals])
+  );
+
   const existing = journalId ? journals.find((j) => j.id === journalId) : null;
-  const trade = useMemo(() => {
-    if (existing) return tradesRaw.find((t) => t.stock === existing.stock) || tradesRaw[0];
-    if (tradeId != null) return tradesRaw.find((t) => t.id === tradeId) || tradesRaw[0];
-    return tradesRaw[0];
-  }, [existing, tradeId]);
+  const resolvedTradeId = existing ? existing.trade_id : tradeId;
+  const rawTrade = useMemo(
+    () => trades.find((t) => t.id === resolvedTradeId),
+    [trades, resolvedTradeId]
+  );
+  const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
+  const matched = rawTrade ? findAnalysisForTrade(analysisLookup, rawTrade) : null;
+  const risk = matched ? verdictToRisk(matched.detail.verdict) : null;
 
   const [reason, setReason] = useState(existing?.reason ?? '');
   const [emotion, setEmotion] = useState(existing?.emotion ?? '');
@@ -35,30 +65,37 @@ export function JournalWriteScreen() {
   const [locked, setLocked] = useState(!!existing);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // 아직 거래 목록을 못 받아왔거나 이 trade_id에 해당하는 거래를 못 찾은 경우.
+  if (!rawTrade) {
+    return (
+      <Screen back contentStyle={styles.loadingContent}>
+        <Spinner />
+      </Screen>
+    );
+  }
+
+  const trade = {
+    id: rawTrade.id,
+    stock: rawTrade.종목명,
+    date: formatDate(rawTrade.거래일자),
+    type: rawTrade.거래구분 === '매도' ? ('sell' as const) : ('buy' as const),
+    amount: rawTrade.거래금액.toLocaleString(),
+  };
+
   const filled = reason.trim().length > 0 && emotion.length > 0 && review.trim().length > 0;
   const isBuy = trade.type === 'buy';
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (journalId != null) {
-      saveJournal(journalId, { reason, emotion, review });
+      await saveJournal(journalId, { reason, emotion, review });
     } else {
-      addJournal({
-        id: trade.id,
-        stock: trade.stock,
-        date: trade.date,
-        type: trade.type,
-        emotion,
-        risk: riskLevel(trade.score),
-        memo: reason.slice(0, 40),
-        reason,
-        review,
-      });
+      await createJournalEntry(trade.id, { reason, emotion, review });
     }
     navigation.goBack();
   };
 
-  const handleDelete = () => {
-    if (existing) deleteJournal(existing.id);
+  const handleDelete = async () => {
+    if (existing) await deleteJournal(existing.id);
     setDeleteOpen(false);
     navigation.goBack();
   };
@@ -101,7 +138,9 @@ export function JournalWriteScreen() {
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.tradeAmount}>{trade.amount}원</Text>
-            <StatusBadge risk={riskLevel(trade.score)} />
+            <View style={risk ? undefined : styles.badgeHidden}>
+              <StatusBadge risk={risk ?? 'safe'} />
+            </View>
           </View>
         </View>
         <View style={styles.reportLinkRow}>
@@ -191,6 +230,8 @@ export function JournalWriteScreen() {
 
 const styles = StyleSheet.create({
   content: { gap: 16 },
+  loadingContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  badgeHidden: { opacity: 0 },
   tradeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   tradeStock: { fontSize: 18, fontWeight: '600', color: C.navy, marginBottom: 4, letterSpacing: -0.2 },
   tradeMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },

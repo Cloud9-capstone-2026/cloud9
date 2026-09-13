@@ -19,7 +19,7 @@ function AccountRow({ label, color, divider, onPress }: { label: string; color?:
 }
 
 export function SettingsScreen() {
-  const { notif, toggleNotif, osNotif, pfName, pfEmail, logout, hasUploaded, toggleHasUploaded } = useAppState();
+  const { notif, toggleNotif, osNotif, pfName, pfEmail, logout } = useAppState();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const notifLocked = osNotif === 'denied';
 
@@ -83,24 +83,6 @@ export function SettingsScreen() {
           <AccountRow label="개인정보 처리방침" onPress={() => goToLegal('privacy')} />
           <AccountRow label="이용약관" divider onPress={() => goToLegal('terms')} />
           <AccountRow label="로그아웃" color={C.red} divider onPress={() => setLogoutOpen(true)} />
-        </Card>
-      </View>
-
-      <View>
-        <Text style={styles.sectionLabel}>개발자 도구</Text>
-        <Card>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={styles.toggleLabel}>업로드 데이터 있음</Text>
-              <Text style={styles.toggleSub}>꺼두면 거래 내역 업로드 전 빈 상태 화면을 미리 볼 수 있어요</Text>
-            </View>
-            <Pressable
-              onPress={toggleHasUploaded}
-              style={[styles.switchTrack, { backgroundColor: hasUploaded ? C.blue : C.border }]}
-            >
-              <View style={[styles.switchKnob, { left: hasUploaded ? 21 : 3 }]} />
-            </Pressable>
-          </View>
         </Card>
       </View>
 
