@@ -31,6 +31,7 @@ export interface AnalysisResult {
   id: number;
   user_id: number;
   upload_id: number | null;
+  trade_id: number | null;
   rule_score: number | null;
   stat_score: number | null;
   deep_score: number | null;
