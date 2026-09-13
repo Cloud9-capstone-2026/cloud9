@@ -1,5 +1,5 @@
 import type {
-  Trade, Journal, DartNews,
+  Trade, Journal,
   EmotionRadarDatum, AnalysisEntry,
   RuleTemplate, TutorialStep, LegalContent,
 } from './types';
@@ -26,22 +26,6 @@ export const journals: Journal[] = [
   { id: 3, stock: 'NAVER', date: '2026.07.22', type: 'buy', emotion: '조급함', risk: 'danger', memo: '주가 급등 전 탑승하려 서두름.', reason: 'AI 검색 서비스 업데이트 소식에 급등이 예상되어 빠르게 진입. 충분한 분석 없이 진입.', review: '고점에 가까운 지점에서 매수. 조급함이 판단을 흐렸다.' },
   { id: 4, stock: '카카오', date: '2026.07.18', type: 'sell', emotion: '후회', risk: 'caution', memo: '더 오를 것 같은데 손절. 원칙에 따라 처분.', reason: '손절 기준선(-8%) 도달. 원칙에 따라 손절했으나 이후 반등이 아쉬움.', review: '손절 원칙을 지킨 것은 맞으나, 단기 패닉 상황이었을 가능성이 있다.' },
   { id: 5, stock: 'LG에너지솔루션', date: '2026.07.15', type: 'buy', emotion: '욕심', risk: 'danger', memo: '수익 극대화 목적의 고위험 집중 매수.', reason: '전기차 시장 회복 기대로 대규모 매수. 포트폴리오 비중을 크게 초과.', review: '단일 종목 비중이 너무 높아졌다. 분산투자 원칙을 어긴 것이 우려됨.' },
-];
-
-export const dartNews: DartNews[] = [
-  { id: 1, corp: '삼성전자', type: '분기보고서', title: '삼성전자 2026년 2분기 연결 재무제표 기준 영업이익 18.9조원 달성', date: '2026.08.06' },
-  { id: 2, corp: 'SK하이닉스', type: '주요사항보고', title: 'SK하이닉스, HBM4 양산 일정 공식 확인 및 NVIDIA 공급 계약 연장 발표', date: '2026.08.06' },
-  { id: 3, corp: 'LG에너지솔루션', type: '자기주식취득', title: 'LG에너지솔루션 자기주식 취득 결정 — 500만주 1조 5,000억원 규모', date: '2026.08.05' },
-  { id: 4, corp: 'NAVER', type: '임원퇴임', title: 'NAVER 최수연 대표이사 임기만료에 따른 이사회 결의 및 신임 대표 선임', date: '2026.08.05' },
-  { id: 5, corp: '카카오', type: '유상증자', title: '카카오 제3자배정 유상증자 결정 — 글로벌 AI 파트너십 강화 목적', date: '2026.08.04' },
-  { id: 6, corp: '현대차', type: '영업실적', title: '현대차 2026년 상반기 글로벌 판매 217만대 — 전년 동기 대비 4.2% 증가', date: '2026.08.04' },
-  { id: 7, corp: '셀트리온', type: '단일판매계약', title: '셀트리온 유럽 바이오시밀러 공급계약 체결 — 계약금액 8,420억원', date: '2026.08.03' },
-  { id: 8, corp: 'POSCO홀딩스', type: '투자판단', title: 'POSCO홀딩스 아르헨티나 리튬 2단계 생산설비 투자 결정', date: '2026.08.03' },
-  { id: 9, corp: '삼성바이오로직스', type: '주요사항보고', title: '삼성바이오로직스 제5공장 준공 및 가동 개시 공시', date: '2026.08.02' },
-  { id: 10, corp: '기아', type: '자기주식처분', title: '기아 자기주식 처분 결정 — 임직원 성과보상 목적 120만주', date: '2026.08.02' },
-  { id: 11, corp: 'KB금융', type: '현금배당', title: 'KB금융 2026년 2분기 분기배당 결정 — 주당 795원', date: '2026.08.01' },
-  { id: 12, corp: 'LG화학', type: '주요사항보고', title: 'LG화학 석유화학 부문 일부 사업 양도 검토 관련 조회공시 답변', date: '2026.08.01' },
-  { id: 13, corp: '한화에어로스페이스', type: '단일판매계약', title: '한화에어로스페이스 폴란드 K9 자주포 2차 실행계약 체결', date: '2026.07.31' },
 ];
 
 export const emotionRadarData: EmotionRadarDatum[] = [

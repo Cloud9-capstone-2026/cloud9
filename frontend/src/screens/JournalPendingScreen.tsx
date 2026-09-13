@@ -7,6 +7,7 @@ import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
 import { C, riskLevel, PERIODS, text } from '../theme/tokens';
 import { tradesRaw } from '../data/mock';
+import { isWithinPeriod } from '../utils/periodFilter';
 import { useAppState } from '../state/AppState';
 import { goToJournalWrite } from '../navigation/navigationRef';
 
@@ -29,11 +30,12 @@ export function JournalPendingScreen() {
       if (type !== 'all' && t.type !== type) return false;
       if (risk !== 'all' && riskLevel(t.score) !== risk) return false;
       if (search && !t.stock.includes(search)) return false;
+      if (!isWithinPeriod(t.date, period)) return false;
       return true;
     });
     if (!newest) list = [...list].reverse();
     return list;
-  }, [pending, type, risk, search, newest]);
+  }, [pending, type, risk, search, newest, period]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const clampedPage = Math.min(page, totalPages - 1);

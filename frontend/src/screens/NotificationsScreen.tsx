@@ -11,6 +11,7 @@ import { IconChart } from '../assets/icons';
 import { C, PERIODS, text } from '../theme/tokens';
 import type { NotificationApiItem } from '../api/notifications';
 import { formatDateTime } from '../utils/formatDate';
+import { isWithinPeriod } from '../utils/periodFilter';
 import { useAppState } from '../state/AppState';
 
 const PAGE_SIZE = 10;
@@ -49,11 +50,15 @@ export function NotificationsScreen() {
     }, [refreshNotifications])
   );
 
-  const totalPages = Math.max(1, Math.ceil(notifications.length / PAGE_SIZE));
+  const filtered = useMemo(
+    () => notifications.filter((n) => isWithinPeriod(n.created_at, period)),
+    [notifications, period]
+  );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = useMemo(() => {
     const start = page * PAGE_SIZE;
-    return notifications.slice(start, start + PAGE_SIZE).map((n, i) => ({ n, idx: start + i }));
-  }, [notifications, page]);
+    return filtered.slice(start, start + PAGE_SIZE).map((n, i) => ({ n, idx: start + i }));
+  }, [filtered, page]);
 
   return (
     <Screen back footer={<Pagination page={page} totalPages={totalPages} onChange={setPage} />}>
@@ -69,7 +74,7 @@ export function NotificationsScreen() {
         <PeriodDropdown value={period} onChange={(v) => { setPeriod(v); setPage(0); }} />
       </View>
 
-      {notifications.length === 0 ? (
+      {filtered.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>아직 받은 알림이 없어요</Text>
         </View>
@@ -105,11 +110,11 @@ export function NotificationsScreen() {
       {openIdx !== null && (
         <NotifDetailModal
           visible
-          iconBg={notifications[openIdx].type === 'uploadFail' || notifications[openIdx].type === 'analyzeFail' ? '#fee2e2' : '#e8f0ff'}
-          icon={<NotifIcon kind={notifications[openIdx].type} />}
-          title={notifCopy(notifications[openIdx]).title}
-          body={notifCopy(notifications[openIdx]).body}
-          time={formatDateTime(notifications[openIdx].created_at)}
+          iconBg={filtered[openIdx].type === 'uploadFail' || filtered[openIdx].type === 'analyzeFail' ? '#fee2e2' : '#e8f0ff'}
+          icon={<NotifIcon kind={filtered[openIdx].type} />}
+          title={notifCopy(filtered[openIdx]).title}
+          body={notifCopy(filtered[openIdx]).body}
+          time={formatDateTime(filtered[openIdx].created_at)}
           onClose={() => setOpenIdx(null)}
         />
       )}

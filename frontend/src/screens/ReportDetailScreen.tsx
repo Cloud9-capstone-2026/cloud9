@@ -7,9 +7,10 @@ import { NewsRow } from '../components/NewsRow';
 import { Spinner } from '../components/FlowOverlay';
 import { LayerRing } from '../components/charts/LayerRing';
 import { C, DEVIATION_GAUGE, shadow } from '../theme/tokens';
-import { dartNews } from '../data/mock';
+import type { DartNews } from '../data/types';
 import type { TradeRaw } from '../api/trades';
 import type { AnalysisResult } from '../api/analysis';
+import { formatDate } from '../utils/formatDate';
 import { buildAnalysisLookup, findAnalysisForTrade } from '../utils/matchTradeAnalysis';
 import { buildReportDetailVM } from './reportDetailLogic';
 import { useAppState } from '../state/AppState';
@@ -20,26 +21,30 @@ const SEG_LABELS = ['~1σ', '~2σ', '~3σ', '3σ+'];
 export function ReportDetailScreen() {
   const route = useRoute<RouteProp<RootStackParamList, 'ReportDetail'>>();
   const { tradeId } = route.params;
-  const { getAllTrades, getAllAnalysis } = useAppState();
+  const { getAllTrades, getAllAnalysis, getRelatedNews } = useAppState();
   const [trades, setTrades] = useState<TradeRaw[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
+  const [relatedNews, setRelatedNews] = useState<DartNews[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
         try {
-          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          const [tradesRes, analysisRes, relatedNewsRes] = await Promise.all([
+            getAllTrades(), getAllAnalysis(), getRelatedNews(tradeId, 3),
+          ]);
           if (!cancelled) {
             setTrades(tradesRes);
             setAnalysis(analysisRes);
+            setRelatedNews(relatedNewsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
           }
         } catch {
           // 네트워크 실패 — 이전 값 유지
         }
       })();
       return () => { cancelled = true; };
-    }, [getAllTrades, getAllAnalysis])
+    }, [getAllTrades, getAllAnalysis, getRelatedNews, tradeId])
   );
 
   const trade = useMemo(() => trades.find((t) => t.id === tradeId), [trades, tradeId]);
@@ -62,7 +67,6 @@ export function ReportDetailScreen() {
   const thumbRatio = Math.max(0.28, 4 / Math.max(ruleCount, 1));
   const thumbH = ruleScroll.trackH * thumbRatio;
   const thumbTop = (ruleScroll.trackH - thumbH) * ruleScroll.pos;
-  const relatedNews = useMemo(() => dartNews.slice(0, 3), []);
 
   // 아직 목록을 못 받아왔거나(로딩), 이 tradeId에 해당하는 거래를 못 찾은 경우.
   if (!d) {

@@ -12,6 +12,7 @@ import type { Trade } from '../data/types';
 import type { TradeRaw } from '../api/trades';
 import type { AnalysisResult } from '../api/analysis';
 import { formatDate } from '../utils/formatDate';
+import { isWithinPeriod } from '../utils/periodFilter';
 import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { goToReportDetail } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
@@ -79,12 +80,13 @@ export function ReportListScreen() {
       if (type !== 'all' && tType !== type) return false;
       if (risk !== 'all' && r !== risk) return false;
       if (search && !t.종목명.includes(search)) return false;
+      if (!isWithinPeriod(t.거래일자, period)) return false;
       return true;
     });
     // 서버가 이미 거래일자 내림차순으로 주므로 newest는 그대로, oldest만 뒤집는다.
     if (!newest) list = [...list].reverse();
     return list;
-  }, [withRisk, type, risk, search, newest]);
+  }, [withRisk, type, risk, search, newest, period]);
 
   const totalPages = hasData ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);

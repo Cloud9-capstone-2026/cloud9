@@ -7,6 +7,7 @@ import { JournalRow } from '../components/JournalRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
 import { C, PERIODS, text } from '../theme/tokens';
+import { isWithinPeriod } from '../utils/periodFilter';
 import { useAppState } from '../state/AppState';
 import { goToJournalWrite } from '../navigation/navigationRef';
 
@@ -27,11 +28,12 @@ export function JournalFullListScreen() {
       if (type !== 'all' && j.type !== type) return false;
       if (risk !== 'all' && j.risk !== risk) return false;
       if (search && !j.stock.includes(search) && !j.emotion.includes(search)) return false;
+      if (!isWithinPeriod(j.date, period)) return false;
       return true;
     });
     if (!newest) list = [...list].reverse();
     return list;
-  }, [journals, type, risk, search, newest]);
+  }, [journals, type, risk, search, newest, period]);
 
   const totalPages = hasUploaded ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);

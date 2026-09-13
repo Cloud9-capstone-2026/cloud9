@@ -11,8 +11,7 @@ import { MonthlyBarChart, MONTHLY_CHART_HEIGHT } from '../components/charts/Mont
 import { AnomalyTrendChart } from '../components/charts/AnomalyTrendChart';
 import { Avatar } from '../assets/Avatar';
 import { C, RISK, BIAS_LABELS, BIAS_COLORS, BIAS_KEYS, text } from '../theme/tokens';
-import { dartNews } from '../data/mock';
-import type { Trade } from '../data/types';
+import type { Trade, DartNews } from '../data/types';
 import type { SurveyResult } from '../api/survey';
 import type { AnalysisResult } from '../api/analysis';
 import type { TradeRaw, UploadHistoryItem } from '../api/trades';
@@ -40,33 +39,35 @@ function toTradeShape(t: TradeRaw): Trade {
 }
 
 export function HomeScreen() {
-  const { openBiasInfo, pfName, getLatestSurvey, getAllTrades, getAllAnalysis, getUploads } = useAppState();
+  const { openBiasInfo, pfName, getLatestSurvey, getAllTrades, getAllAnalysis, getUploads, getNews } = useAppState();
   const [chartTab, setChartTab] = useState<'trades' | 'anomaly'>('trades');
   const [latest, setLatest] = useState<SurveyResult | null | undefined>(undefined);
   const [trades, setTrades] = useState<TradeRaw[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
   const [uploads, setUploads] = useState<UploadHistoryItem[]>([]);
+  const [news, setNews] = useState<DartNews[]>([]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
         try {
-          const [latestRes, tradesRes, analysisRes, uploadsRes] = await Promise.all([
-            getLatestSurvey(), getAllTrades(), getAllAnalysis(), getUploads(1, 0),
+          const [latestRes, tradesRes, analysisRes, uploadsRes, newsRes] = await Promise.all([
+            getLatestSurvey(), getAllTrades(), getAllAnalysis(), getUploads(1, 0), getNews(3, 0),
           ]);
           if (!cancelled) {
             setLatest(latestRes);
             setTrades(tradesRes);
             setAnalysis(analysisRes);
             setUploads(uploadsRes);
+            setNews(newsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
           }
         } catch {
           // 네트워크 실패 시 기존 값 유지
         }
       })();
       return () => { cancelled = true; };
-    }, [getLatestSurvey, getAllTrades, getAllAnalysis, getUploads])
+    }, [getLatestSurvey, getAllTrades, getAllAnalysis, getUploads, getNews])
   );
 
   const character = latest ? getCharacter(latest.type_code) : null;
@@ -250,13 +251,13 @@ export function HomeScreen() {
 
       <View>
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>오늘의 주요 소식</Text>
+          <Text style={styles.sectionTitle}>최근 주요 공시·뉴스</Text>
           <Pressable onPress={goToNewsFullList}>
             <Text style={styles.more}>더보기 &gt;</Text>
           </Pressable>
         </View>
         <Card>
-          {dartNews.slice(0, 3).map((n, i) => (
+          {news.map((n, i) => (
             <NewsRow key={n.id} news={n} index={i} />
           ))}
         </Card>

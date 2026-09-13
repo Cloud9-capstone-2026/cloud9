@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { journals as journalsSeed, RULES } from '../data/mock';
-import type { Journal } from '../data/types';
+import type { Journal, DartNews } from '../data/types';
 import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
 import * as authApi from '../api/auth';
 import * as surveyApi from '../api/survey';
@@ -10,6 +10,7 @@ import * as analysisApi from '../api/analysis';
 import * as rulesApi from '../api/rules';
 import * as notificationsApi from '../api/notifications';
 import type { NotificationApiItem } from '../api/notifications';
+import * as newsApi from '../api/news';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -145,6 +146,12 @@ interface AppStateValue {
   // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
   hasUploaded: boolean;
   toggleHasUploaded: () => void;
+
+  // DART 공시/뉴스 — 중요도 필터 없이 최신순 그대로
+  getNews: (limit?: number, offset?: number, period?: string) => Promise<DartNews[]>;
+  getRelatedNews: (tradeId: number, limit?: number) => Promise<DartNews[]>;
+  // 전체 소식 화면의 기간 필터용 — 해당 기간에 해당하는 공시를 끝까지 페이지네이션 순회해서 모아옴.
+  getAllNews: (period: string) => Promise<DartNews[]>;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -333,6 +340,28 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const all: import('../api/trades').TradeRaw[] = [];
     for (let i = 0; i < MAX_PAGES; i++) {
       const page = await tradesApi.getTrades(PAGE, offset);
+      all.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
+  }, []);
+
+  const getNews = useCallback(async (limit?: number, offset?: number, period?: string) => {
+    return newsApi.getNews(limit, offset, period);
+  }, []);
+
+  const getRelatedNews = useCallback(async (tradeId: number, limit?: number) => {
+    return newsApi.getRelatedNews(tradeId, limit);
+  }, []);
+
+  const getAllNews = useCallback(async (period: string) => {
+    const PAGE = 100;
+    const MAX_PAGES = 10; // 안전장치 — 최대 1000건까지만 순회
+    let offset = 0;
+    const all: DartNews[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const page = await newsApi.getNews(PAGE, offset, period);
       all.push(...page);
       if (page.length < PAGE) break;
       offset += PAGE;
@@ -586,6 +615,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       getSurveyHistory,
       hasUploaded,
       toggleHasUploaded: () => setHasUploaded((v) => !v),
+      getNews,
+      getRelatedNews,
+      getAllNews,
     }),
     [
       journals, saveJournal, addJournal, deleteJournal, isJournaled, notif,
@@ -600,6 +632,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
       getLatestSurvey, getSurveyHistory,
       hasUploaded,
+      getNews, getRelatedNews, getAllNews,
     ]
   );
 
