@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { journals as journalsSeed, RULES, NOTIFS } from '../data/mock';
+import { journals as journalsSeed, RULES } from '../data/mock';
 import type { Journal } from '../data/types';
 import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
 import * as authApi from '../api/auth';
@@ -8,6 +8,8 @@ import * as surveyApi from '../api/survey';
 import * as tradesApi from '../api/trades';
 import * as analysisApi from '../api/analysis';
 import * as rulesApi from '../api/rules';
+import * as notificationsApi from '../api/notifications';
+import type { NotificationApiItem } from '../api/notifications';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -102,8 +104,9 @@ interface AppStateValue {
   clearPendingUpload: () => void;
 
   // 알림 목록
-  notifRead: Record<number, boolean>;
-  markNotifRead: (idx: number) => void;
+  notifications: NotificationApiItem[];
+  refreshNotifications: () => Promise<void>;
+  markNotifRead: (id: number) => void;
   markAllNotifRead: () => void;
   unreadNotifCount: number;
 
@@ -186,6 +189,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             const profile = await authApi.getMe();
             setPfName(profile.name);
             setPfEmail(profile.email ?? '');
+            notificationsApi.getNotifications().then((res) => {
+              setNotifications(res.notifications);
+              setUnreadNotifCount(res.unread_count);
+            }).catch(() => {});
             const elapsed = Date.now() - startedAt;
             if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
             setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
@@ -220,7 +227,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [upFile, setUpFile] = useState<UpFile | null>(null);
   const [pendingUpload, setPendingUploadState] = useState<PendingUpload | null>(null);
 
-  const [notifRead, setNotifRead] = useState<Record<number, boolean>>({});
+  const [notifications, setNotifications] = useState<NotificationApiItem[]>([]);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [osNotif, setOsNotif] = useState<'granted' | 'denied' | 'unset'>('unset');
   const [notifPermModalOpen, setNotifPermModalOpen] = useState(false);
   const [biasInfo, setBiasInfo] = useState(false);
@@ -257,6 +265,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const profile = await authApi.getMe();
     setPfName(profile.name);
     setPfEmail(profile.email ?? '');
+    notificationsApi.getNotifications().then((res) => {
+      setNotifications(res.notifications);
+      setUnreadNotifCount(res.unread_count);
+    }).catch(() => {});
     setAuthPhase(onboardingDone ? 'main' : 'onboarding');
   }, [onboardingDone, keepLogin]);
 
@@ -276,11 +288,24 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const pending: PendingUpload = { uploadId: res.upload_id, jobId: res.job_id, fileName };
     setPendingUploadState(pending);
     AsyncStorage.setItem(PENDING_UPLOAD_STORAGE_KEY, JSON.stringify(pending)).catch(() => {});
+    // 업로드 접수 시점에 서버가 바로 'upload' 알림을 쌓으므로 벨 배지를 즉시 갱신.
+    notificationsApi.getNotifications().then((r) => {
+      setNotifications(r.notifications);
+      setUnreadNotifCount(r.unread_count);
+    }).catch(() => {});
     return res;
   }, []);
 
   const pollJobStatus = useCallback(async (jobId: number) => {
-    return tradesApi.getJobStatus(jobId);
+    const status = await tradesApi.getJobStatus(jobId);
+    // 분석이 끝나는 순간(성공/실패) 서버가 알림을 쌓으므로 그때 한 번 더 갱신.
+    if (status.status === 'done' || status.status === 'failed') {
+      notificationsApi.getNotifications().then((r) => {
+        setNotifications(r.notifications);
+        setUnreadNotifCount(r.unread_count);
+      }).catch(() => {});
+    }
+    return status;
   }, []);
 
   const getUploads = useCallback(async (limit?: number, offset?: number) => {
@@ -321,6 +346,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
     // 다른 계정이 같은 기기에서 로그인했을 때 남의 진행 중 업로드를 이어받지 않도록.
     clearPendingUpload();
+    setNotifications([]);
+    setUnreadNotifCount(0);
   }, [clearPendingUpload]);
 
   // 회원가입 자체는 토큰을 발급받지만(자동 로그인 가능) 제품 결정상 쓰지 않고 버린다 —
@@ -377,6 +404,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     await clearToken();
     await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
     clearPendingUpload();
+    setNotifications([]);
+    setUnreadNotifCount(0);
   }, [clearPendingUpload]);
 
   // 401(토큰 만료/무효) 응답을 받으면 어느 화면에 있든 로그인 화면으로 돌려보낸다.
@@ -453,18 +482,29 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     ruleSnapRef.current = { ruleOn, ruleVal, ruleMoney };
   }, [ruleOn, ruleVal, ruleMoney]);
 
-  const markNotifRead = useCallback((idx: number) => {
-    setNotifRead((prev) => ({ ...prev, [idx]: true }));
+  const refreshNotifications = useCallback(async () => {
+    const res = await notificationsApi.getNotifications();
+    setNotifications(res.notifications);
+    setUnreadNotifCount(res.unread_count);
+  }, []);
+
+  const markNotifRead = useCallback((id: number) => {
+    setNotifications((prev) => {
+      const target = prev.find((n) => n.id === id);
+      if (target && !target.is_read) setUnreadNotifCount((c) => Math.max(0, c - 1));
+      return prev.map((n) => (n.id === id ? { ...n, is_read: true } : n));
+    });
+    notificationsApi.markNotificationRead(id).catch(() => {});
   }, []);
 
   const markAllNotifRead = useCallback(() => {
-    setNotifRead(Object.fromEntries(NOTIFS.map((_, i) => [i, true])));
+    setNotifications((prev) => {
+      const unread = prev.filter((n) => !n.is_read);
+      unread.forEach((n) => { notificationsApi.markNotificationRead(n.id).catch(() => {}); });
+      return prev.map((n) => ({ ...n, is_read: true }));
+    });
+    setUnreadNotifCount(0);
   }, []);
-
-  const unreadNotifCount = useMemo(
-    () => NOTIFS.reduce((n, _, i) => (notifRead[i] ? n : n + 1), 0),
-    [notifRead]
-  );
 
   const requestNotifPermission = useCallback((allow: boolean) => {
     setOsNotif(allow ? 'granted' : 'denied');
@@ -518,7 +558,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       getAllTrades,
       pendingUpload,
       clearPendingUpload,
-      notifRead,
+      notifications,
+      refreshNotifications,
       markNotifRead,
       markAllNotifRead,
       unreadNotifCount,
@@ -552,7 +593,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert, loadRules, saveRules,
       upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, getAllTrades, pendingUpload, clearPendingUpload,
-      notifRead, markNotifRead, markAllNotifRead, unreadNotifCount,
+      notifications, refreshNotifications, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
       biasInfo, openBiasInfo, closeBiasInfo, pfName, pfEmail,
       updateProfileName, changePassword, withdrawAccount,

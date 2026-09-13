@@ -1,7 +1,7 @@
 import type {
   Trade, Journal, DartNews,
   EmotionRadarDatum, AnalysisEntry,
-  RuleTemplate, TutorialStep, NotifRaw, LegalContent,
+  RuleTemplate, TutorialStep, LegalContent,
 } from './types';
 
 export const tradesRaw: Trade[] = [
@@ -137,22 +137,6 @@ export const TUT: TutorialStep[] = [
     body: '사람마다 위험한 거래의 기준은 다릅니다. \n7가지 규칙을 켜고 끄면서 내 기준을 만들면, 그 기준으로 거래를 검사해요.',
     points: ['하루 반복매매·당일 왕복매매 기본 적용', '보유기간·재진입·물타기 규칙 추가 가능', '금액 상한은 원화로 직접 입력'],
   },
-];
-
-// ── 알림 12건 ──────────────────────────────────────────────────
-export const NOTIFS: NotifRaw[] = [
-  { kind: 'analysis', file: 'trades_july_2026.csv', count: 69, time: '2026.07.31 14:22' },
-  { kind: 'upload', file: 'trades_july_2026.csv', time: '2026.07.31 14:19' },
-  { kind: 'analysis', file: 'trades_june_2026.csv', count: 51, time: '2026.06.30 09:41' },
-  { kind: 'uploadFail', file: 'trades_june_2026.csv', time: '2026.06.14 20:05' },
-  { kind: 'upload', file: 'trades_june_2026.csv', time: '2026.06.14 20:03' },
-  { kind: 'analysis', file: 'trades_may_2026.csv', count: 44, time: '2026.05.31 11:28' },
-  { kind: 'upload', file: 'trades_may_2026.csv', time: '2026.05.31 11:25' },
-  { kind: 'analyzeFail', file: 'trades_may_2026.csv', time: '2026.05.12 18:40' },
-  { kind: 'upload', file: 'trades_april_2026.csv', time: '2026.04.30 08:17' },
-  { kind: 'analysis', file: 'trades_april_2026.csv', count: 29, time: '2026.04.30 08:20' },
-  { kind: 'upload', file: 'trades_march_2026.csv', time: '2026.03.31 21:02' },
-  { kind: 'analysis', file: 'trades_march_2026.csv', count: 17, time: '2026.03.31 21:05' },
 ];
 
 // ── 약관 / 개인정보 처리방침 ────────────────────────────────────

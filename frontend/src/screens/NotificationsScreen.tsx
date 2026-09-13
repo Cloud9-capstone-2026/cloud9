@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import Svg, { Path } from 'react-native-svg';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
@@ -8,16 +9,17 @@ import { Pagination } from '../components/FilterControls';
 import { NotifDetailModal } from '../components/NotifDetailModal';
 import { IconChart } from '../assets/icons';
 import { C, PERIODS, text } from '../theme/tokens';
-import { NOTIFS } from '../data/mock';
+import type { NotificationApiItem } from '../api/notifications';
+import { formatDateTime } from '../utils/formatDate';
 import { useAppState } from '../state/AppState';
 
 const PAGE_SIZE = 10;
 
-function notifCopy(n: (typeof NOTIFS)[number]) {
-  if (n.kind === 'analysis') return { title: '분석이 완료되었어요', body: `${n.file} 파일의 ${n.count}건의 거래 분석을 완료했어요.` };
-  if (n.kind === 'upload') return { title: '업로드가 완료되었어요', body: `${n.file} 파일을 업로드 했어요.` };
-  if (n.kind === 'uploadFail') return { title: '업로드에 실패했어요', body: `${n.file} 파일을 다시 올려주세요.` };
-  return { title: '분석에 실패했어요', body: `${n.file} 파일을 분석하지 못했어요. 다시 시도해주세요.` };
+function notifCopy(n: NotificationApiItem) {
+  if (n.type === 'analysis') return { title: '분석이 완료되었어요', body: `${n.file_name} 파일의 ${n.trade_count}건의 거래 분석을 완료했어요.` };
+  if (n.type === 'upload') return { title: '업로드가 완료되었어요', body: `${n.file_name} 파일을 업로드 했어요.` };
+  if (n.type === 'uploadFail') return { title: '업로드에 실패했어요', body: `${n.file_name} 파일을 다시 올려주세요.` };
+  return { title: '분석에 실패했어요', body: `${n.file_name} 파일을 분석하지 못했어요. 다시 시도해주세요.` };
 }
 
 function NotifIcon({ kind }: { kind: string }) {
@@ -36,16 +38,22 @@ function NotifIcon({ kind }: { kind: string }) {
 }
 
 export function NotificationsScreen() {
-  const { notifRead, markNotifRead, markAllNotifRead } = useAppState();
+  const { notifications, refreshNotifications, markNotifRead, markAllNotifRead } = useAppState();
   const [period, setPeriod] = useState(PERIODS[1]);
   const [page, setPage] = useState(0);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
 
-  const totalPages = Math.max(1, Math.ceil(NOTIFS.length / PAGE_SIZE));
+  useFocusEffect(
+    useCallback(() => {
+      refreshNotifications().catch(() => {});
+    }, [refreshNotifications])
+  );
+
+  const totalPages = Math.max(1, Math.ceil(notifications.length / PAGE_SIZE));
   const pageItems = useMemo(() => {
     const start = page * PAGE_SIZE;
-    return NOTIFS.slice(start, start + PAGE_SIZE).map((n, i) => ({ n, idx: start + i }));
-  }, [page]);
+    return notifications.slice(start, start + PAGE_SIZE).map((n, i) => ({ n, idx: start + i }));
+  }, [notifications, page]);
 
   return (
     <Screen back footer={<Pagination page={page} totalPages={totalPages} onChange={setPage} />}>
@@ -61,7 +69,7 @@ export function NotificationsScreen() {
         <PeriodDropdown value={period} onChange={(v) => { setPeriod(v); setPage(0); }} />
       </View>
 
-      {NOTIFS.length === 0 ? (
+      {notifications.length === 0 ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>아직 받은 알림이 없어요</Text>
         </View>
@@ -69,23 +77,23 @@ export function NotificationsScreen() {
         <Card style={styles.card}>
           {pageItems.map(({ n, idx }, i) => {
             const copy = notifCopy(n);
-            const unread = !notifRead[idx];
-            const failKind = n.kind === 'uploadFail' || n.kind === 'analyzeFail';
+            const unread = !n.is_read;
+            const failKind = n.type === 'uploadFail' || n.type === 'analyzeFail';
             return (
               <Pressable
-                key={idx}
-                onPress={() => { markNotifRead(idx); setOpenIdx(idx); }}
+                key={n.id}
+                onPress={() => { markNotifRead(n.id); setOpenIdx(idx); }}
                 style={[styles.row, i > 0 && styles.rowDivider]}
               >
                 <View style={[styles.iconBox, { backgroundColor: failKind ? '#fee2e2' : '#e8f0ff' }]}>
-                  <NotifIcon kind={n.kind} />
+                  <NotifIcon kind={n.type} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={{ fontSize: 15, color: C.navy, fontWeight: unread ? '600' : '500' }} numberOfLines={1}>
                     {copy.title}
                   </Text>
                   <Text style={styles.body} numberOfLines={1}>{copy.body}</Text>
-                  <Text style={styles.time}>{n.time}</Text>
+                  <Text style={styles.time}>{formatDateTime(n.created_at)}</Text>
                 </View>
                 {unread && <View style={styles.dot} />}
               </Pressable>
@@ -97,11 +105,11 @@ export function NotificationsScreen() {
       {openIdx !== null && (
         <NotifDetailModal
           visible
-          iconBg={NOTIFS[openIdx].kind === 'uploadFail' || NOTIFS[openIdx].kind === 'analyzeFail' ? '#fee2e2' : '#e8f0ff'}
-          icon={<NotifIcon kind={NOTIFS[openIdx].kind} />}
-          title={notifCopy(NOTIFS[openIdx]).title}
-          body={notifCopy(NOTIFS[openIdx]).body}
-          time={NOTIFS[openIdx].time}
+          iconBg={notifications[openIdx].type === 'uploadFail' || notifications[openIdx].type === 'analyzeFail' ? '#fee2e2' : '#e8f0ff'}
+          icon={<NotifIcon kind={notifications[openIdx].type} />}
+          title={notifCopy(notifications[openIdx]).title}
+          body={notifCopy(notifications[openIdx]).body}
+          time={formatDateTime(notifications[openIdx].created_at)}
           onClose={() => setOpenIdx(null)}
         />
       )}
