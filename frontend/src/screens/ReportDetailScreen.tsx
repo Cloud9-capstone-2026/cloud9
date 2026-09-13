@@ -31,18 +31,22 @@ export function ReportDetailScreen() {
       let cancelled = false;
       (async () => {
         try {
-          const [tradesRes, analysisRes, relatedNewsRes] = await Promise.all([
-            getAllTrades(), getAllAnalysis(), getRelatedNews(tradeId, 3),
-          ]);
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
           if (!cancelled) {
             setTrades(tradesRes);
             setAnalysis(analysisRes);
-            setRelatedNews(relatedNewsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
           }
         } catch {
           // 네트워크 실패 — 이전 값 유지
         }
       })();
+      // 관련 공시·뉴스는 별도 API라 실패해도(예: 관련 공시 없음) 핵심 분석 데이터 표시를
+      // 막으면 안 되므로 독립적으로 불러온다.
+      getRelatedNews(tradeId, 3)
+        .then((relatedNewsRes) => {
+          if (!cancelled) setRelatedNews(relatedNewsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
+        })
+        .catch(() => {});
       return () => { cancelled = true; };
     }, [getAllTrades, getAllAnalysis, getRelatedNews, tradeId])
   );

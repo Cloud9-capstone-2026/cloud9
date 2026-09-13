@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { EmptyState } from '../components/EmptyState';
@@ -7,14 +8,20 @@ import { JournalRow } from '../components/JournalRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
 import { C, PERIODS, text } from '../theme/tokens';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult } from '../api/analysis';
+import { formatDate } from '../utils/formatDate';
 import { isWithinPeriod } from '../utils/periodFilter';
+import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { useAppState } from '../state/AppState';
 import { goToJournalWrite } from '../navigation/navigationRef';
 
 const PAGE_SIZE = 10;
 
 export function JournalFullListScreen() {
-  const { journals, hasUploaded } = useAppState();
+  const { journals, refreshJournals, getAllTrades, getAllAnalysis } = useAppState();
+  const [trades, setTrades] = useState<TradeRaw[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
   const [type, setType] = useState<TypeFilter>('all');
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
@@ -23,17 +30,51 @@ export function JournalFullListScreen() {
   const [page, setPage] = useState(0);
   const isDefaultFilter = type === 'all' && risk === 'all' && search === '';
 
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          if (!cancelled) {
+            setTrades(tradesRes);
+            setAnalysis(analysisRes);
+          }
+        } catch {
+          // 네트워크 실패 — 이전 값 유지
+        }
+      })();
+      // 일지 목록은 별도 상태(AppState)라 실패해도 위 거래/분석 표시를 막으면 안 되므로 독립적으로 불러온다.
+      refreshJournals().catch(() => {});
+      return () => { cancelled = true; };
+    }, [getAllTrades, getAllAnalysis, refreshJournals])
+  );
+
+  const hasUploaded = trades.length > 0;
+  const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
+  const tradeById = useMemo(() => new Map(trades.map((t) => [t.id, t])), [trades]);
+
+  const withRisk = useMemo(
+    () => journals.map((j) => {
+      const t = tradeById.get(j.trade_id);
+      const match = t ? findAnalysisForTrade(analysisLookup, t) : null;
+      return { journal: j, risk: match ? verdictToRisk(match.detail.verdict) : null };
+    }),
+    [journals, tradeById, analysisLookup]
+  );
+
   const filtered = useMemo(() => {
-    let list = journals.filter((j) => {
-      if (type !== 'all' && j.type !== type) return false;
-      if (risk !== 'all' && j.risk !== risk) return false;
+    let list = withRisk.filter(({ journal: j, risk: r }) => {
+      const jType = j.type === '매도' ? 'sell' : 'buy';
+      if (type !== 'all' && jType !== type) return false;
+      if (risk !== 'all' && r !== risk) return false;
       if (search && !j.stock.includes(search) && !j.emotion.includes(search)) return false;
       if (!isWithinPeriod(j.date, period)) return false;
       return true;
     });
     if (!newest) list = [...list].reverse();
     return list;
-  }, [journals, type, risk, search, newest, period]);
+  }, [withRisk, type, risk, search, newest, period]);
 
   const totalPages = hasUploaded ? Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)) : 1;
   const clampedPage = Math.min(page, totalPages - 1);
@@ -67,8 +108,14 @@ export function JournalFullListScreen() {
         />
       ) : paginated.length > 0 ? (
         <Card>
-          {paginated.map((j, i) => (
-            <JournalRow key={j.id} journal={j} index={i} onPress={() => goToJournalWrite(j.id)} />
+          {paginated.map(({ journal: j, risk: r }, i) => (
+            <JournalRow
+              key={j.id}
+              journal={{ ...j, date: formatDate(j.date) }}
+              risk={r}
+              index={i}
+              onPress={() => goToJournalWrite(j.id)}
+            />
           ))}
         </Card>
       ) : (

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { journals as journalsSeed, RULES } from '../data/mock';
-import type { Journal, DartNews } from '../data/types';
+import { RULES } from '../data/mock';
+import type { DartNews } from '../data/types';
 import { getToken, setToken, clearToken, setUnauthorizedHandler } from '../api/client';
 import * as authApi from '../api/auth';
 import * as surveyApi from '../api/survey';
@@ -11,6 +11,8 @@ import * as rulesApi from '../api/rules';
 import * as notificationsApi from '../api/notifications';
 import type { NotificationApiItem } from '../api/notifications';
 import * as newsApi from '../api/news';
+import * as journalsApi from '../api/journals';
+import type { JournalApiItem } from '../api/journals';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -53,10 +55,11 @@ export interface PendingUpload {
 
 interface AppStateValue {
   // 거래일지
-  journals: Journal[];
-  saveJournal: (journalId: number | null, patch: { reason: string; emotion: string; review: string }) => void;
-  addJournal: (journal: Journal) => void;
-  deleteJournal: (journalId: number) => void;
+  journals: JournalApiItem[];
+  refreshJournals: () => Promise<void>;
+  saveJournal: (journalId: number, patch: { reason: string; emotion: string; review: string }) => Promise<void>;
+  createJournalEntry: (tradeId: number, patch: { reason: string; emotion: string; review: string }) => Promise<void>;
+  deleteJournal: (journalId: number) => Promise<void>;
   isJournaled: (tradeId: number) => boolean;
 
   // 설정 — 알림
@@ -143,10 +146,6 @@ interface AppStateValue {
   getLatestSurvey: () => Promise<import('../api/survey').SurveyResult | null>;
   getSurveyHistory: (limit?: number) => Promise<import('../api/survey').SurveyResult[]>;
 
-  // 거래 내역 업로드 여부(빈 상태 화면 분기용) — 개발용 토글, 추후 API 연동 시 실제 업로드 데이터 유무로 대체
-  hasUploaded: boolean;
-  toggleHasUploaded: () => void;
-
   // DART 공시/뉴스 — 중요도 필터 없이 최신순 그대로
   getNews: (limit?: number, offset?: number, period?: string) => Promise<DartNews[]>;
   getRelatedNews: (tradeId: number, limit?: number) => Promise<DartNews[]>;
@@ -157,7 +156,7 @@ interface AppStateValue {
 const AppStateContext = createContext<AppStateValue | null>(null);
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
-  const [journals, setJournals] = useState<Journal[]>(journalsSeed);
+  const [journals, setJournals] = useState<JournalApiItem[]>([]);
   const [notif, setNotif] = useState(true);
 
   const [authPhase, setAuthPhase] = useState<AuthPhase>('auth');
@@ -240,25 +239,38 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [notifPermModalOpen, setNotifPermModalOpen] = useState(false);
   const [biasInfo, setBiasInfo] = useState(false);
   const [pfName, setPfName] = useState('김투자');
-  const [hasUploaded, setHasUploaded] = useState(true);
 
-  const saveJournal = useCallback<AppStateValue['saveJournal']>((journalId, patch) => {
-    setJournals((prev) => {
-      if (journalId == null) return prev;
-      return prev.map((j) => (j.id === journalId ? { ...j, ...patch } : j));
-    });
+  const refreshJournals = useCallback(async () => {
+    const PAGE = 100;
+    const MAX_PAGES = 10; // 안전장치 — 최대 1000건까지만 순회
+    let offset = 0;
+    const all: JournalApiItem[] = [];
+    for (let i = 0; i < MAX_PAGES; i++) {
+      const page = await journalsApi.getJournals(PAGE, offset);
+      all.push(...page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    setJournals(all);
   }, []);
 
-  const addJournal = useCallback((journal: Journal) => {
-    setJournals((prev) => (prev.some((j) => j.id === journal.id) ? prev : [journal, ...prev]));
+  const saveJournal = useCallback<AppStateValue['saveJournal']>(async (journalId, patch) => {
+    const updated = await journalsApi.updateJournal(journalId, patch.emotion, patch.reason, patch.review);
+    setJournals((prev) => prev.map((j) => (j.id === journalId ? updated : j)));
   }, []);
 
-  const deleteJournal = useCallback((journalId: number) => {
+  const createJournalEntry = useCallback<AppStateValue['createJournalEntry']>(async (tradeId, patch) => {
+    const created = await journalsApi.createJournal(tradeId, patch.emotion, patch.reason, patch.review);
+    setJournals((prev) => [created, ...prev]);
+  }, []);
+
+  const deleteJournal = useCallback(async (journalId: number) => {
+    await journalsApi.deleteJournal(journalId);
     setJournals((prev) => prev.filter((j) => j.id !== journalId));
   }, []);
 
   const isJournaled = useCallback(
-    (tradeId: number) => journals.some((j) => j.id === tradeId),
+    (tradeId: number) => journals.some((j) => j.trade_id === tradeId),
     [journals]
   );
 
@@ -549,8 +561,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AppStateValue>(
     () => ({
       journals,
+      refreshJournals,
       saveJournal,
-      addJournal,
+      createJournalEntry,
       deleteJournal,
       isJournaled,
       notif,
@@ -613,14 +626,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       submitSurvey,
       getLatestSurvey,
       getSurveyHistory,
-      hasUploaded,
-      toggleHasUploaded: () => setHasUploaded((v) => !v),
       getNews,
       getRelatedNews,
       getAllNews,
     }),
     [
-      journals, saveJournal, addJournal, deleteJournal, isJournaled, notif,
+      journals, refreshJournals, saveJournal, createJournalEntry, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert, loadRules, saveRules,
@@ -631,7 +642,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       updateProfileName, changePassword, withdrawAccount,
       signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
       getLatestSurvey, getSurveyHistory,
-      hasUploaded,
       getNews, getRelatedNews, getAllNews,
     ]
   );

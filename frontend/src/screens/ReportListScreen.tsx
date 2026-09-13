@@ -63,16 +63,18 @@ export function ReportListScreen() {
     }, [getAllTrades, getAllAnalysis])
   );
 
-  const hasData = trades.length > 0;
   const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
 
+  // 분석까지 정상적으로 끝난(매칭되는 분석 결과가 있는) 거래만 보여준다 — 분석이 안 된
+  // 거래는 백엔드의 알려진 job 실패 정리 버그로 인해 남아있는 것이라 사용자에게 노출하지 않는다.
   const withRisk = useMemo(
-    () => trades.map((t) => {
-      const match = findAnalysisForTrade(analysisLookup, t);
-      return { trade: t, risk: match ? verdictToRisk(match.detail.verdict) : null };
-    }),
+    () => trades
+      .map((t) => ({ trade: t, match: findAnalysisForTrade(analysisLookup, t) }))
+      .filter((x): x is { trade: TradeRaw; match: AnalysisResult } => x.match !== null)
+      .map(({ trade, match }) => ({ trade, risk: verdictToRisk(match.detail.verdict) })),
     [trades, analysisLookup]
   );
+  const hasData = withRisk.length > 0;
 
   const filtered = useMemo(() => {
     let list = withRisk.filter(({ trade: t, risk: r }) => {

@@ -1,5 +1,3 @@
-import type { RiskLevel } from '../theme/tokens';
-
 export type TradeType = 'buy' | 'sell';
 
 export interface Trade {
@@ -12,22 +10,6 @@ export interface Trade {
   amount: string;
   score: number;
   deviation: number;
-}
-
-export interface TradeWithRisk extends Trade {
-  risk: RiskLevel;
-}
-
-export interface Journal {
-  id: number;
-  stock: string;
-  date: string;
-  type: TradeType;
-  emotion: string;
-  risk: RiskLevel;
-  memo: string;
-  reason: string;
-  review: string;
 }
 
 export interface DartNews {
@@ -58,35 +40,6 @@ export interface BiasTrendDatum {
   과잉확신: number | null;
   복권형선호: number | null;
   군집거래: number | null;
-}
-
-export interface EvidenceFeature {
-  feature: string;
-  attribution: number;
-}
-
-export interface EvidenceEntry {
-  trade_share: number;
-  context_share: number;
-  features: EvidenceFeature[];
-}
-
-export interface XaiResult {
-  verdict: '정상' | '경고' | '이상';
-  flags: { rule: boolean; stat: boolean; deep?: boolean };
-  layers_available: number;
-  triggered_rules: string[];
-  mahalanobis: number;
-  top_bias: string;
-  bias_scores: Record<string, number>;
-  evidence: Record<string, EvidenceEntry> | null;
-}
-
-export interface AnalysisEntry {
-  rule_score: number;
-  stat_score: number;
-  deep_score: number | null;
-  detail: XaiResult;
 }
 
 // ── 1계층 사용자 정의 규칙 템플릿 ──────────────────────────────

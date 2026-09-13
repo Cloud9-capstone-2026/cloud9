@@ -1,20 +1,41 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { TradeRow } from '../components/TradeRow';
 import { PeriodDropdown } from '../components/PeriodDropdown';
 import { TypeTabs, SortToggle, SearchInput, RiskChips, Pagination, TypeFilter, RiskFilter } from '../components/FilterControls';
-import { C, riskLevel, PERIODS, text } from '../theme/tokens';
-import { tradesRaw } from '../data/mock';
+import { C, PERIODS, text } from '../theme/tokens';
+import type { Trade } from '../data/types';
+import type { TradeRaw } from '../api/trades';
+import type { AnalysisResult } from '../api/analysis';
+import { formatDate } from '../utils/formatDate';
 import { isWithinPeriod } from '../utils/periodFilter';
+import { buildAnalysisLookup, findAnalysisForTrade, verdictToRisk } from '../utils/matchTradeAnalysis';
 import { useAppState } from '../state/AppState';
 import { goToJournalWrite } from '../navigation/navigationRef';
 
 const PAGE_SIZE = 10;
 
+function toTradeShape(t: TradeRaw): Trade {
+  return {
+    id: t.id,
+    stock: t.종목명,
+    date: formatDate(t.거래일자),
+    type: t.거래구분 === '매도' ? 'sell' : 'buy',
+    price: t.거래단가.toLocaleString(),
+    qty: t.거래수량,
+    amount: t.거래금액.toLocaleString(),
+    score: 0,
+    deviation: 0,
+  };
+}
+
 export function JournalPendingScreen() {
-  const { isJournaled } = useAppState();
+  const { isJournaled, getAllTrades, getAllAnalysis } = useAppState();
+  const [trades, setTrades] = useState<TradeRaw[]>([]);
+  const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
   const [type, setType] = useState<TypeFilter>('all');
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
@@ -23,14 +44,44 @@ export function JournalPendingScreen() {
   const [page, setPage] = useState(0);
   const isDefaultFilter = type === 'all' && risk === 'all' && search === '';
 
-  const pending = useMemo(() => tradesRaw.filter((t) => !isJournaled(t.id)), [isJournaled]);
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const [tradesRes, analysisRes] = await Promise.all([getAllTrades(), getAllAnalysis()]);
+          if (!cancelled) {
+            setTrades(tradesRes);
+            setAnalysis(analysisRes);
+          }
+        } catch {
+          // 네트워크 실패 — 이전 값 유지
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [getAllTrades, getAllAnalysis])
+  );
+
+  const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
+
+  // 일지 작성 대상 = 분석까지 정상적으로 끝난(매칭되는 분석 결과가 있는) 거래 중 아직
+  // 일지를 안 쓴 것만 — 분석 안 된 거래는 위험도를 매길 수 없어 대상에서 제외한다.
+  const pending = useMemo(
+    () => trades
+      .map((t) => ({ trade: t, match: findAnalysisForTrade(analysisLookup, t) }))
+      .filter((x): x is { trade: TradeRaw; match: AnalysisResult } => x.match !== null)
+      .filter((x) => !isJournaled(x.trade.id))
+      .map(({ trade, match }) => ({ trade, risk: verdictToRisk(match.detail.verdict) })),
+    [trades, analysisLookup, isJournaled]
+  );
 
   const filtered = useMemo(() => {
-    let list = pending.filter((t) => {
-      if (type !== 'all' && t.type !== type) return false;
-      if (risk !== 'all' && riskLevel(t.score) !== risk) return false;
-      if (search && !t.stock.includes(search)) return false;
-      if (!isWithinPeriod(t.date, period)) return false;
+    let list = pending.filter(({ trade: t, risk: r }) => {
+      const tType = t.거래구분 === '매도' ? 'sell' : 'buy';
+      if (type !== 'all' && tType !== type) return false;
+      if (risk !== 'all' && r !== risk) return false;
+      if (search && !t.종목명.includes(search)) return false;
+      if (!isWithinPeriod(t.거래일자, period)) return false;
       return true;
     });
     if (!newest) list = [...list].reverse();
@@ -67,8 +118,14 @@ export function JournalPendingScreen() {
         </View>
       ) : paginated.length > 0 ? (
         <Card>
-          {paginated.map((t, i) => (
-            <TradeRow key={t.id} trade={t} index={i} onPress={() => goToJournalWrite(null, t.id)} />
+          {paginated.map(({ trade: t, risk: r }, i) => (
+            <TradeRow
+              key={t.id}
+              trade={toTradeShape(t)}
+              risk={r}
+              index={i}
+              onPress={() => goToJournalWrite(null, t.id)}
+            />
           ))}
         </Card>
       ) : (

@@ -1,32 +1,8 @@
 import type {
-  Trade, Journal,
-  EmotionRadarDatum, AnalysisEntry,
+  EmotionRadarDatum,
   RuleTemplate, TutorialStep, LegalContent,
 } from './types';
 
-export const tradesRaw: Trade[] = [
-  { id: 1, stock: '삼성전자', date: '2026.07.28', type: 'buy', price: '65,000', qty: 50, amount: '3,250,000', score: 78, deviation: 2.84 },
-  { id: 2, stock: 'SK하이닉스', date: '2026.07.25', type: 'sell', price: '206,000', qty: 20, amount: '4,118,000', score: 22, deviation: 0.91 },
-  { id: 3, stock: 'NAVER', date: '2026.07.22', type: 'buy', price: '175,000', qty: 10, amount: '1,749,000', score: 85, deviation: 3.12 },
-  { id: 4, stock: '카카오', date: '2026.07.18', type: 'sell', price: '43,000', qty: 20, amount: '859,500', score: 52, deviation: 1.62 },
-  { id: 5, stock: 'LG에너지솔루션', date: '2026.07.15', type: 'buy', price: '345,000', qty: 20, amount: '6,896,000', score: 91, deviation: 3.88 },
-  { id: 6, stock: '현대차', date: '2026.07.10', type: 'buy', price: '206,000', qty: 10, amount: '2,059,000', score: 45, deviation: 1.10 },
-  { id: 7, stock: '포스코퓨처엠', date: '2026.07.05', type: 'buy', price: '280,000', qty: 5, amount: '1,399,000', score: 67, deviation: 1.90 },
-  { id: 8, stock: '에코프로비엠', date: '2026.07.02', type: 'sell', price: '163,000', qty: 15, amount: '2,444,000', score: 31, deviation: 0.80 },
-  { id: 9, stock: '고려아연', date: '2026.06.28', type: 'buy', price: '610,000', qty: 3, amount: '1,829,000', score: 74, deviation: 2.20 },
-  { id: 10, stock: 'POSCO홀딩스', date: '2026.06.25', type: 'sell', price: '390,000', qty: 8, amount: '3,119,000', score: 48, deviation: 1.30 },
-  { id: 11, stock: '두산에너빌리티', date: '2026.06.22', type: 'buy', price: '24,000', qty: 100, amount: '2,399,000', score: 82, deviation: 3.40 },
-  { id: 12, stock: '한화에어로스페이스', date: '2026.06.18', type: 'buy', price: '195,000', qty: 10, amount: '1,949,000', score: 37, deviation: 0.95 },
-];
-
-
-export const journals: Journal[] = [
-  { id: 1, stock: '삼성전자', date: '2026.07.28', type: 'buy', emotion: '확신', risk: 'danger', memo: '실적 개선 기대감으로 매수.', reason: '2분기 영업이익이 시장 기대치를 상회했고 HBM 수주가 가속화되는 상황. 반도체 슈퍼사이클 진입 시그널로 판단해 매수.', review: '매수 직후 2.3% 하락했으나 이후 회복. 장기적 관점에서는 올바른 판단이었다고 생각.' },
-  { id: 2, stock: 'SK하이닉스', date: '2026.07.25', type: 'sell', emotion: '안도', risk: 'safe', memo: 'HBM 공급 우려 뉴스 후 일부 정리.', reason: 'HBM 4 공급 과잉 우려 보도가 연속으로 나와 리스크 관리 차원에서 일부 매도.', review: '매도 후 주가가 추가 상승해 아쉬움. 리스크 관리 원칙은 잘 지켰다.' },
-  { id: 3, stock: 'NAVER', date: '2026.07.22', type: 'buy', emotion: '조급함', risk: 'danger', memo: '주가 급등 전 탑승하려 서두름.', reason: 'AI 검색 서비스 업데이트 소식에 급등이 예상되어 빠르게 진입. 충분한 분석 없이 진입.', review: '고점에 가까운 지점에서 매수. 조급함이 판단을 흐렸다.' },
-  { id: 4, stock: '카카오', date: '2026.07.18', type: 'sell', emotion: '후회', risk: 'caution', memo: '더 오를 것 같은데 손절. 원칙에 따라 처분.', reason: '손절 기준선(-8%) 도달. 원칙에 따라 손절했으나 이후 반등이 아쉬움.', review: '손절 원칙을 지킨 것은 맞으나, 단기 패닉 상황이었을 가능성이 있다.' },
-  { id: 5, stock: 'LG에너지솔루션', date: '2026.07.15', type: 'buy', emotion: '욕심', risk: 'danger', memo: '수익 극대화 목적의 고위험 집중 매수.', reason: '전기차 시장 회복 기대로 대규모 매수. 포트폴리오 비중을 크게 초과.', review: '단일 종목 비중이 너무 높아졌다. 분산투자 원칙을 어긴 것이 우려됨.' },
-];
 
 export const emotionRadarData: EmotionRadarDatum[] = [
   { e: '조급함', value: 4 }, { e: '욕심', value: 2 }, { e: '두려움', value: 1 },
@@ -41,46 +17,6 @@ export const BIAS_DESCS = [
   '큰 수익 가능성만 보고 변동성이 큰 종목을 선호하는 경향이에요.',
   '다른 투자자들의 움직임이나 시장 분위기를 따라 사고파는 경향이에요.',
 ];
-
-export const analysisData: Record<number, AnalysisEntry> = {
-  1: {
-    rule_score: 0.70, stat_score: 0.31, deep_score: 0.46,
-    detail: {
-      verdict: '경고', flags: { rule: true, stat: false, deep: false }, layers_available: 3,
-      triggered_rules: ['당일_왕복매매'], mahalanobis: 1.42, top_bias: 'herd_sensitivity',
-      bias_scores: { disposition_strength: 0.12, overconfidence: 0.31, lottery_preference: 0.05, herd_sensitivity: 0.46 },
-      evidence: {
-        disposition_strength: { trade_share: 0.61, context_share: 0.39, features: [{ feature: '매도실현수익률', attribution: -31.55 }, { feature: '비정상거래량', attribution: 1.38 }, { feature: '보유기간', attribution: -2.10 }] },
-        overconfidence: { trade_share: 0.55, context_share: 0.45, features: [{ feature: '거래금액', attribution: 14.20 }, { feature: '최근5일수익률', attribution: 8.30 }, { feature: '매수여부', attribution: -3.10 }] },
-        lottery_preference: { trade_share: 0.48, context_share: 0.52, features: [{ feature: '복권성순위', attribution: 22.10 }, { feature: '지수수익률', attribution: -4.50 }, { feature: '전일수익률', attribution: 2.80 }] },
-        herd_sensitivity: { trade_share: 0.70, context_share: 0.30, features: [{ feature: '비정상거래량', attribution: 38.20 }, { feature: '직전거래간격', attribution: -12.40 }, { feature: '지수수익률', attribution: 9.10 }, { feature: '거래금액', attribution: -3.20 }] },
-      },
-    },
-  },
-  3: {
-    rule_score: 0.85, stat_score: 0.78, deep_score: null,
-    detail: {
-      verdict: '이상', flags: { rule: true, stat: true }, layers_available: 2,
-      triggered_rules: ['당일_왕복매매', '집중매매'], mahalanobis: 3.12, top_bias: 'overconfidence',
-      bias_scores: { disposition_strength: 0.44, overconfidence: 0.85, lottery_preference: 0.22, herd_sensitivity: 0.61 },
-      evidence: null,
-    },
-  },
-  5: {
-    rule_score: 0.91, stat_score: 0.88, deep_score: 0.76,
-    detail: {
-      verdict: '이상', flags: { rule: true, stat: true, deep: true }, layers_available: 3,
-      triggered_rules: ['집중매매', '반복매수'], mahalanobis: 3.88, top_bias: 'overconfidence',
-      bias_scores: { disposition_strength: 0.55, overconfidence: 0.91, lottery_preference: 0.38, herd_sensitivity: 0.72 },
-      evidence: {
-        disposition_strength: { trade_share: 0.60, context_share: 0.40, features: [{ feature: '보유기간', attribution: -18.20 }, { feature: '매도실현수익률', attribution: 12.30 }] },
-        overconfidence: { trade_share: 0.78, context_share: 0.22, features: [{ feature: '거래금액', attribution: 55.10 }, { feature: '비정상거래량', attribution: 22.40 }, { feature: '최근5일수익률', attribution: 14.20 }, { feature: '직전거래간격', attribution: -6.80 }] },
-        lottery_preference: { trade_share: 0.50, context_share: 0.50, features: [{ feature: '복권성순위', attribution: 18.30 }, { feature: '전일수익률', attribution: 5.40 }] },
-        herd_sensitivity: { trade_share: 0.65, context_share: 0.35, features: [{ feature: '지수수익률', attribution: 28.10 }, { feature: '비정상거래량', attribution: 14.30 }, { feature: '직전거래간격', attribution: -8.20 }] },
-      },
-    },
-  },
-};
 
 // ── 1계층 사용자 정의 규칙 템플릿 (7종) ────────────────────────
 export const MONEY_LABEL = '상한 금액';

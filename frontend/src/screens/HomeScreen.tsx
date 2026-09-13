@@ -52,26 +52,33 @@ export function HomeScreen() {
       let cancelled = false;
       (async () => {
         try {
-          const [latestRes, tradesRes, analysisRes, uploadsRes, newsRes] = await Promise.all([
-            getLatestSurvey(), getAllTrades(), getAllAnalysis(), getUploads(1, 0), getNews(3, 0),
+          const [latestRes, tradesRes, analysisRes, uploadsRes] = await Promise.all([
+            getLatestSurvey(), getAllTrades(), getAllAnalysis(), getUploads(1, 0),
           ]);
           if (!cancelled) {
             setLatest(latestRes);
             setTrades(tradesRes);
             setAnalysis(analysisRes);
             setUploads(uploadsRes);
-            setNews(newsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
           }
         } catch {
           // 네트워크 실패 시 기존 값 유지
         }
       })();
+      // DART 뉴스는 별도 API라 실패해도(예: 아직 수집된 공시가 없음) 위 핵심 데이터 표시를
+      // 막으면 안 되므로 독립적으로 불러온다.
+      getNews(3, 0)
+        .then((newsRes) => {
+          if (!cancelled) setNews(newsRes.map((n) => ({ ...n, date: formatDate(n.date) })));
+        })
+        .catch(() => {});
       return () => { cancelled = true; };
     }, [getLatestSurvey, getAllTrades, getAllAnalysis, getUploads, getNews])
   );
 
   const character = latest ? getCharacter(latest.type_code) : null;
-  const hasData = trades.length > 0;
+  // 분석까지 끝난 거래 기준 — 분석 안 된 거래(백엔드 job 실패 정리 버그로 남은 것)는 집계에서 제외.
+  const hasData = analysis.length > 0;
 
   const counts = useMemo(() => {
     let danger = 0, caution = 0, safe = 0;
@@ -93,10 +100,9 @@ export function HomeScreen() {
   const latestUploadId = uploads[0]?.id;
   const diff = useMemo(() => {
     if (latestUploadId == null) return null;
-    const beforeTrades = trades.filter((t) => t.upload_id !== latestUploadId).length;
-    const tradesDiff = trades.length - beforeTrades;
-
     const beforeAnalysis = analysis.filter((a) => a.upload_id !== latestUploadId);
+    const tradesDiff = analysis.length - beforeAnalysis.length;
+
     const beforeRate = beforeAnalysis.length > 0
       ? Math.round((beforeAnalysis.filter((a) => a.is_anomaly).length / beforeAnalysis.length) * 1000) / 10
       : 0;
@@ -114,7 +120,10 @@ export function HomeScreen() {
   );
 
   const analysisLookup = useMemo(() => buildAnalysisLookup(analysis), [analysis]);
-  const recentTrades = trades.slice(0, RECENT_TRADES_VISIBLE);
+  const recentTrades = useMemo(
+    () => trades.filter((t) => findAnalysisForTrade(analysisLookup, t) !== null).slice(0, RECENT_TRADES_VISIBLE),
+    [trades, analysisLookup]
+  );
   const lastUploadDate = uploads[0]?.uploaded_at ? formatDate(uploads[0].uploaded_at) : null;
 
   return (
@@ -201,7 +210,7 @@ export function HomeScreen() {
             <Card style={styles.summaryCard}>
               <Text style={styles.summaryLabel}>총 거래 내역</Text>
               <View style={styles.summaryValueRow}>
-                <Text style={styles.summaryValue}>{hasData ? trades.length : '-'}</Text>
+                <Text style={styles.summaryValue}>{hasData ? analysis.length : '-'}</Text>
                 <Text style={styles.summaryUnit}>건</Text>
               </View>
               <Text style={[styles.summaryDiff, { color: hasData ? C.red : C.muted }]}>
