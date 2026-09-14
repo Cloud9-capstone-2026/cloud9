@@ -100,7 +100,7 @@ export function MyPageScreen() {
           </View>
           <View style={styles.personaRow}>
             {character?.image ? (
-              <Image source={character.image} style={{ width: 100, height: 100, borderRadius: 50 }} />
+              <Image source={character.image} style={{ width: 100, height: 100 }} />
             ) : (
               <Avatar size={100} />
             )}

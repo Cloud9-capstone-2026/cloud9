@@ -32,7 +32,7 @@ export function InvestorTypeBadge({
   return (
     <View style={styles.wrap}>
       {character.image ? (
-        <Image source={character.image} style={{ width: size, height: size, borderRadius: size / 2 }} />
+        <Image source={character.image} style={{ width: size, height: size }} />
       ) : (
         <Avatar size={size} />
       )}
