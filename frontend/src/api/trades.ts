@@ -38,11 +38,17 @@ export interface TradeRaw {
   정산금액: number;
 }
 
-export async function uploadTrades(fileUri: string, fileName: string, mimeType: string) {
+export async function uploadTrades(fileUri: string, fileName: string, mimeType: string, webFile?: File) {
   const formData = new FormData();
-  // React Native의 FormData는 웹 File/Blob이 아니라 {uri, name, type} 객체를 받는다.
-  formData.append('file', { uri: fileUri, name: fileName, type: mimeType || 'application/octet-stream' } as any);
-  const { data } = await api.post<UploadResponse>('/trades/upload', formData, {
+  if (webFile) {
+    // 웹은 실제 File/Blob이 있어야 FormData가 정상 동작 — 아래 {uri,name,type} 객체
+    // 방식은 React Native 전용이라 웹에서는 파일이 안 실린 채로 전송된다.
+    formData.append('file', webFile, fileName);
+  } else {
+    // React Native의 FormData는 웹 File/Blob이 아니라 {uri, name, type} 객체를 받는다.
+    formData.append('file', { uri: fileUri, name: fileName, type: mimeType || 'application/octet-stream' } as any);
+  }
+  const { data } = await api.post<UploadResponse>('/trades/upload', formData, webFile ? undefined : {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;

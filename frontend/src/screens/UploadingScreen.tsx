@@ -24,7 +24,7 @@ export function UploadingScreen() {
     startedRef.current = true;
     (async () => {
       try {
-        await uploadFile(upFile.uri, upFile.name, upFile.mimeType);
+        await uploadFile(upFile.uri, upFile.name, upFile.mimeType, upFile.webFile);
         navigation.replace('UploadDone');
       } catch {
         navigation.replace('UploadFail');

@@ -15,7 +15,7 @@ const PAGE_SIZE = 10;
 
 export function NewsFullListScreen() {
   const { getAllNews } = useAppState();
-  const [period, setPeriod] = useState(PERIODS[1]);
+  const [period, setPeriod] = useState(PERIODS[3]);
   const [page, setPage] = useState(0);
   const [news, setNews] = useState<DartNews[]>([]);
 

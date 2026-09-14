@@ -137,7 +137,13 @@ export function ReportDetailScreen() {
                   showsVerticalScrollIndicator={false}
                   onScroll={onRuleScroll}
                   scrollEventThrottle={16}
-                  onLayout={(e) => setRuleScroll((s) => ({ ...s, trackH: e.nativeEvent.layout.height }))}
+                  onLayout={(e) => {
+                    // nativeEvent는 이벤트 풀링으로 콜백이 끝나면 재사용/해제될 수 있어서
+                    // setState의 함수형 업데이터(비동기로 실행될 수 있음) 안에서 바로 읽으면
+                    // 안 되고, 동기 시점에 값만 먼저 꺼내둬야 한다.
+                    const height = e.nativeEvent.layout.height;
+                    setRuleScroll((s) => ({ ...s, trackH: height }));
+                  }}
                 >
                   {d.rules.map((r) => (
                     <Text key={r} style={styles.ruleText}>{r}</Text>

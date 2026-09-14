@@ -7,8 +7,12 @@ import { C } from '../theme/tokens';
 export function Spinner() {
   const spin = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    // useNativeDriver:true로 두면 웹(react-native-web)에서 네이티브 드라이버가 없어서
+    // JS 폴백으로 돌아가는데, 이 조합에서 Animated.loop가 첫 바퀴 이후 안 이어지는
+    // 경우가 있어(관찰됨: 한 바퀴 돌고 멈춤) — false로 고정해 모든 플랫폼에서 JS
+    // 스레드로 일관되게 돌게 한다(단순 회전이라 성능 차이는 체감되지 않음).
     const loop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 800, easing: Easing.linear, useNativeDriver: true })
+      Animated.timing(spin, { toValue: 1, duration: 800, easing: Easing.linear, useNativeDriver: false })
     );
     loop.start();
     return () => loop.stop();

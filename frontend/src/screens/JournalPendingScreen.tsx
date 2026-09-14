@@ -40,7 +40,7 @@ export function JournalPendingScreen() {
   const [risk, setRisk] = useState<RiskFilter>('all');
   const [search, setSearch] = useState('');
   const [newest, setNewest] = useState(true);
-  const [period, setPeriod] = useState(PERIODS[1]);
+  const [period, setPeriod] = useState(PERIODS[3]);
   const [page, setPage] = useState(0);
   const isDefaultFilter = type === 'all' && risk === 'all' && search === '';
 

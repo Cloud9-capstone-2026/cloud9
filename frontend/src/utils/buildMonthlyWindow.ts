@@ -1,5 +1,7 @@
+import { parseServerDate } from './formatDate';
+
 function monthKey(dateStr: string) {
-  const d = new Date(dateStr);
+  const d = parseServerDate(dateStr);
   return d.getFullYear() * 12 + d.getMonth();
 }
 

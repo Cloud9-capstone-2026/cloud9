@@ -136,6 +136,7 @@ const styles = StyleSheet.create({
   searchInput: {
     width: '100%', paddingVertical: 10, paddingRight: 12, paddingLeft: 32,
     borderBottomWidth: 1.5, borderBottomColor: '#555', fontSize: 15, color: C.navy,
+    outlineWidth: 0,
   },
   chipRow: { flexDirection: 'row', gap: 7, marginBottom: 16, flexWrap: 'wrap' },
   chip: { borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },

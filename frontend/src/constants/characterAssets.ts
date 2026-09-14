@@ -9,8 +9,8 @@ export type TypeCode =
 export interface CharacterInfo {
   code: TypeCode;
   name: string;
-  // 실제 캐릭터 이미지가 assets/characters/{code}.png로 들어오면 require()로 채운다.
-  // 지금은 이미지 파일이 없어서 전부 null — 컴포넌트 쪽에서 null이면 공용 Avatar로 대체 표시.
+  // 16종 전부 실제 이미지가 있음(null은 UNKNOWN_CHARACTER 전용) — 컴포넌트 쪽에서
+  // null이면 공용 Avatar로 대체 표시.
   image: ImageSourcePropType | null;
 }
 
@@ -33,8 +33,28 @@ const NAMES: Record<TypeCode, string> = {
   LLLL: '차분한 전략가형',
 };
 
+// RN/Metro는 동적 경로로 require()를 못 해서 16개를 직접 나열한다.
+const IMAGES: Record<TypeCode, ImageSourcePropType> = {
+  HHHH: require('../assets/characters/HHHH.png'),
+  HHHL: require('../assets/characters/HHHL.png'),
+  HHLH: require('../assets/characters/HHLH.png'),
+  HHLL: require('../assets/characters/HHLL.png'),
+  HLHH: require('../assets/characters/HLHH.png'),
+  HLHL: require('../assets/characters/HLHL.png'),
+  HLLH: require('../assets/characters/HLLH.png'),
+  HLLL: require('../assets/characters/HLLL.png'),
+  LHHH: require('../assets/characters/LHHH.png'),
+  LHHL: require('../assets/characters/LHHL.png'),
+  LHLH: require('../assets/characters/LHLH.png'),
+  LHLL: require('../assets/characters/LHLL.png'),
+  LLHH: require('../assets/characters/LLHH.png'),
+  LLHL: require('../assets/characters/LLHL.png'),
+  LLLH: require('../assets/characters/LLLH.png'),
+  LLLL: require('../assets/characters/LLLL.png'),
+};
+
 export const CHARACTERS: Record<TypeCode, CharacterInfo> = Object.fromEntries(
-  (Object.keys(NAMES) as TypeCode[]).map((code) => [code, { code, name: NAMES[code], image: null }])
+  (Object.keys(NAMES) as TypeCode[]).map((code) => [code, { code, name: NAMES[code], image: IMAGES[code] }])
 ) as Record<TypeCode, CharacterInfo>;
 
 const UNKNOWN_CHARACTER: CharacterInfo = { code: 'HHHH', name: '알 수 없는 유형', image: null };

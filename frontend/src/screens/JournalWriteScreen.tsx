@@ -245,6 +245,7 @@ const styles = StyleSheet.create({
   textarea: {
     minHeight: 100, padding: 12, backgroundColor: C.mutedBg, borderRadius: 20,
     fontSize: 15, color: C.navy, textAlignVertical: 'top', lineHeight: 21,
+    outlineWidth: 0,
   },
   chipsCol: { gap: 8 },
   chipsRow: { flexDirection: 'row', gap: 8 },

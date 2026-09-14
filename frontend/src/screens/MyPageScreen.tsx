@@ -6,12 +6,12 @@ import { Card } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
 import { DumbbellChart } from '../components/charts/DumbbellChart';
 import { TrendLineChart } from '../components/charts/TrendLineChart';
-import { Avatar } from '../assets/Avatar';
 import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, text } from '../theme/tokens';
 import { getCharacter } from '../constants/characterAssets';
 import { buildBiasTrend } from '../utils/buildBiasTrend';
 import { buildBiasComparison, computeTopBias } from '../utils/buildBiasComparison';
 import { formatDate } from '../utils/formatDate';
+import { withSubjectParticle } from '../utils/korean';
 import type { SurveyResult } from '../api/survey';
 import type { AnalysisResult } from '../api/analysis';
 import type { BiasComparisonDatum } from '../data/types';
@@ -100,9 +100,9 @@ export function MyPageScreen() {
           </View>
           <View style={styles.personaRow}>
             {character?.image ? (
-              <Image source={character.image} style={{ width: 100, height: 100, borderRadius: 50 }} />
+              <Image source={character.image} style={{ width: 100, height: 100 }} />
             ) : (
-              <Avatar size={100} />
+              <View style={{ width: 100, height: 100 }} />
             )}
             <View style={styles.biasBars}>
               {BIAS_LABELS.map((label, i) => {
@@ -154,7 +154,7 @@ export function MyPageScreen() {
                   <Text style={styles.insightIconText}>!</Text>
                 </View>
                 <Text style={styles.insightText}>
-                  {insight.subject}이 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
+                  {withSubjectParticle(insight.subject)} 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
                 </Text>
               </View>
             )}
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   insightBlock: { flexDirection: 'row', gap: 10, backgroundColor: '#eff6ff', borderRadius: 18, padding: 13, marginTop: 16, alignItems: 'flex-start' },
   insightIconBox: { width: 19, height: 19, borderRadius: 10, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   insightIconText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  insightText: { flex: 1, fontSize: 14, color: C.navy, lineHeight: 19 },
+  insightText: { flex: 1, fontSize: 13, color: C.navy, lineHeight: 19 },
   insightNum: { color: C.blue, fontWeight: '600' },
   trendGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 13 },
   trendCard: { width: '46%', flexGrow: 1, borderRadius: 26, padding: 10, paddingTop: 14 },

@@ -107,6 +107,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: '#fff', borderRadius: 20,
     paddingVertical: 17, paddingHorizontal: 17, paddingRight: 48, fontSize: 16, color: C.navy,
+    outlineWidth: 0,
   },
   inputPlain: { paddingRight: 17 },
   inputError: { borderWidth: 1.5, borderColor: '#dc2626' },

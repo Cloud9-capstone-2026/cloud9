@@ -137,7 +137,7 @@ export function JournalListScreen() {
             <Text style={styles.more}>더보기 &gt;</Text>
           </Pressable>
         </View>
-        <Card style={!hasUploaded && styles.recentCardEmpty}>
+        <Card style={hasUploaded ? styles.recentCardFilled : styles.recentCardEmpty}>
           {hasUploaded ? (
             recentJournals.map(({ journal: j, risk: r }, i) => (
               <JournalRow
@@ -174,6 +174,7 @@ const styles = StyleSheet.create({
   smallCardUnit: { fontSize: 15, fontWeight: '400', color: C.muted },
   tagValue: { fontSize: 19, fontWeight: '600', color: C.navy, letterSpacing: -0.2 },
   recentCardEmpty: { minHeight: JOURNAL_ROW_HEIGHT * RECENT_JOURNALS_VISIBLE + CARD_PADDING * 2, justifyContent: 'center' },
+  recentCardFilled: { minHeight: JOURNAL_ROW_HEIGHT * RECENT_JOURNALS_VISIBLE + CARD_PADDING * 2 },
   tagCount: { fontSize: 13, color: C.muted, marginTop: 3 },
   radarCard: { flex: 1.15, padding: 14 },
   radarTitle: { fontSize: 13, fontWeight: '500', color: C.navy, marginBottom: 8 },
