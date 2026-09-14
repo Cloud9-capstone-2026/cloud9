@@ -24,6 +24,22 @@ const KEEP_LOGIN_STORAGE_KEY = '@canary/keepLogin';
 // 로그아웃하거나 로그인 상태 유지를 꺼도 이 기록은 남아있어서, 다시 로그인하면 튜토리얼을 또 보여주지 않음.
 const ONBOARDING_DONE_STORAGE_KEY = '@canary/onboardingDone';
 
+// 이 기기에 로컬 플래그가 없을 때만(새 기기, 재설치, 저장소 삭제 등) 쓰는 폴백 —
+// 서버에 "자가진단 제출 이력"과 "규칙을 직접 저장한 이력"이 둘 다 있으면 온보딩을
+// 이미 끝낸 계정으로 간주한다. rules의 updated_at은 사용자가 PUT /rules/{id}를 한
+// 번이라도 해야만 값이 생기고(백엔드 routers/rules.py 확인), 아니면 항상 null이라
+// "규칙을 직접 설정한 적 있는지"를 신뢰할 수 있게 알려준다. 네트워크 실패 등으로
+// 확인 자체가 안 되면 보수적으로 false(온보딩 다시 시킴)를 반환한다.
+async function checkServerOnboardingDone(): Promise<boolean> {
+  try {
+    await surveyApi.getLatestSurvey();
+    const rules = await rulesApi.getRules();
+    return rules.some((r) => r.updated_at != null);
+  } catch {
+    return false;
+  }
+}
+
 // 업로드 성공~분석 완료/실패 사이의 "진행 중인 job" 기록. 이 값이 있는 동안은 화면
 // 안에서 뒤로가기로 이탈할 수 없고(각 화면의 BackHandler), 앱을 강제종료했다 다시 켜면
 // 이 값을 보고 분석 중 화면으로 바로 복귀해 폴링을 재개한다. 분석이 끝나 결과 화면까지
@@ -199,9 +215,17 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               setNotifications(res.notifications);
               setUnreadNotifCount(res.unread_count);
             }).catch(() => {});
+            let effectiveOnboardingDone = savedOnboardingDone;
+            if (!effectiveOnboardingDone) {
+              effectiveOnboardingDone = await checkServerOnboardingDone();
+              if (effectiveOnboardingDone) {
+                setOnboardingDone(true);
+                AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
+              }
+            }
             const elapsed = Date.now() - startedAt;
             if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
-            setAuthPhase(savedOnboardingDone ? 'main' : 'onboarding');
+            setAuthPhase(effectiveOnboardingDone ? 'main' : 'onboarding');
           } catch {
             // 토큰 만료/무효 — 응답 인터셉터가 이미 토큰을 지웠으므로 로그인 화면부터 시작
           }
@@ -288,7 +312,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setNotifications(res.notifications);
       setUnreadNotifCount(res.unread_count);
     }).catch(() => {});
-    setAuthPhase(onboardingDone ? 'main' : 'onboarding');
+    let effectiveOnboardingDone = onboardingDone;
+    if (!effectiveOnboardingDone) {
+      effectiveOnboardingDone = await checkServerOnboardingDone();
+      if (effectiveOnboardingDone) {
+        setOnboardingDone(true);
+        AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
+      }
+    }
+    setAuthPhase(effectiveOnboardingDone ? 'main' : 'onboarding');
   }, [onboardingDone, keepLogin]);
 
   const enterMainDirectly = useCallback(() => {
