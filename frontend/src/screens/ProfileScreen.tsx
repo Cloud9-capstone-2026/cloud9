@@ -107,6 +107,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: '#fff', borderRadius: 20,
     paddingVertical: 17, paddingHorizontal: 17, fontSize: 16, color: C.navy,
+    outlineWidth: 0,
   },
   readonly: { backgroundColor: '#f1f5f9' },
   readonlyText: { fontSize: 16, color: C.muted },

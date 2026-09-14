@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
   inputRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10 },
   inputLabel: { fontSize: 15, color: C.navy, flex: 1 },
   inputBox: { width: 140, backgroundColor: '#f1f5f9', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12 },
-  input: { fontSize: 17, fontWeight: '600', color: C.navy, textAlign: 'right', padding: 0 },
+  input: { fontSize: 17, fontWeight: '600', color: C.navy, textAlign: 'right', padding: 0, outlineWidth: 0 },
   unit: { fontSize: 15, fontWeight: '600', color: C.navy },
   errorText: { fontSize: 11, color: '#dc2626', textAlign: 'right', marginTop: 4, minHeight: 13 },
   footerNote: { fontSize: 12, color: '#cbd5e1', paddingHorizontal: 4 },

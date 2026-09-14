@@ -168,6 +168,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: '#FFFFFF', borderWidth: 1.5, borderRadius: 16,
     paddingVertical: 14, paddingLeft: 16, fontSize: 16, color: C.navy,
+    outlineWidth: 0,
   },
   disabled: { backgroundColor: '#f1f5f9', color: C.muted },
   right: { position: 'absolute', right: 6, padding: 10 },
