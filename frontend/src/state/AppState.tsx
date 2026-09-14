@@ -61,6 +61,9 @@ export interface UpFile {
   ext: string;
   uri: string;
   mimeType: string;
+  // 웹에서만 채워짐(expo-document-picker가 File 객체를 따로 줌) — 네이티브의
+  // {uri,name,type} 방식은 웹 FormData에서 안 먹혀서 업로드 시 이 File을 써야 함.
+  webFile?: File;
 }
 
 export interface PendingUpload {
@@ -114,7 +117,7 @@ interface AppStateValue {
   // 업로드 플로우
   upFile: UpFile | null;
   setUpFile: (f: UpFile | null) => void;
-  uploadFile: (fileUri: string, fileName: string, mimeType: string) => Promise<import('../api/trades').UploadResponse>;
+  uploadFile: (fileUri: string, fileName: string, mimeType: string, webFile?: File) => Promise<import('../api/trades').UploadResponse>;
   pollJobStatus: (jobId: number) => Promise<import('../api/trades').JobStatus>;
   getUploads: (limit?: number, offset?: number) => Promise<import('../api/trades').UploadHistoryItem[]>;
   // 페이지네이션(최대 200/회)을 내부에서 다 순회해서 사용자의 전체 분석 결과를 모아 돌려준다.
@@ -334,8 +337,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.removeItem(PENDING_UPLOAD_STORAGE_KEY).catch(() => {});
   }, []);
 
-  const uploadFile = useCallback(async (fileUri: string, fileName: string, mimeType: string) => {
-    const res = await tradesApi.uploadTrades(fileUri, fileName, mimeType);
+  const uploadFile = useCallback(async (fileUri: string, fileName: string, mimeType: string, webFile?: File) => {
+    const res = await tradesApi.uploadTrades(fileUri, fileName, mimeType, webFile);
     const pending: PendingUpload = { uploadId: res.upload_id, jobId: res.job_id, fileName };
     setPendingUploadState(pending);
     AsyncStorage.setItem(PENDING_UPLOAD_STORAGE_KEY, JSON.stringify(pending)).catch(() => {});

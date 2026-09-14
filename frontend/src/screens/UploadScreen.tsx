@@ -24,6 +24,7 @@ interface PickedFile {
   ext: string;
   uri: string;
   mimeType: string;
+  webFile?: File;
 }
 
 function validate(name: string, sizeBytes: number | null): string | null {
@@ -70,13 +71,14 @@ export function UploadScreen() {
       ext,
       uri: asset.uri,
       mimeType: asset.mimeType || 'application/octet-stream',
+      webFile: asset.file,
     });
     setError(validate(asset.name, asset.size ?? null));
   };
 
   const startUpload = () => {
     if (!file) return;
-    setUpFile({ name: file.name, sizeKB: file.sizeKB, ext: file.ext, uri: file.uri, mimeType: file.mimeType });
+    setUpFile({ name: file.name, sizeKB: file.sizeKB, ext: file.ext, uri: file.uri, mimeType: file.mimeType, webFile: file.webFile });
     navigation.navigate('Uploading');
   };
 
