@@ -40,7 +40,7 @@ function NotifIcon({ kind }: { kind: string }) {
 
 export function NotificationsScreen() {
   const { notifications, refreshNotifications, markNotifRead, markAllNotifRead } = useAppState();
-  const [period, setPeriod] = useState(PERIODS[1]);
+  const [period, setPeriod] = useState(PERIODS[3]);
   const [page, setPage] = useState(0);
   const [openIdx, setOpenIdx] = useState<number | null>(null);
 

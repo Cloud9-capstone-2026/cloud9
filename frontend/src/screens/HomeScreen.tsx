@@ -9,7 +9,6 @@ import { NewsRow } from '../components/NewsRow';
 import { RingChart } from '../components/charts/RingChart';
 import { MonthlyBarChart, MONTHLY_CHART_HEIGHT } from '../components/charts/MonthlyBarChart';
 import { AnomalyTrendChart } from '../components/charts/AnomalyTrendChart';
-import { Avatar } from '../assets/Avatar';
 import { C, RISK, BIAS_LABELS, BIAS_COLORS, BIAS_KEYS, text } from '../theme/tokens';
 import type { Trade, DartNews } from '../data/types';
 import type { SurveyResult } from '../api/survey';
@@ -153,7 +152,7 @@ export function HomeScreen() {
             {character?.image ? (
               <Image source={character.image} style={{ width: 100, height: 100 }} />
             ) : (
-              <Avatar size={100} />
+              <View style={{ width: 100, height: 100 }} />
             )}
             <View style={styles.biasBars}>
               {BIAS_LABELS.map((label, i) => {
@@ -279,7 +278,7 @@ export function HomeScreen() {
             <Text style={styles.more}>더보기 &gt;</Text>
           </Pressable>
         </View>
-        <Card style={!hasData && styles.recentTradesCardEmpty}>
+        <Card style={hasData ? styles.recentTradesCardFilled : styles.recentTradesCardEmpty}>
           {hasData ? (
             recentTrades.map((t, i) => {
               const match = findAnalysisForTrade(analysisLookup, t);
@@ -350,4 +349,5 @@ const styles = StyleSheet.create({
   // 원래 콘텐츠(차트/거래 로우)가 실제로 차지하는 높이를 그대로 계산해서 재사용.
   chartCardEmpty: { minHeight: MONTHLY_CHART_HEIGHT + 16 + 10, justifyContent: 'center' },
   recentTradesCardEmpty: { minHeight: TRADE_ROW_HEIGHT * RECENT_TRADES_VISIBLE + CARD_PADDING * 2, justifyContent: 'center' },
+  recentTradesCardFilled: { minHeight: TRADE_ROW_HEIGHT * RECENT_TRADES_VISIBLE + CARD_PADDING * 2 },
 });

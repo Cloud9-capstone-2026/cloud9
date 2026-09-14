@@ -151,7 +151,7 @@ export function UploadScreen() {
             <Text style={styles.more}>더보기 &gt;</Text>
           </Pressable>
         </View>
-        <Card style={styles.historyCard}>
+        <Card style={recent.length === 0 ? styles.historyCard : styles.historyCardFilled}>
           {recent.length === 0 ? (
             <View style={styles.historyEmpty}>
               <Text style={styles.emptyText}>아직 업로드한 파일이 없어요</Text>
@@ -222,6 +222,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontWeight: '500', color: C.navy },
   more: { fontSize: 13, color: C.muted },
   historyCard: { minHeight: 302, justifyContent: 'center' },
+  historyCardFilled: { minHeight: 302 },
   historyEmpty: { alignItems: 'center', justifyContent: 'center', minHeight: 270 },
   emptyText: { fontSize: 15, color: '#64748b' },
   historyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },

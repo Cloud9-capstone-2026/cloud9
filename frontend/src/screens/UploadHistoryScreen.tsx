@@ -16,7 +16,7 @@ const PAGE_SIZE = 10;
 
 export function UploadHistoryScreen() {
   const { getUploads } = useAppState();
-  const [period, setPeriod] = useState(PERIODS[1]);
+  const [period, setPeriod] = useState(PERIODS[3]);
   const [page, setPage] = useState(0);
   const [uploads, setUploads] = useState<UploadHistoryItem[]>([]);
 
