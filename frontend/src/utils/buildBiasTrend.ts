@@ -1,8 +1,9 @@
 import type { SurveyResult } from '../api/survey';
 import type { BiasTrendDatum } from '../data/types';
+import { parseServerDate } from './formatDate';
 
 function monthKey(iso: string) {
-  const d = new Date(iso);
+  const d = parseServerDate(iso);
   return d.getFullYear() * 12 + d.getMonth();
 }
 
@@ -15,7 +16,7 @@ function monthKey(iso: string) {
 // - 같은 달에 여러 번 검사했으면 그중 가장 최근 것을 그 달의 값으로 쓴다.
 export function buildBiasTrend(history: SurveyResult[], windowSize = 5): BiasTrendDatum[] {
   const sorted = [...history].sort(
-    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    (a, b) => parseServerDate(a.created_at).getTime() - parseServerDate(b.created_at).getTime()
   );
   // 검사 이력이 아예 없으면(정상 플로우에선 온보딩 때 최소 1회 강제라 드문 경우) 현재
   // 달을 기준으로 5개월 창을 만들되, 값은 전부 null이라 점 없는 빈 그래프가 된다.
