@@ -18,7 +18,7 @@ lxml
 # CPU 휠이 설치된다. 로컬 수동 설치도 pip install -r 로 동일.)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.13.0
-alembic
+alembic==1.19.2  # 미고정 배포 사고 재발 방지 — 서버가 배포마다 최신을 받던 것을 현행 버전으로 고정
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
