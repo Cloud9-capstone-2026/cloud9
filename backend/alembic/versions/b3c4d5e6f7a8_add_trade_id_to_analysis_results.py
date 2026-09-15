@@ -5,8 +5,11 @@
 거래별 위험도를 못 내려주던 원인). detect가 저장 시 채우며, 도입 전 행은 NULL.
 
 Revision ID: b3c4d5e6f7a8
-Revises: a2b3c4d5e6f7
+Revises: e1f4b8c9a2d7
 Create Date: 2026-09-10
+(2026-09-11 부모 재지정: a2b3c4d5e6f7 → e1f4b8c9a2d7 — 같은 부모를 가리키는
+알림/거래일지 마이그레이션(#68)과 동시 머지로 head가 갈라져 배포의
+alembic upgrade head가 실패, 사슬 끝(DART 공시) 뒤로 줄 세워 해소)
 """
 from typing import Sequence, Union
 
@@ -14,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = 'b3c4d5e6f7a8'
-down_revision: Union[str, Sequence[str], None] = 'a2b3c4d5e6f7'
+down_revision: Union[str, Sequence[str], None] = 'e1f4b8c9a2d7'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
