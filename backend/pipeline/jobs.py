@@ -141,6 +141,7 @@ def _mark_upload_failed(db, upload_id: int) -> None:
         upload = db.query(CsvUpload).filter(CsvUpload.id == upload_id).first()
         if upload:
             upload.status = "failed"
+            upload.row_count = None  # 실패 정리로 거래를 지웠으므로 건수 표기도 무효
             db.commit()
     except Exception:  # noqa: BLE001 — 상태 표기 실패가 실패 처리를 막으면 안 됨
         db.rollback()
@@ -247,6 +248,24 @@ def run_analysis_job(job_id: int) -> None:
         except Exception as e:  # noqa: BLE001 — 실패는 상태로 기록, 서버는 계속
             db.rollback()
             logger.warning("job %s 분석 실패: %r", job_id, e)
+            # 전부 아니면 전무 — 이 업로드가 만든 거래·결과(upload_id 낙인)를
+            # 지워야 재업로드가 중복으로 상쇄되지 않고 깨끗한 첫 업로드처럼
+            # 다시 돈다. 안 지우면 "거래만 있고 분석은 영영 없는" 고아가 남아
+            # 같은 파일 재업로드가 신규 0건이 된다(recover_stale_jobs의 재시작
+            # 정리와 같은 원칙 — 그쪽 docstring 참조). 결과가 거래를 FK로
+            # 참조하므로 결과 먼저 삭제. 정리 자체가 실패해도 failed 전이와
+            # 알림은 진행돼야 하므로 별도 try로 감싼다.
+            try:
+                db.query(AnalysisResult).filter(
+                    AnalysisResult.upload_id == job.upload_id
+                ).delete(synchronize_session=False)
+                db.query(Trade).filter(
+                    Trade.upload_id == job.upload_id
+                ).delete(synchronize_session=False)
+                db.commit()
+            except Exception as ce:  # noqa: BLE001
+                db.rollback()
+                logger.warning("job %s 실패 후 정리 실패(고아 잔존 가능): %r", job_id, ce)
             _mark_upload_failed(db, job.upload_id)
             _transition(db, job_id, "running",
                         {"status": "failed", "finished_at": datetime.now(),

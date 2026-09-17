@@ -210,6 +210,45 @@ def test_reupload_skips_duplicate_trades(app_env):
     db.close()
 
 
+def test_analysis_failure_cleans_trades_so_reupload_works(app_env, monkeypatch):
+    """분석 실패 시 이미 저장된 거래·결과를 지운다(전부 아니면 전무) —
+    안 지우면 같은 파일 재업로드가 전 행을 중복으로 상쇄해 신규 0건이 되고,
+    분석 결과를 영영 못 받는 고아 상태가 된다(2026-09-17 실사고 수리)."""
+    from pipeline import jobs as jobs_mod
+    from orm import AnalysisJob, CsvUpload, Trade
+
+    # 1차: 분석 단계가 일반 예외로 실패
+    def boom(*a, **k):
+        raise RuntimeError("시세 수집 실패 등 임의 예외")
+    monkeypatch.setattr(jobs_mod, "run_pipeline_from_db", boom)
+    r1 = _upload(app_env["client"])
+
+    db = app_env["Session"]()
+    job1 = db.query(AnalysisJob).filter(
+        AnalysisJob.id == r1.json()["job_id"]).one()
+    assert job1.status == "failed"
+    assert db.query(Trade).count() == 0          # 저장됐던 거래가 정리됨
+    up1 = db.query(CsvUpload).filter(CsvUpload.id == r1.json()["upload_id"]).one()
+    assert up1.status == "failed" and up1.row_count is None
+    db.close()
+
+    # 2차: 분석 정상화 후 같은 파일 재업로드 — 깨끗한 첫 업로드처럼 전량 처리
+    calls = []
+    monkeypatch.setattr(jobs_mod, "run_pipeline_from_db",
+                        lambda db, upload_id, **k: calls.append(upload_id))
+    r2 = _upload(app_env["client"])
+
+    db = app_env["Session"]()
+    job2 = db.query(AnalysisJob).filter(
+        AnalysisJob.id == r2.json()["job_id"]).one()
+    assert job2.status == "done"
+    assert db.query(Trade).count() == 2          # 상쇄 없이 전량 신규 저장
+    up2 = db.query(CsvUpload).filter(CsvUpload.id == r2.json()["upload_id"]).one()
+    assert up2.row_count == 2
+    assert calls == [r2.json()["upload_id"]]     # 분석도 실제로 돌았음
+    db.close()
+
+
 # 분할 체결·같은 날 동일 조건 재거래 — 5키가 완전히 같은 진짜 거래 여러 건.
 # 존재 여부 판정 시절엔 첫 건만 남고 유실됐다(2026-09-02 개수 대조로 수리).
 CSV_SPLIT = (
