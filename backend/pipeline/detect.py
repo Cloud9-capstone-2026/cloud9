@@ -19,6 +19,11 @@ DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스)
 거래(시세 조회 실패 — layer3가 채점 제외)·채점 전체 실패(아티팩트 부재·torch
 미설치) 시 그 거래는 deep 판정 없이 두 계층만으로 같은 규칙을 적용하고
 layers_available로 표시한다.
+
+2계층도 같은 규약: baseline(이전 업로드)이 10건 미만이면 통계 판정 불가 —
+stat flag 없이 나머지 계층만으로 판정하고 layers_available가 줄어든다
+(첫 업로드가 대표 사례. 과거엔 하드코딩 기본 통계로 판정해 비싼 주식이
+전부 경고가 되던 문제, 2026-09-18 수리).
 """
 
 import json
@@ -115,16 +120,19 @@ def _build_ensemble(
     lstm_rows: 거래별 {score, top_bias, top_bias_명, bias_scores} 리스트 —
     rule/stat의 trade_results와 같은 순서·길이. 항목이 None이면 그 거래는
     3계층 판정 불가(시세 조회 실패·채점 실패) → flags에 deep 키 없이 두 계층만.
+    stat의 trade_results 항목이 None이면(baseline 부족 — zscore 판정 불가)
+    같은 규약으로 stat 키 없이 판정한다.
     """
     ensemble = []
     for i, (r, s) in enumerate(
         zip(rule_result["trade_results"], stat_result["trade_results"])
     ):
         lr = lstm_rows[i] if lstm_rows else None
-        flags = {
-            "rule": len(r["triggered_rules"]) > 0,
-            "stat": bool(s["is_anomaly"]),
-        }
+        flags = {"rule": len(r["triggered_rules"]) > 0}
+        stat = None
+        if s is not None:
+            flags["stat"] = bool(s["is_anomaly"])
+            stat = {"score": s["stat_score"], "mahalanobis": s["mahalanobis"]}
         deep = None
         if lr is not None:
             flags["deep"] = lr["score"] >= DEEP_THRESHOLD
@@ -145,7 +153,7 @@ def _build_ensemble(
             "layers_available": len(flags),
             "rule": {"score": r["rule_score"],
                      "triggered_rules": r["triggered_rules"]},
-            "stat": {"score": s["stat_score"], "mahalanobis": s["mahalanobis"]},
+            "stat": stat,
             "deep": deep,
         })
     return ensemble
@@ -284,13 +292,14 @@ def run_pipeline_from_db(
             f"결과-거래 개수 불일치: ensemble {len(ensemble)} != trades {len(trades)}")
     for t, e in zip(trades, ensemble):
         deep = e["deep"] or {}
+        stat = e["stat"] or {}
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
             job_id      = job_id,
             trade_id    = t.id,
             rule_score  = e["rule"]["score"],
-            stat_score  = e["stat"]["score"],
+            stat_score  = stat.get("score"),  # 판정 불가(baseline 부족)면 None
             deep_score  = deep.get("score"),  # 3계층 판정 불가 거래는 None
             is_anomaly  = e["verdict"] == "이상",
             detail      = {
@@ -300,7 +309,7 @@ def run_pipeline_from_db(
                 "flags": e["flags"],
                 "layers_available": e["layers_available"],
                 "triggered_rules": e["rule"]["triggered_rules"],
-                "mahalanobis": e["stat"]["mahalanobis"],
+                "mahalanobis": stat.get("mahalanobis"),
                 "top_bias": deep.get("top_bias"),
                 "top_bias_명": deep.get("top_bias_명"),
                 "bias_scores": deep.get("bias_scores"),  # 편향 4종 점수 (0~1)

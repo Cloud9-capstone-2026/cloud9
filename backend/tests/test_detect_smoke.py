@@ -7,10 +7,11 @@ run_pipeline_from_db 자체(DB 세션 필요)는 test_analysis_jobs가 job 단�
 deep=점수>=DEEP_THRESHOLD) → flag 개수 0/1/2+ = 정상/경고/이상.
 """
 
+import pandas as pd
 import pytest
 
 from models.rule_based import run_rule_based
-from models.zscore import run_zscore
+from models.zscore import MIN_BASELINE_ROWS, run_zscore
 from pipeline.detect import DEEP_THRESHOLD, _build_ensemble
 
 # 신규 거래 추출(_extract_new_trades)은 2026-09-02 삭제 — 신규 판정은 저장
@@ -19,9 +20,12 @@ from pipeline.detect import DEEP_THRESHOLD, _build_ensemble
 
 
 def test_rule_and_stat_shapes(standard_trades):
-    """1·2계층 실행 스모크 — 행 수·키 계약 (픽스처 8건, 규칙 위반 없음)."""
+    """1·2계층 실행 스모크 — 행 수·키 계약 (픽스처 8건, 규칙 위반 없음).
+    baseline은 10건 이상이어야 stat 판정이 산다(아래 판정 불가 테스트와 대칭)."""
+    baseline = pd.concat([standard_trades] * 2, ignore_index=True)  # 16건
     rule = run_rule_based(standard_trades)
-    stat = run_zscore(standard_trades, standard_trades.head(5))
+    stat = run_zscore(standard_trades, baseline)
+    assert stat["available"] is True
     assert len(rule["trade_results"]) == len(standard_trades)
     assert len(stat["trade_results"]) == len(standard_trades)
     for r in rule["trade_results"]:
@@ -30,6 +34,15 @@ def test_rule_and_stat_shapes(standard_trades):
     for s in stat["trade_results"]:
         assert set(s) >= {"날짜", "종목명", "stat_score", "mahalanobis"}
         assert 0.0 <= s["stat_score"] <= 1.0
+
+
+def test_zscore_unavailable_when_baseline_short(standard_trades):
+    """baseline < MIN_BASELINE_ROWS(10) — 판정 불가: 기본 통계로 억지 판정하지
+    않고 거래 수만큼 None을 돌려준다 (첫 업로드 경고 남발 수리, 2026-09-18)."""
+    stat = run_zscore(standard_trades, standard_trades.head(MIN_BASELINE_ROWS - 1))
+    assert stat["available"] is False
+    assert stat["is_anomaly"] is False
+    assert stat["trade_results"] == [None] * len(standard_trades)
 
 
 # ─ 판정(verdict) 계약 — 계층 결과를 손으로 구성해 조합별로 검증 ─
@@ -96,6 +109,25 @@ def test_verdict_without_deep_layer(rule_on, stat_on, want):
     assert e["layers_available"] == 2
     assert "deep" not in e["flags"]
     assert e["deep"] is None
+
+
+@pytest.mark.parametrize("rule_on,deep_score,want,layers", [
+    (False, None, "정상", 1),   # 첫 업로드 + deep도 불가 → rule만
+    (True,  None, "경고", 1),
+    (False, HI,   "경고", 2),   # stat만 불가 → rule+deep
+    (True,  HI,   "이상", 2),
+])
+def test_verdict_without_stat_layer(rule_on, deep_score, want, layers):
+    """2계층 판정 불가(baseline 부족) — stat 행이 None이면 flags에 stat 키 없이
+    나머지 계층만으로 같은 규칙 적용 (deep 폴백과 같은 규약)."""
+    rule = {"is_anomaly": rule_on, "trade_results": [_rule_row(rule_on)]}
+    stat = {"is_anomaly": False, "available": False, "trade_results": [None]}
+    rows = None if deep_score is None else [_deep_row(deep_score)]
+    e = _build_ensemble(rule, stat, rows)[0]
+    assert e["verdict"] == want
+    assert e["layers_available"] == layers
+    assert "stat" not in e["flags"]
+    assert e["stat"] is None
 
 
 def test_deep_flag_theta_boundary():
@@ -328,7 +360,9 @@ def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
     assert result["distribution_check"]["deep_excluded"] is True
     for e in result["detection_result"]["ensemble"]:
         assert e["deep"] is None            # 거래별 딥러닝 판정 없음
-        assert e["layers_available"] == 2   # 규칙+통계만
+        # 첫 업로드라 baseline(이전 업로드)도 없음 → stat까지 판정 불가 = 규칙만
+        assert e["stat"] is None
+        assert e["layers_available"] == 1
     for r in db.query(orm.AnalysisResult).all():
         assert r.deep_score is None
         # 프론트가 주의 문구를 띄울 유일한 신호 — 행마다 저장돼야 한다
@@ -386,7 +420,8 @@ def test_pipeline_applies_user_ruleset(monkeypatch, tmp_path, standard_trades):
 def test_stat_flag_follows_zscore_definition(standard_trades):
     """stat flag는 zscore의 거래별 is_anomaly(마할라노비스>2.5)를 그대로 따른다."""
     rule = run_rule_based(standard_trades)
-    stat = run_zscore(standard_trades, standard_trades.head(5))
+    stat = run_zscore(standard_trades,
+                      pd.concat([standard_trades] * 2, ignore_index=True))
     ens = _build_ensemble(rule, stat, None)
     for e, s in zip(ens, stat["trade_results"]):
         assert e["flags"]["stat"] == s["is_anomaly"]
