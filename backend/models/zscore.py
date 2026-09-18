@@ -1,6 +1,12 @@
 """
 zscore.py
 2계층 통계 탐지: 거래 1건당 Z-score + 마할라노비스 거리
+
+baseline(이전 업로드 거래)이 MIN_BASELINE_ROWS 미만이면 통계 계층은
+"판정 불가" — 3계층 판정 불가와 같은 규약으로 trade_results를 전부 None으로
+돌려주고, 앙상블은 stat flag 없이 나머지 계층만으로 판정한다(2026-09-18).
+과거의 하드코딩 기본 통계(단가 5만±3만 등)는 첫 업로드에서 비싼 주식을
+전부 경고로 만들어 폐기.
 """
 
 import numpy as np
@@ -9,19 +15,10 @@ from scipy.spatial.distance import mahalanobis
 
 FEATURES = ["체결단가", "체결수량", "총거래금액"]
 
-#baseline z-score 계산 - 행이 10개 미만일 때
-DEFAULT_MEAN = {"체결단가": 50000, "체결수량": 10, "총거래금액": 500000}
-DEFAULT_STD  = {"체결단가": 30000, "체결수량": 5,  "총거래금액": 300000}
 MIN_BASELINE_ROWS = 10
 
 
 def compute_baseline_stats(baseline: pd.DataFrame) -> tuple:
-    if len(baseline) < MIN_BASELINE_ROWS:
-        mean = pd.Series(DEFAULT_MEAN)
-        std  = pd.Series(DEFAULT_STD)
-        cov  = np.diag(std.values ** 2)
-        return mean, std, cov
-
     arr = baseline[FEATURES]
     mean = arr.mean()
     std  = arr.std().replace(0, 1)
@@ -34,14 +31,19 @@ def run_zscore(new_trades: pd.DataFrame, baseline: pd.DataFrame, threshold: floa
     """
     반환: {
         "is_anomaly": bool,
+        "available": bool,   # False = baseline 부족으로 판정 불가
         "trade_results": [
             {"날짜", "종목명", "z_vector", "mahalanobis", "stat_score", "is_anomaly"}, ...
-        ]
+        ]   # 판정 불가면 거래 수만큼 None
     }
     stat_score = 1 - exp(-mahalanobis / threshold)  # 0~1 부드러운 saturation
     """
     if len(new_trades) == 0:
-        return {"is_anomaly": False, "trade_results": []}
+        return {"is_anomaly": False, "available": True, "trade_results": []}
+
+    if len(baseline) < MIN_BASELINE_ROWS:
+        return {"is_anomaly": False, "available": False,
+                "trade_results": [None] * len(new_trades)}
 
     mean, std, cov = compute_baseline_stats(baseline)
     cov_inv = np.linalg.inv(cov)
@@ -63,4 +65,4 @@ def run_zscore(new_trades: pd.DataFrame, baseline: pd.DataFrame, threshold: floa
         })
 
     is_anomaly = any(t["is_anomaly"] for t in trade_results)
-    return {"is_anomaly": is_anomaly, "trade_results": trade_results}
+    return {"is_anomaly": is_anomaly, "available": True, "trade_results": trade_results}

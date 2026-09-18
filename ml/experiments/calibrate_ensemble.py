@@ -101,13 +101,15 @@ def build_table(name: str, model, meta, force: bool = False) -> pd.DataFrame:
         n_acc += 1
         half = n // 2
         if half < 10:
-            small_base += 1  # zscore 기본 통계 폴백 (첫 업로드 시나리오)
+            small_base += 1  # zscore 판정 불가 (baseline 부족 — stat NaN으로 탈락)
         base, new = g.iloc[:half], g.iloc[half:]
         rr = run_rule_based(new)
         sr = run_zscore(new, base)
         for k, ridx in enumerate(g.index[half:]):
             rule[ridx] = rr["trade_results"][k]["rule_score"]
-            stat[ridx] = sr["trade_results"][k]["stat_score"]
+            srow = sr["trade_results"][k]
+            if srow is not None:
+                stat[ridx] = srow["stat_score"]
 
     tbl = pd.DataFrame({
         "trade_row": np.arange(len(tr)),
