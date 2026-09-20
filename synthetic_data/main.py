@@ -75,6 +75,9 @@ def package_outputs(model, trades_path, labels_path, meta_path,
             "진입일": a.entry_date,
             "초기보유종목수": len(model.initial_positions.get(str(a.unique_id), {})),
             "초기총자산": model.initial_assets.get(str(a.unique_id)),
+            # 정상 대조 유형 (작업 2, extended 전용) — 자연 모드는 전원 "일반"
+            "계좌유형": model.param_components.get(str(a.unique_id), {})
+                        .get("account_type", "일반"),
             **{
                 f"모드_{p}": model.param_components.get(str(a.unique_id), {}).get(p, "natural")
                 for p in _BIAS_PARAMS
