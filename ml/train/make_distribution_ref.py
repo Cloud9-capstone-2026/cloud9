@@ -34,12 +34,16 @@ def main():
         frames.append(ag[ag["window"] == "full"])
     ag = pd.concat(frames, ignore_index=True)
     n_tr = ag["n_buys"].fillna(0) + ag["n_sells"].fillna(0)
+    # holding_days_mean은 게이트 지표에서 제외 (2026-09-20): 위쪽(장기 보유)은
+    # 극단 신호가 아닌데 8개월 조회창 절단 때문에 p99가 실제보다 짧게 잡혀
+    # 평범한 장기 보유 계좌를 오탐하고, 아래쪽(초단타)은 회전율·거래수 축이
+    # 반드시 같이 잡는 중복. monitor는 이 파일에 있는 지표만 검사하므로
+    # 여기서 빼면 게이트에서 빠진다(계좌 지표 산출 자체는 진단용으로 유지).
     metrics = {
         "turnover_annual": ag["turnover_annual"],
         "buy_share": (ag["n_buys"] / n_tr.where(n_tr > 0)),
         "mean_abn_vol_at_buy": ag["mean_abn_vol_at_buy"],
         "mean_lott_at_buy": ag["mean_lott_at_buy"],
-        "holding_days_mean": ag["holding_days_mean"],
         "n_trades": n_tr,
     }
     out = {"source": "train_extended 5시드 pooled, 계좌 단위 full 윈도",
