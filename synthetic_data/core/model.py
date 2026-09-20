@@ -137,6 +137,24 @@ class MarketModel(mesa.Model):
         pf_tickers = [t for t in last_close.index if config.MARKETCAP_20200302.get(t)]
         pf_caps = [float(config.MARKETCAP_20200302[t]) for t in pf_tickers]
 
+        # 대형주 집중형(작업 2) 종목 선택용 시총 정규화 — 시총은 고정값이라 1회만.
+        # 시총 비례(최대값=1)로 정규화: 시총은 멱법칙 분포라 비례 가중이어야 실제
+        # 대형주로 집중된다 — 랭크 정규화(선형)는 '중형주 이상 전반'을 완만히
+        # 선호할 뿐이라 1단계 검증에서 기각(매수 LOTT 0.46, 목표 ~0.02 도달 불능).
+        # 초기 보유 샘플링(pf_caps 시총 가중)과 같은 모양. 시총 없는 종목은 가중 0.
+        mc_tickers = [t for t in tickers if config.MARKETCAP_20200302.get(t)]
+        max_cap = max(float(config.MARKETCAP_20200302[t]) for t in mc_tickers)
+        self._mcap_norm = {
+            t: (float(config.MARKETCAP_20200302[t]) / max_cap
+                if config.MARKETCAP_20200302.get(t) else 0.0)
+            for t in tickers
+        }
+        # largecap 계좌의 매수 후보 풀 = 시총 상위 K종목 (config.LARGECAP_POOL_SIZE
+        # 주석 참조 — 비례 가중만으로는 저LOTT 목표 영역 도달 불능이라 후보 제한).
+        self._largecap_pool = set(sorted(
+            mc_tickers, key=lambda t: float(config.MARKETCAP_20200302[t]),
+            reverse=True)[:config.LARGECAP_POOL_SIZE])
+
         ranges = config.BehaviorParamRanges()
         for _ in range(n_investors):
             group = sample_investor_group(group_rng)  # group_rng만 소모
@@ -145,23 +163,55 @@ class MarketModel(mesa.Model):
             # 중립 25% / 자연 50% / 꼬리 25% 혼합 — 비율·상한은 유형 C(설계 자유값,
             # 모델 성능 보고 조정 가능). config.EXTENDED_MIXTURE 주석 참조.
             components = {}
+            mcap_scale = 0.0
             if self.mode == "extended":
-                p_neutral = config.EXTENDED_MIXTURE["neutral"]
-                p_tail = config.EXTENDED_MIXTURE["tail"]
-                overrides = {}
-                for pname in config.NEUTRAL_VALUES:
-                    r = mixture_rng.random()
-                    if r < p_neutral:
-                        components[pname] = "neutral"
-                        overrides[pname] = config.NEUTRAL_VALUES[pname]
-                    elif r < p_neutral + p_tail:
-                        components[pname] = "tail"
-                        lo, hi = config.EXTENDED_TAIL_BOUNDS[pname]
-                        overrides[pname] = mixture_rng.uniform(lo, hi)
-                    else:
-                        components[pname] = "natural"  # py_rng 자연값 유지
-                if overrides:
-                    params = dataclasses.replace(params, **overrides)
+                # 정상 대조 유형 배정 (작업 2) — 편향 mixture보다 먼저, agent당 1 draw.
+                # 유형 계좌는 편향 4종 mixture를 건너뛰고 자연 draw 유지
+                # (config.EXTENDED_NORMAL_TYPES 주석 참조).
+                r = mixture_rng.random()
+                p_lh = config.EXTENDED_NORMAL_TYPES["long_hold"]
+                p_lc = config.EXTENDED_NORMAL_TYPES["largecap"]
+                if r < p_lh:
+                    components["account_type"] = "long_hold"
+                    # clip(하한 0.01) 이후 덮어쓰기라 하한 아래 값이 가능.
+                    # 로그 균등 샘플: 보유기간 ≈ 1/매도확률이라 균등 샘플은 짧은
+                    # 보유에 뭉친다(2단계 스모크 D 기각) — 로그 균등이 보유기간
+                    # 대역(몇 주~몇 달)을 스케일 전체에 고르게 채운다.
+                    lo, hi = config.LONG_HOLD_SELL_PROB_RANGE
+                    blo, bhi = config.LONG_HOLD_BUY_PROB_RANGE
+                    lh_over = {
+                        "base_sell_prob": math.exp(
+                            mixture_rng.uniform(math.log(lo), math.log(hi))),
+                        # 매수도 하향(config 주석 참조) — 드물게 사고 드물게 파는
+                        # 계좌여야 이른 매수의 긴 보유가 평균에 남는다.
+                        "base_buy_prob": math.exp(
+                            mixture_rng.uniform(math.log(blo), math.log(bhi))),
+                    }
+                    if config.LONG_HOLD_NEUTRAL_DISPOSITION:
+                        # 처분효과 중립 — 이익 시 ×4.4 부스트가 낮춘 매도 확률을
+                        # 되올려 장기 보유를 무산시키는 것을 차단(config 주석 참조)
+                        lh_over["disposition_strength"] = 1.0
+                    params = dataclasses.replace(params, **lh_over)
+                elif r < p_lh + p_lc:
+                    components["account_type"] = "largecap"
+                    mcap_scale = config.LARGECAP_WEIGHT_SCALE
+                else:
+                    p_neutral = config.EXTENDED_MIXTURE["neutral"]
+                    p_tail = config.EXTENDED_MIXTURE["tail"]
+                    overrides = {}
+                    for pname in config.NEUTRAL_VALUES:
+                        r = mixture_rng.random()
+                        if r < p_neutral:
+                            components[pname] = "neutral"
+                            overrides[pname] = config.NEUTRAL_VALUES[pname]
+                        elif r < p_neutral + p_tail:
+                            components[pname] = "tail"
+                            lo, hi = config.EXTENDED_TAIL_BOUNDS[pname]
+                            overrides[pname] = mixture_rng.uniform(lo, hi)
+                        else:
+                            components[pname] = "natural"  # py_rng 자연값 유지
+                    if overrides:
+                        params = dataclasses.replace(params, **overrides)
             cash_lo, cash_hi = config.INITIAL_CASH_BY_ASSET[group.asset]
             initial_cash = round(
                 py_rng.uniform(cash_lo, cash_hi)
@@ -190,7 +240,8 @@ class MarketModel(mesa.Model):
                 entry_date = entry_rng.choices(entry_days, weights=entry_weights, k=1)[0]
             else:  # 기존투자자(또는 플래그 off)는 첫날부터
                 entry_date = self.trading_days[0]
-            a = InvestorAgent(self, params, initial_cash, group, entry_date, init_pos)
+            a = InvestorAgent(self, params, initial_cash, group, entry_date,
+                              init_pos, mcap_scale)
             self.initial_assets[str(a.unique_id)] = total_asset
             if components:
                 self.param_components[str(a.unique_id)] = components

@@ -22,6 +22,7 @@ class InvestorAgent(mesa.Agent):
         group: InvestorGroup,
         entry_date,
         init_positions: dict | None = None,
+        mcap_scale: float = 0.0,
     ):
         super().__init__(model)
         self.params = params
@@ -32,6 +33,9 @@ class InvestorAgent(mesa.Agent):
         # 진입일(7-1b): 신규투자자는 계좌 개설 시점(그림 Ⅱ-1 분포)부터 활동.
         # 진입 전에는 step이 no-op — 현금도 사실상 진입 시점에 유입되는 것과 동일.
         self.entry_date = entry_date
+        # 대형주 집중형(작업 2, extended 학습 모드 전용)의 종목 선택 시총 항 스케일.
+        # 0이면(기본·자연 모드 전원) 선택 가중이 기존과 수치까지 동일.
+        self.mcap_scale = mcap_scale
         self.cash = initial_cash
         # positions: {종목코드: {"수량": int, "평균단가": float, "매입일": date}}
         # 기존투자자는 초기 보유(7-1d)를 갖고 시작 — 매입일이 시뮬 시작 전 날짜라
@@ -150,14 +154,21 @@ class InvestorAgent(mesa.Agent):
         candidates = self.model._today_candidates
         if not candidates:
             return None, 0.0, 0.0
+        if self.mcap_scale > 0:  # 대형주 집중형(작업 2): 매수 후보 = 시총 상위 풀만.
+            # 풀 전체가 오늘 거래불가(극단 상황)면 전체 후보로 폴백 — 매수 불능 방지.
+            candidates = [t for t in candidates
+                          if t in self.model._largecap_pool] or candidates
 
         lottery = self.model._today_lott_norm
         attn = self.model._today_attn_norm
+        mcap = self.model._mcap_norm
 
         hs = self.params.herd_sensitivity * config.HERD_WEIGHT_SCALE  # 6-6 스케일
         lp = self.params.lottery_preference * config.LOTT_WEIGHT_SCALE  # 7-2 스케일
+        mc = self.mcap_scale  # 대형주 집중형(작업 2)만 0이 아님 — 편향 아닌 취향 항
         weights = [
             config.PICK_BASE_WEIGHT
+            + mc * mcap[t]
             + lp * lottery[t]
             + hs * attn[t]
             for t in candidates
@@ -166,7 +177,10 @@ class InvestorAgent(mesa.Agent):
         # 종목 선택 귀속 (2단계): 가중합 추첨은 "성분(기본/복권/군집)을 가중 비례로
         # 고른 뒤 그 성분이 종목을 고른" 혼합 과정과 확률적으로 동치 —
         # P(성분 | 선택 종목) = 성분항 / 전체 가중치. 선택 후 산술 계산만이라 RNG 무소비.
-        w = (config.PICK_BASE_WEIGHT + lp * lottery[choice] + hs * attn[choice])
+        # 시총 항은 편향이 아니므로 귀속 분자에 없고 분모에만 들어간다 — 대형주
+        # 집중형의 매수는 복권·군집 귀속이 자연 희석(라벨 의미 보존).
+        w = (config.PICK_BASE_WEIGHT + mc * mcap[choice]
+             + lp * lottery[choice] + hs * attn[choice])
         lott_attr = lp * lottery[choice] / w if w > 0 else 0.0
         herd_attr = hs * attn[choice] / w if w > 0 else 0.0
         return choice, lott_attr, herd_attr
