@@ -173,12 +173,25 @@ class MarketModel(mesa.Model):
                 p_lc = config.EXTENDED_NORMAL_TYPES["largecap"]
                 if r < p_lh:
                     components["account_type"] = "long_hold"
-                    # clip(하한 0.01) 이후 덮어쓰기라 하한 아래 값이 가능
-                    params = dataclasses.replace(
-                        params,
-                        base_sell_prob=mixture_rng.uniform(
-                            *config.LONG_HOLD_SELL_PROB_RANGE),
-                    )
+                    # clip(하한 0.01) 이후 덮어쓰기라 하한 아래 값이 가능.
+                    # 로그 균등 샘플: 보유기간 ≈ 1/매도확률이라 균등 샘플은 짧은
+                    # 보유에 뭉친다(2단계 스모크 D 기각) — 로그 균등이 보유기간
+                    # 대역(몇 주~몇 달)을 스케일 전체에 고르게 채운다.
+                    lo, hi = config.LONG_HOLD_SELL_PROB_RANGE
+                    blo, bhi = config.LONG_HOLD_BUY_PROB_RANGE
+                    lh_over = {
+                        "base_sell_prob": math.exp(
+                            mixture_rng.uniform(math.log(lo), math.log(hi))),
+                        # 매수도 하향(config 주석 참조) — 드물게 사고 드물게 파는
+                        # 계좌여야 이른 매수의 긴 보유가 평균에 남는다.
+                        "base_buy_prob": math.exp(
+                            mixture_rng.uniform(math.log(blo), math.log(bhi))),
+                    }
+                    if config.LONG_HOLD_NEUTRAL_DISPOSITION:
+                        # 처분효과 중립 — 이익 시 ×4.4 부스트가 낮춘 매도 확률을
+                        # 되올려 장기 보유를 무산시키는 것을 차단(config 주석 참조)
+                        lh_over["disposition_strength"] = 1.0
+                    params = dataclasses.replace(params, **lh_over)
                 elif r < p_lh + p_lc:
                     components["account_type"] = "largecap"
                     mcap_scale = config.LARGECAP_WEIGHT_SCALE
