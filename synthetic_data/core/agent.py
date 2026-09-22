@@ -1,7 +1,9 @@
 """
 InvestorAgent: 하루 단위로 매도->매수 판단을 수행하는 개인 투자자 agent.
 """
- 
+
+import math
+import random
 from typing import TYPE_CHECKING
 
 import mesa
@@ -11,6 +13,20 @@ from .params import BehaviorParams, InvestorGroup
 from .schema import Trade
 if TYPE_CHECKING:
     from .model import MarketModel
+
+
+def _poisson(rng: random.Random, lam: float) -> int:
+    """Knuth 방식 포아송 샘플 (numpy RNG를 쓰지 않는 이유: py_rng 계열과 동일한
+    random.Random 스트림 규율 유지). model.py의 초기 보유 종목수(7-1d)와
+    _maybe_buy의 하루 매수 건수가 공유 — 원래 model.py에 있던 것을 매수 다건화
+    (2026-09-22) 때 이쪽으로 이동(모듈 순환 참조 회피: model이 agent를 import)."""
+    L = math.exp(-lam)
+    k, p = 0, 1.0
+    while True:
+        p *= rng.random()
+        if p <= L:
+            return k
+        k += 1
 
 
 class InvestorAgent(mesa.Agent):
@@ -120,22 +136,36 @@ class InvestorAgent(mesa.Agent):
             )
             boosted = True
 
-        if self.random.random() >= min(prob, 0.9):
-            return
-        if self.cash < 100_000:
+        # 하루 매수 건수 n ~ Poisson(λ), λ = min(prob, 0.9).
+        # 종전의 "하루 1회 베르누이 판정·1종목"은 7월 프로토타입의 미검토 잔재 —
+        # 같은 날 다종목 매수가 구조적으로 0건이라 실계좌의 보편 패턴이 학습 데이터에
+        # 부재했다(2026-09-22 수리, PROCESS 참조). 포아송의 기대 건수 λ가 종전
+        # 베르누이의 기대 건수 p와 동일하므로 하루 평균 매수 건수가 정확히 보존되어
+        # 총량 캘리브레이션(회전율·거래수·보유종목수)이 1차 유지되고, 달라지는 것은
+        # 꼬리(가끔 하루 2건+)뿐이다. 분포 모양 자체는 외부 앵커가 없는 최소 가정
+        # (유형 C — 실측 편입률 5.7%는 평균 수준의 참조점만 제공, 21-11 p.9).
+        lam = min(prob, 0.9)
+        n_buys = _poisson(self.random, lam)
+        if n_buys <= 0:
             return
 
         # 과잉확신 귀속 (2단계): 매도의 처분 귀속과 동일한 반사실 비(1−p₀/p₁) —
         # 상승일 증폭이 없었으면 이 매수가 나지 않았을 확률. 비상승일은 0.
-        p1 = min(prob, 0.9)
+        # 다건화 후에는 확률비가 발생률비(λ₀/λ)로 해석만 바뀌고 계산은 동일 —
+        # 증폭이 건수 기대값을 키우므로 각 건에 같은 귀속이 걸리는 것이 thinning
+        # 분해와 정합. 같은 날 모든 건에 동일 값(시장 상황이 같으므로).
+        p1 = lam
         p0 = min(self.params.base_buy_prob, 0.9)
         oc_attr = max(0.0, 1.0 - p0 / p1) if (boosted and p1 > 0) else 0.0
 
-        ticker, lott_attr, herd_attr = self._pick_ticker()
-        if ticker is None:
-            return
-        low, high, _close = self.model.get_today_price(ticker)
-        self._execute_buy(ticker, low, high, oc_attr, lott_attr, herd_attr)
+        for _ in range(n_buys):
+            if self.cash < 100_000:  # 종전과 동일한 최소 현금 가드 — 건마다 재확인
+                break
+            ticker, lott_attr, herd_attr = self._pick_ticker()
+            if ticker is None:
+                break
+            low, high, _close = self.model.get_today_price(ticker)
+            self._execute_buy(ticker, low, high, oc_attr, lott_attr, herd_attr)
  
     def _pick_ticker(self) -> tuple:
         """복권형 선호와 군집(attention) 신호를 배타적 분기가 아니라 가중합으로 결합해

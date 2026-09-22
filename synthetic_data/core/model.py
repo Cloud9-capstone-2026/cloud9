@@ -11,23 +11,12 @@ import mesa
 import pandas as pd
  
 from .. import config
-from .agent import InvestorAgent
+from .agent import InvestorAgent, _poisson  # _poisson: 초기 보유 종목수(7-1d)와
+# 하루 매수 건수(매수 다건화, 2026-09-22)가 공유 — 정의는 agent.py(순환 참조 회피)
 from ..market.lott import load_lott_table
 from ..market_data import get_index_data, get_price_data
 from .params import sample_investor_group, sample_investor_params
 from .schema import Trade
- 
- 
-def _poisson(rng: random.Random, lam: float) -> int:
-    """Knuth 방식 포아송 샘플 (numpy RNG를 쓰지 않는 이유: py_rng 계열과 동일한
-    random.Random 스트림 규율 유지 — 7-1d 초기 종목수 k ~ 1+Poisson(λ))."""
-    L = math.exp(-lam)
-    k, p = 0, 1.0
-    while True:
-        p *= rng.random()
-        if p <= L:
-            return k
-        k += 1
 
 
 def _weighted_sample_no_replace(
