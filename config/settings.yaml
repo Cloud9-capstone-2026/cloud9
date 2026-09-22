@@ -27,5 +27,6 @@ model:
   xai_steps: 32              # CANARY_XAI_STEPS 환경변수로 덮어쓸 수 있음
   repo: Cloud9-capstone-2026/cloud9   # CANARY_MODEL_REPO 환경변수로 덮어쓸 수 있음
   dist_trigger: 2             # CANARY_DIST_TRIGGER 환경변수로 덮어쓸 수 있음.
+  refresh_cooldown: 3600      # 모델 Release 갱신 검사 주기(초). CANARY_MODEL_REFRESH_COOLDOWN으로 덮어쓸 수 있음
                                # 분포 점검 발동 기준(이탈 지표 개수) — 실사용
                                # 데이터 쌓이면 조정 예정(은우, pipeline/monitor.py)
