@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
@@ -78,47 +79,131 @@ BIAS_NAMES = {
 }
 
 
-def _ensure_artifacts() -> Path:
-    """아티팩트 확보: 선언된 Release 태그와 일치하는 로컬 파일이 있으면 그대로,
-    없거나 태그가 바뀌었으면 GitHub Release에서 다운로드.
+_last_refresh_check: float | None = None  # 마지막 갱신 검사 시각(monotonic) —
+# 프로세스 기동 후 첫 분석에서 반드시 1회 검사(배포 재시작 직후 즉시 갱신 효과)
 
-    태그 일치 판정은 다운로드 성공 시 같이 써 두는 release_tag.txt로 한다 — 이게
-    없던 시절(옛 배포)의 파일은 태그가 설정돼 있으면 불일치로 보고 재다운로드
-    (env만 바꾸면 서버 모델이 실제로 갈리게 — 2026-09-01, 옛 파일이 남아 태그
-    변경이 무시되던 구멍 수리). 태그 미설정(로컬 학습 산출물 사용)은 파일만 보면 됨.
-    다운로드 실패는 예외 → _load_artifacts → score_account None → 2계층 폴백
-    (기존 실패 정책 그대로)."""
-    tag = os.environ.get("CANARY_MODEL_RELEASE")
-    tag_file = _ART_DIR / "release_tag.txt"
-    have_files = (_ART_DIR / "tagger.pt").exists() and (_ART_DIR / "tagger_meta.json").exists()
-    if have_files and (not tag or (tag_file.exists() and tag_file.read_text().strip() == tag)):
-        return _ART_DIR
-    if not tag:
-        raise RuntimeError(
-            f"모델 아티팩트 없음({_ART_DIR}) — CANARY_MODEL_DIR 또는 "
-            "CANARY_MODEL_RELEASE(다운로드 태그)를 설정할 것")
-    repo = get("model.repo", "Cloud9-capstone-2026/cloud9", env_override="CANARY_MODEL_REPO")
-    headers = {"Accept": "application/vnd.github+json"}
+
+def _refresh_cooldown() -> float:
+    """갱신 검사 쿨다운(초). 무효 값은 기본 3600 — 검사 자체가 서비스를 막으면 안 됨."""
+    raw = get("model.refresh_cooldown", "3600", env_override="CANARY_MODEL_REFRESH_COOLDOWN")
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        v = -1
+    if v < 0:
+        logger.warning("CANARY_MODEL_REFRESH_COOLDOWN 값 무효(%r) — 기본 3600 사용", raw)
+        return 3600.0
+    return v
+
+
+def _gh_headers(accept: str = "application/vnd.github+json") -> dict:
+    headers = {"Accept": accept}
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    r = requests.get(f"https://api.github.com/repos/{repo}/releases/tags/{tag}",
-                     headers=headers, timeout=30)
+    return headers
+
+
+def _repo() -> str:
+    return get("model.repo", "Cloud9-capstone-2026/cloud9", env_override="CANARY_MODEL_REPO")
+
+
+_MODEL_TAG_PREFIX = "model-"  # 모델 버전 태그 규약(model-YYYYMMDD[접미사]) —
+# 순위표(lott-table) 등 다른 Release는 이 접두사가 아니라 자연 배제된다
+
+
+def _latest_model_tag() -> str | None:
+    """Release 목록에서 model-* 태그 중 최신을 반환 (초안 제외, 없으면 None).
+
+    태그가 날짜형(model-YYYYMMDD, 같은 날 재배포는 b·c 접미사)이라 사전순
+    최대 = 최신. 실패는 예외 — 호출부가 정책(유지/폴백)을 결정한다."""
+    r = requests.get(f"https://api.github.com/repos/{_repo()}/releases?per_page=30",
+                     headers=_gh_headers(), timeout=30)
     r.raise_for_status()
-    assets = {a["name"]: a for a in r.json().get("assets", [])}
+    tags = [rel.get("tag_name", "") for rel in r.json()
+            if not rel.get("draft") and rel.get("tag_name", "").startswith(_MODEL_TAG_PREFIX)]
+    return max(tags) if tags else None
+
+
+def _fetch_release_assets(tag: str) -> dict:
+    """Release 태그의 자산 목록 {이름: 자산 dict}. 실패는 예외(호출부가 정책 결정)."""
+    r = requests.get(f"https://api.github.com/repos/{_repo()}/releases/tags/{tag}",
+                     headers=_gh_headers(), timeout=30)
+    r.raise_for_status()
+    return {a["name"]: a for a in r.json().get("assets", [])}
+
+
+def _download_asset(asset: dict) -> bytes:
+    dl = requests.get(asset["url"], headers=_gh_headers("application/octet-stream"),
+                      timeout=300)
+    dl.raise_for_status()
+    return dl.content
+
+
+def _ensure_artifacts() -> Path:
+    """아티팩트 확보: 서버는 최신 model-* Release를 따라간다 (2026-09-23 v2).
+
+    - 운영 상태(파일 + release_tag.txt 기록 있음): 쿨다운(model.refresh_cooldown,
+      기본 1h) 주기로 Release 목록을 조회해 model-* 최신 태그를 찾고, 기록과
+      다르면 그 묶음을 다운로드한다. "태그 = 모델 버전"(9/1 결정)은 유지 —
+      어느 태그를 쓸지의 발견만 자동화한 것. 모델 갱신 = 새 날짜 태그 Release
+      업로드, 롤백 = 그 Release 삭제(다음 검사 때 직전 버전으로 복귀).
+      조회 실패는 기존 파일 유지 — 서비스 무영향. 재시작 직후엔 즉시 1회 검사.
+    - 기록 없는 파일(옛 배포) 또는 파일 없음: 최신 model-* 태그를 받고, 목록
+      조회가 실패하면 환경변수 CANARY_MODEL_RELEASE 태그로 폴백(부트스트랩
+      전용으로 역할 축소 — 평상시 갱신은 env를 보지 않는다).
+    - 태그 기록·env 모두 없고 파일만 있음: 로컬 학습 산출물 사용 (기존과 동일).
+    다운로드 실패는 예외 → _load_artifacts → score_account None → 2계층 폴백
+    (기존 실패 정책 그대로)."""
+    global _last_refresh_check
+    env_tag = os.environ.get("CANARY_MODEL_RELEASE")
+    tag_file = _ART_DIR / "release_tag.txt"
+    recorded = tag_file.read_text(encoding="utf-8").strip() if tag_file.exists() else None
+    have_files = (_ART_DIR / "tagger.pt").exists() and (_ART_DIR / "tagger_meta.json").exists()
+    if have_files and not recorded and not env_tag:
+        return _ART_DIR  # 로컬 학습 산출물 — 갱신 검사 대상 아님
+
+    if have_files and recorded:
+        # 운영 상태 — 최신 추종 검사 (쿨다운)
+        now = time.monotonic()
+        if _last_refresh_check is not None and now - _last_refresh_check < _refresh_cooldown():
+            return _ART_DIR
+        try:
+            latest = _latest_model_tag()
+        except Exception as e:  # noqa: BLE001 — 검사 실패로 분석을 막지 않는다
+            logger.warning("모델 갱신 검사 실패 — 기존 아티팩트 유지: %r", e)
+            _last_refresh_check = time.monotonic()
+            return _ART_DIR
+        _last_refresh_check = time.monotonic()
+        if latest is None or latest == recorded:
+            return _ART_DIR
+        logger.info("새 모델 버전 감지: %s → %s", recorded, latest)
+        target = latest
+    else:
+        # 부트스트랩(파일 없음) 또는 기록 없는 옛 파일 — 최신을 받되,
+        # 목록 조회 실패 시 env 태그 폴백
+        target = None
+        try:
+            target = _latest_model_tag()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Release 목록 조회 실패 — 환경변수 태그로 폴백: %r", e)
+        if target is None:
+            target = env_tag
+        if not target:
+            raise RuntimeError(
+                f"모델 아티팩트 없음({_ART_DIR}) — CANARY_MODEL_DIR 또는 "
+                "CANARY_MODEL_RELEASE(부트스트랩 태그)를 설정할 것")
+
+    assets = _fetch_release_assets(target)
     missing = [n for n in ("tagger.pt", "tagger_meta.json") if n not in assets]
     if missing:
-        raise RuntimeError(f"Release {tag}에 필수 자산 없음: {missing}")
+        raise RuntimeError(f"Release {target}에 필수 자산 없음: {missing}")
     _ART_DIR.mkdir(parents=True, exist_ok=True)
     for name in _RELEASE_ASSETS:
         if name not in assets:
             continue  # 선택 자산(hashes 등)은 없어도 동작
-        dl = requests.get(assets[name]["url"],
-                          headers={**headers, "Accept": "application/octet-stream"},
-                          timeout=300)
-        dl.raise_for_status()
         tmp = _ART_DIR / (name + ".tmp")
-        tmp.write_bytes(dl.content)
+        tmp.write_bytes(_download_asset(assets[name]))
         tmp.replace(_ART_DIR / name)  # 부분 다운로드가 정본이 되지 않도록 원자 교체
 
     # 무결성 검증: hashes.json의 출력물 지문과 대조 — 전송 손상·자산 뒤섞임 탐지.
@@ -142,8 +227,12 @@ def _ensure_artifacts() -> Path:
         logger.info("layer3 아티팩트 무결성 검증 통과 (%d개)", len(expected))
     else:
         logger.warning("hashes.json 부재 — 다운로드 아티팩트 무결성 검증 생략")
-    tag_file.write_text(tag, encoding="utf-8")  # 다음 기동부터 이 태그와 대조
-    logger.info("layer3 아티팩트 다운로드 완료: %s (%s)", tag, _ART_DIR)
+    tag_file.write_text(target, encoding="utf-8")  # 현재 버전 기록 — 다음 검사의 비교 기준
+    # 메모리에 올라 있는 옛 모델 무효화 — 파일만 갈고 이걸 빼먹으면 판정은 계속
+    # 옛 모델이 한다 (lott_table의 _load.cache_clear()와 같은 패턴). 분석 worker가
+    # 잡을 순차 처리하므로 채점 도중 갈리는 경합은 실질적으로 없다.
+    _load_artifacts.cache_clear()
+    logger.info("layer3 아티팩트 다운로드 완료: %s (%s)", target, _ART_DIR)
     return _ART_DIR
 
 
