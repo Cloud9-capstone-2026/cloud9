@@ -323,14 +323,20 @@ def apply_mapping(df: pd.DataFrame, mapping: dict, value_map: dict):
                 errors="coerce",
             )
 
-    # 없는 필드 기본값 (Trade 테이블이 NOT NULL)
+    # 없는 필드 기본값 (Trade 테이블이 NOT NULL). 칸은 있는데 값이 비었거나
+    # "-"(매수 행 거래세 등 — 위 변환에서 NaN)인 경우도 같은 기본값 — 안 채우면
+    # 저장 단계 int(NaN)에서 터진다.
     if "거래금액" not in out.columns:
         out["거래금액"] = out["거래수량"] * out["거래단가"]
     for col in ("수수료", "거래세"):
         if col not in out.columns:
             out[col] = 0
+        else:
+            out[col] = out[col].fillna(0)
     if "정산금액" not in out.columns:
         out["정산금액"] = out["거래금액"]
+    else:
+        out["정산금액"] = out["정산금액"].fillna(out["거래금액"])
 
     return out[FIELDS_ALL].reset_index(drop=True), n_dropped
 
@@ -361,8 +367,24 @@ def validate(out: pd.DataFrame, n_source_rows: int, n_dropped: int) -> None:
 
 # ─ 오케스트레이터 (worker가 부르는 진입점) ─
 
+def _to_chronological(out: pd.DataFrame) -> pd.DataFrame:
+    """행을 오래된 순으로 정리 — 저장 id 순서가 곧 시간순이 되게 한다.
+
+    거래 시각 칸이 없어 같은 날 안의 순서는 데이터 순서를 따른다(포지션 재생의
+    "같은 날은 데이터 순서" 정책). 그 데이터 순서가 의미를 가지려면 최신순
+    파일(첫 행 날짜가 마지막 행보다 늦음)은 먼저 통째로 뒤집어야 한다 — 안
+    뒤집으면 같은 날 "매수→매도"가 "매도→매수"로 처리된다. 그다음 날짜로
+    안정 정렬(같은 날 순서 보존). 방향을 알 수 없는 파일(종목별 정렬 등)은
+    안정 정렬만 적용돼 같은 날 안은 파일 순서 그대로다.
+    """
+    if len(out) > 1 and out["거래일자"].iloc[0] > out["거래일자"].iloc[-1]:
+        out = out.iloc[::-1]
+    return out.sort_values("거래일자", kind="stable").reset_index(drop=True)
+
+
 def map_file(raw: bytes, filename: str) -> pd.DataFrame:
-    """파일 원본 → Trade 스키마 DataFrame (거래일자는 datetime, 행은 파일 순서).
+    """파일 원본 → Trade 스키마 DataFrame (거래일자는 datetime, 행은 오래된 순 —
+    같은 날 안은 데이터 순서, _to_chronological 참조).
 
     실패는 전부 MappingError로 승격 — 호출부는 이것 하나만 처리하면 된다.
     """
@@ -379,6 +401,7 @@ def map_file(raw: bytes, filename: str) -> pd.DataFrame:
 
         out, n_dropped = apply_mapping(df, mapping, value_map)
         validate(out, len(df), n_dropped)
+        out = _to_chronological(out)
         logger.info("CSV 매핑 완료: %s — 거래 %d행 (비거래 %d행 버림)",
                     filename, len(out), n_dropped)
         return out
