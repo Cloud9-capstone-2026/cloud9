@@ -19,14 +19,12 @@ BIAS_SIDE = {
     "herd_sensitivity": "매수",
 }
 
-# 이보다 적은 거래로 낸 평균은 우연에 크게 흔들려 점수 대신 None(판정 보류)
-MIN_TRADES = 5
-
 
 def account_bias_scores(rows) -> dict:
     """(거래구분, bias_scores) 목록 → 편향별 {score 0~100 | None, n_trades, side}.
 
-    bias_scores가 없는 거래(3계층 제외·판정 불가)는 건너뛴다."""
+    bias_scores가 없는 거래(3계층 제외·판정 불가)는 건너뛴다. 해당 쪽 거래가
+    하나도 없으면 score는 None — 0점과 구분된다."""
     sums = dict.fromkeys(BIAS_SIDE, 0.0)
     counts = dict.fromkeys(BIAS_SIDE, 0)
     for side, scores in rows:
@@ -40,7 +38,7 @@ def account_bias_scores(rows) -> dict:
     return {
         bias: {
             "score": (round(sums[bias] / counts[bias] * 100, 1)
-                      if counts[bias] >= MIN_TRADES else None),
+                      if counts[bias] else None),
             "n_trades": counts[bias],
             "side": need,
         }
