@@ -74,14 +74,22 @@ def _standardize(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["체결수량", "체결단가", "총거래금액"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df.sort_values("날짜").reset_index(drop=True)
+    # 안정 정렬 필수: 같은 날 안의 순서는 데이터 순서가 곧 처리 순서다(시각 칸
+    # 없음 — 포지션 재생·3계층 피처가 이 순서를 그대로 믿는다). 기본 정렬은
+    # 같은 날 행을 뒤섞는다(하루 17건쯤부터 실측).
+    return df.sort_values("날짜", kind="stable").reset_index(drop=True)
 
 
 def _trades_to_df(trades: list) -> pd.DataFrame:
-    """Trade ORM 객체 리스트 → 표준 DataFrame. 빈 리스트면 표준 컬럼만 가진 빈 DF."""
+    """Trade ORM 객체 리스트 → 표준 DataFrame. 빈 리스트면 표준 컬럼만 가진 빈 DF.
+
+    `_tid`(거래 id)를 함께 싣는다 — 정렬 후에도 각 행이 어느 거래인지 잃지
+    않게. 모델에 넘기기 전에 호출부가 떼어낸다."""
     if not trades:
-        return pd.DataFrame(columns=["날짜", "종목명", "매매구분", "체결수량", "체결단가", "총거래금액"])
+        return pd.DataFrame(columns=["날짜", "종목명", "매매구분", "체결수량",
+                                     "체결단가", "총거래금액", "_tid"])
     rows = [{
+        "_tid":     t.id,
         "거래일자": t.거래일자,
         "종목명":   t.종목명,
         "거래구분": t.거래구분,
@@ -177,8 +185,8 @@ def run_pipeline_from_db(
     parsed_uid = _parse_user_id(user_id)
 
     # ─ Phase 1: 읽기 (이번 업로드 + 같은 사용자의 이전 업로드를 baseline으로)
-    # order_by(id): 이 순서가 곧 결과 매칭 계약 — 아래 Phase 3에서 ensemble의
-    # i번째 행을 trades[i]에 trade_id로 연결하므로 순서가 암묵이면 안 된다.
+    # order_by(id): 저장 순서 = 매퍼가 정리한 시간순(같은 날은 데이터 순서) —
+    # 날짜 안정 정렬이 이 순서를 같은 날 처리 순서로 보존한다.
     trades = db.query(Trade).filter(Trade.upload_id == upload_id).order_by(Trade.id).all()
     # 이전 거래는 이 업로드 주인의 것만 — 남의 거래가 신규 추출 기준·2계층
     # baseline·3계층 시퀀스 문맥에 섞이지 않게 (저장 쪽 _store_trades의 사용자
@@ -188,7 +196,8 @@ def run_pipeline_from_db(
     owner_filter = (Trade.user_id == owner_id) if owner_id is not None \
         else Trade.user_id.is_(None)
     prev_trades = db.query(Trade).filter(
-        Trade.upload_id < upload_id, owner_filter).all()
+        Trade.upload_id < upload_id, owner_filter
+    ).order_by(Trade.upload_id, Trade.id).all()
     # 사용자 등록 규칙 조합(미설정이면 기본 조합) — 분석 시점에 읽으므로
     # 규칙 수정은 다음 업로드 분석부터 적용된다(소급 없음).
     ruleset = load_ruleset(db, parsed_uid)
@@ -211,7 +220,10 @@ def run_pipeline_from_db(
     # 저장된 행 전부가 신규다. 여기서 5키로 또 거르면 분할 체결·같은 날 동일
     # 조건 재거래가 과거 거래와 겹쳐 잘못 제외된다(2026-09-02, 5키 대조 제거).
     std_df = _trades_to_df(trades)
-    baseline = _trades_to_df(prev_trades)  # 이전 업로드들 = 2계층 기준선·3계층 문맥
+    # 정렬된 행 순서의 거래 id — 결과(ensemble)는 이 순서로 나오므로 저장 때
+    # 이걸로 짝짓는다. 모델 입력에서는 뗀다.
+    std_tids = std_df.pop("_tid").to_numpy()
+    baseline = _trades_to_df(prev_trades).drop(columns="_tid")  # 이전 업로드들 = 2계층 기준선·3계층 문맥
     new_trades, new_pos = std_df, np.arange(len(std_df))
 
     # 전체 이력(이전 + 이번) — 1계층 규칙과 3계층이 문맥으로 공유.
@@ -284,13 +296,17 @@ def run_pipeline_from_db(
     # ─ Phase 3: 쓰기 (새 트랜잭션)
     # detail이 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
     # 조회 라우터는 저장분을 그대로 반환하므로 여기 넣지 않으면 전달되지 않는다.
-    # trade_id: ensemble은 trades와 같은 순서·길이(위 order_by 계약) — 분할 체결처럼
-    # 내용이 동일한 거래도 id로 1:1 매칭된다. 어긋나면 잘못 매칭된 채 저장되는
+    # trade_id: ensemble i번째 = 정렬된 표 i번째 행 → 그 행의 거래 id(std_tids)로
+    # 짝짓는다. 조회 순서(trades)와 정렬 순서가 같다고 가정하지 않는다 — 그
+    # 가정으로 zip하던 시절 최신순 파일에서 결과가 다른 거래에 붙었다. 분할
+    # 체결처럼 내용이 동일한 거래도 id로 1:1. 어긋나면 잘못 매칭된 채 저장되는
     # 것보다 실패가 낫다(job failed → error_type으로 원인 추적).
-    if len(ensemble) != len(trades):
+    if len(ensemble) != len(trades) or len(std_tids) != len(ensemble):
         raise RuntimeError(
             f"결과-거래 개수 불일치: ensemble {len(ensemble)} != trades {len(trades)}")
-    for t, e in zip(trades, ensemble):
+    trade_by_id = {t.id: t for t in trades}
+    for tid, e in zip(std_tids, ensemble):
+        t = trade_by_id[int(tid)]
         deep = e["deep"] or {}
         stat = e["stat"] or {}
         db.add(AnalysisResult(
