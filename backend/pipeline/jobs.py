@@ -180,11 +180,14 @@ def recover_stale_jobs() -> int:
                 job.status = "failed"
                 job.error_reason = "서버 재시작으로 중단됨"  # 내부 기록만
                 job.finished_at = datetime.now()
-                db.query(Trade).filter(
-                    Trade.upload_id == job.upload_id
-                ).delete(synchronize_session=False)
+                # 결과가 거래를 FK로 참조하므로 결과 먼저 삭제(역순이면 결과가
+                # 이미 저장된 업로드에서 FK 위반 → 이 트랜잭션 전체 실패로 모든
+                # stale job이 running에 남는다)
                 db.query(AnalysisResult).filter(
                     AnalysisResult.upload_id == job.upload_id
+                ).delete(synchronize_session=False)
+                db.query(Trade).filter(
+                    Trade.upload_id == job.upload_id
                 ).delete(synchronize_session=False)
                 upload = db.query(CsvUpload).filter(
                     CsvUpload.id == job.upload_id).first()
@@ -215,11 +218,16 @@ def run_analysis_job(job_id: int) -> None:
 
         try:
             new_count = _store_trades(db, job.upload_id)
-        except MappingError as e:
+        except Exception as e:  # noqa: BLE001 — 어떤 오류든 job이 running에 남으면 안 됨
             # 파일 자체를 못 읽은 경우 — "분석 실패"가 아니라 "업로드 실패"로
-            # 구분한다(사용자가 CSV를 다시 준비해야 하는 케이스).
+            # 구분한다(사용자가 CSV를 다시 준비해야 하는 케이스). 매핑 오류가
+            # 아닌 예상 밖 오류(저장 중 변환 실패 등)도 같은 처리 — 전에는
+            # MappingError만 잡아 나머지가 빠져나가 job이 영원히 running이었다.
             db.rollback()
-            logger.warning("job %s 파일 처리 실패: %r", job_id, e)
+            if isinstance(e, MappingError):
+                logger.warning("job %s 파일 처리 실패: %r", job_id, e)
+            else:
+                logger.exception("job %s 거래 저장 중 예상 밖 오류: %r", job_id, e)
             _mark_upload_failed(db, job.upload_id)
             _transition(db, job_id, "running",
                         {"status": "failed", "finished_at": datetime.now(),
