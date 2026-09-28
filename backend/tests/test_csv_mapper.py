@@ -349,3 +349,76 @@ def test_excel_roundtrip(monkeypatch, tmp_path):
     assert len(out) == 2
     assert out.loc[1, "종목명"] == "카카오"
     assert out.loc[1, "거래금액"] == 225000
+
+
+# ─ 순서 정리: 저장 순서가 곧 시간순 (같은 날은 데이터 순서) ─
+
+MAP_ORDER = {
+    "header_row": 0,
+    "columns": {"일자": "거래일자", "종목": "종목명", "구분": "거래구분",
+                "수량": "거래수량", "단가": "거래단가", "금액": "거래금액",
+                "거래세": "거래세"},
+    "date_format": "%Y-%m-%d",
+}
+
+
+def _order_csv(rows):
+    body = "일자,종목,구분,수량,단가,금액,거래세\n" + "".join(
+        f"{d},{n},{k},{q},{p},{q * p},{t}\n" for d, n, k, q, p, t in rows)
+    return body.encode("utf-8")
+
+
+def test_newest_first_file_reversed_to_chronological(monkeypatch):
+    """최신순 파일 → 통째로 뒤집어 오래된 순. 같은 날 안도 뒤집혀 실제 순서
+    (9시 매수 → 14시 매도)가 된다 — 안 뒤집으면 매도가 먼저 처리된다."""
+    fake_llm(monkeypatch, [j(MAP_ORDER), j(VALUES_SIMPLE)])
+    raw = _order_csv([
+        ("2026-01-07", "카카오", "매도", 5, 45000, 0),
+        ("2026-01-05", "삼성전자", "매도", 10, 61000, 0),   # 같은 날 14시
+        ("2026-01-05", "삼성전자", "매수", 10, 60000, 0),   # 같은 날 9시
+    ])
+    out = map_file(raw, "newest_first.csv")
+    assert list(out["거래일자"].dt.day) == [5, 5, 7]
+    assert list(out["거래구분"][:2]) == ["매수", "매도"]
+
+
+def test_chronological_file_kept_and_ties_preserved(monkeypatch):
+    """오래된 순 파일은 그대로 — 같은 날 30건도 파일 순서 보존(안정 정렬)."""
+    fake_llm(monkeypatch, [j(MAP_ORDER), j(VALUES_SIMPLE)])
+    rows = [("2026-01-05", f"종목{i:02d}", "매수", 1, 1000 + i, 0) for i in range(30)]
+    rows.append(("2026-01-06", "종목99", "매도", 1, 2000, 0))
+    out = map_file(_order_csv(rows), "chrono.csv")
+    assert list(out["종목명"][:30]) == [f"종목{i:02d}" for i in range(30)]
+    assert out["종목명"].iloc[-1] == "종목99"
+
+
+def test_mixed_order_file_sorted_by_date_ties_kept(monkeypatch):
+    """방향 불명(종목별 정렬 등) — 날짜 정렬만, 같은 날은 파일 순서."""
+    fake_llm(monkeypatch, [j(MAP_ORDER), j(VALUES_SIMPLE)])
+    raw = _order_csv([
+        ("2026-01-05", "A", "매수", 1, 100, 0),
+        ("2026-01-09", "A", "매도", 1, 110, 0),
+        ("2026-01-05", "B", "매수", 1, 200, 0),
+        ("2026-01-12", "B", "매도", 1, 210, 0),
+    ])
+    out = map_file(raw, "by_stock.csv")
+    assert list(out["종목명"]) == ["A", "B", "A", "B"]
+    assert list(out["거래일자"].dt.day) == [5, 5, 9, 12]
+
+
+def test_blank_or_dash_fee_defaults_to_zero():
+    """거래세 칸이 '-'/빈칸 → 0 (전에는 NaN으로 남아 저장 int()에서 job이 멈췄다).
+    정산금액 칸이 비면 거래금액."""
+    df = pd.DataFrame({
+        "일자": ["2026-01-05", "2026-01-06"], "종목": ["A", "A"],
+        "구분": ["매수", "매도"], "수량": ["1", "1"], "단가": ["100", "110"],
+        "금액": ["100", "110"], "세": ["-", ""], "정산": ["", "109"],
+    })
+    mapping = {"header_row": 0, "date_format": "%Y-%m-%d",
+               "columns": {"일자": "거래일자", "종목": "종목명", "구분": "거래구분",
+                           "수량": "거래수량", "단가": "거래단가", "금액": "거래금액",
+                           "세": "거래세", "정산": "정산금액"}}
+    out, _ = apply_mapping(df, mapping, VALUES_SIMPLE)
+    assert list(out["거래세"]) == [0, 0]
+    assert list(out["수수료"]) == [0, 0]
+    assert list(out["정산금액"]) == [100, 109]

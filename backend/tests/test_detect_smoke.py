@@ -333,8 +333,12 @@ def test_results_carry_trade_id_even_for_identical_trades(monkeypatch, tmp_path,
                  .filter(orm.Trade.upload_id == 1).order_by(orm.Trade.id)]
     result_ids = [r.trade_id for r in db.query(orm.AnalysisResult)
                   .order_by(orm.AnalysisResult.id)]
-    assert result_ids == trade_ids           # 순서까지 1:1 (동일 내용 2건 포함)
+    # 결과는 판정 순서(날짜순)로 저장되므로 id 순서와 같을 필요는 없다 —
+    # 모든 거래가 정확히 한 번씩 연결되고(동일 내용 2건 포함), 각 결과가
+    # 자기가 판정한 거래를 가리키면 된다.
+    assert sorted(result_ids) == trade_ids
     assert len(set(result_ids)) == len(result_ids)  # 중복 매칭 없음
+    _assert_results_match_trades(db, orm, 1)
     db.close()
 
 
@@ -426,3 +430,101 @@ def test_stat_flag_follows_zscore_definition(standard_trades):
     for e, s in zip(ens, stat["trade_results"]):
         assert e["flags"]["stat"] == s["is_anomaly"]
         assert e["stat"]["mahalanobis"] == s["mahalanobis"]
+
+
+def _store_rows(db, orm, upload_id, rows):
+    """(날짜, 종목명, 구분, 수량, 단가) 행을 주어진 순서 그대로 저장(= id 순서)."""
+    from datetime import date
+    db.add(orm.CsvUpload(id=upload_id, file_name=f"{upload_id}.csv", user_id=1))
+    for d, name, kind, q, p in rows:
+        db.add(orm.Trade(upload_id=upload_id, user_id=1, 거래일자=date.fromisoformat(d),
+                         종목명=name, 거래구분=kind, 거래수량=q, 거래단가=p,
+                         거래금액=q * p, 수수료=0, 거래세=0, 정산금액=q * p))
+    db.commit()
+
+
+def _sqlite_session():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+
+    import orm
+    from database import Base
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                           poolclass=StaticPool)
+    Base.metadata.create_all(bind=engine)
+    return sessionmaker(bind=engine)(), orm
+
+
+def _assert_results_match_trades(db, orm, upload_id):
+    """저장된 결과마다 detail(판정한 거래)과 trade_id(연결된 거래)가 같은 거래."""
+    rows = db.query(orm.AnalysisResult).filter(
+        orm.AnalysisResult.upload_id == upload_id).all()
+    assert rows
+    for r in rows:
+        t = db.query(orm.Trade).filter(orm.Trade.id == r.trade_id).one()
+        assert r.detail["날짜"] == str(t.거래일자)
+        assert r.detail["종목명"] == t.종목명
+    return rows
+
+
+def test_newest_first_stored_upload_results_attach_to_right_trades(monkeypatch, tmp_path):
+    """최신순으로 저장된 업로드(매퍼 순서 정리 이전의 과거 데이터) — 결과가
+    id 순서가 아니라 판정한 거래에 붙는다. zip 짝짓기 시절에는 9/1 매수의
+    판정이 9/3 매도에 붙었다."""
+    from pipeline import detect
+    db, orm = _sqlite_session()
+    _store_rows(db, orm, 1, [
+        ("2020-06-05", "테스트A", "매도", 10, 11000),
+        ("2020-06-03", "테스트B", "매수", 5, 20000),
+        ("2020-06-01", "테스트A", "매수", 10, 10000),
+    ])
+    monkeypatch.setattr(detect, "layer3_score", None)
+    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
+    detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                AnalysisResult=orm.AnalysisResult, user_id="user_001")
+    rows = _assert_results_match_trades(db, orm, 1)
+    assert len({r.trade_id for r in rows}) == 3
+    db.close()
+
+
+def test_same_day_order_preserved_through_analysis(monkeypatch, tmp_path):
+    """같은 날 30건 — 날짜 안정 정렬로 저장(데이터) 순서가 판정 순서로 유지되고
+    결과도 제 거래에 붙는다(기본 정렬은 17건쯤부터 뒤섞었다)."""
+    from pipeline import detect
+    db, orm = _sqlite_session()
+    rows = [("2020-06-01", f"종목{i:02d}", "매수", 1, 1000 + i) for i in range(30)]
+    _store_rows(db, orm, 1, rows)
+    std = detect._trades_to_df(
+        db.query(orm.Trade).order_by(orm.Trade.id).all())
+    assert list(std["종목명"]) == [f"종목{i:02d}" for i in range(30)]
+
+    monkeypatch.setattr(detect, "layer3_score", None)
+    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
+    detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
+                                AnalysisResult=orm.AnalysisResult, user_id="user_001")
+    _assert_results_match_trades(db, orm, 1)
+    db.close()
+
+
+def test_mixed_history_prev_newest_first_new_chronological(monkeypatch, tmp_path):
+    """이전 업로드는 최신순(과거 데이터), 이번 업로드는 시간순 — 기준선·문맥을
+    합친 분석에서도 이번 업로드 결과가 제 거래에 붙고, 이전 업로드의 같은 날
+    매수→매도(최신순이라 저장상 매도가 먼저)와 무관하게 이번 판정이 성립."""
+    from pipeline import detect
+    db, orm = _sqlite_session()
+    _store_rows(db, orm, 1, [
+        ("2020-06-02", "테스트A", "매도", 10, 11000),
+        ("2020-06-01", "테스트A", "매수", 10, 10000),
+    ])
+    _store_rows(db, orm, 2, [
+        ("2020-06-08", "테스트B", "매수", 3, 30000),
+        ("2020-06-09", "테스트B", "매도", 3, 31000),
+    ])
+    monkeypatch.setattr(detect, "layer3_score", None)
+    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
+    detect.run_pipeline_from_db(db, upload_id=2, Trade=orm.Trade,
+                                AnalysisResult=orm.AnalysisResult, user_id="user_001")
+    rows = _assert_results_match_trades(db, orm, 2)
+    assert len(rows) == 2
+    db.close()

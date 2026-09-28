@@ -490,3 +490,65 @@ def test_get_job_owner_mismatch_404(app_env):
 
     app_env["current_user_id"]["id"] = oid
     assert c.get(f"/jobs/{jid}").status_code == 200  # 본인으로 로그인 → 정상 조회
+
+def test_unexpected_store_error_fails_job(app_env, monkeypatch):
+    """저장 단계의 매핑 외 오류(예: 거래세 NaN → int() 실패)도 job을 실패 처리 —
+    전에는 MappingError만 잡아 job이 영원히 running으로 남았다."""
+    from pipeline import jobs as jobs_mod
+
+    def nan_fee_map(raw, filename):
+        df = pd.read_csv(io.BytesIO(raw))
+        df["거래일자"] = pd.to_datetime(df["거래일자"])
+        df["거래세"] = float("nan")
+        return df
+
+    monkeypatch.setattr(jobs_mod, "map_file", nan_fee_map)
+    body = _upload(app_env["client"]).json()
+
+    from orm import AnalysisJob, CsvUpload, Notification, Trade
+    db = app_env["Session"]()
+    job = db.query(AnalysisJob).filter(AnalysisJob.id == body["job_id"]).one()
+    assert job.status == "failed"
+    assert db.query(Trade).count() == 0
+    up = db.query(CsvUpload).filter(CsvUpload.id == body["upload_id"]).one()
+    assert up.status == "failed"
+    assert db.query(Notification).filter(
+        Notification.type == "uploadFail").count() == 1
+    db.close()
+    assert app_env["pipeline_calls"] == []
+
+
+def test_recover_stale_jobs_with_foreign_keys_enforced(app_env):
+    """운영 DB처럼 FK를 강제한 상태 — 결과가 거래를 참조하는 업로드도 정리된다.
+    거래를 먼저 지우던 시절에는 FK 위반으로 정리 트랜잭션 전체가 실패했다."""
+    from datetime import date
+
+    from sqlalchemy import text
+
+    from pipeline.jobs import recover_stale_jobs
+    from orm import AnalysisJob, AnalysisResult, CsvUpload, Trade
+
+    db = app_env["Session"]()
+    db.execute(text("PRAGMA foreign_keys=ON"))
+    up = CsvUpload(file_name="r.csv", row_count=1)
+    db.add(up)
+    db.flush()
+    db.add(AnalysisJob(upload_id=up.id, status="running"))
+    t = Trade(upload_id=up.id, 거래일자=date(2020, 6, 1), 종목명="테스트A",
+              거래구분="매수", 거래수량=1, 거래단가=100, 거래금액=100,
+              수수료=0, 거래세=0, 정산금액=100)
+    db.add(t)
+    db.flush()
+    db.add(AnalysisResult(upload_id=up.id, trade_id=t.id, detail={}))
+    db.commit()
+    uid = up.id
+    db.close()
+
+    assert recover_stale_jobs() == 1
+    db = app_env["Session"]()
+    assert db.query(AnalysisJob).filter(
+        AnalysisJob.upload_id == uid).one().status == "failed"
+    assert db.query(Trade).filter(Trade.upload_id == uid).count() == 0
+    assert db.query(AnalysisResult).filter(AnalysisResult.upload_id == uid).count() == 0
+    db.execute(text("PRAGMA foreign_keys=OFF"))
+    db.close()
