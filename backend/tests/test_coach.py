@@ -82,16 +82,15 @@ def test_load_uses_own_results_and_trade_side(db):
     out = load_account_bias_scores(db, 1)
     assert out["scores"]["disposition_strength"]["score"] == 40.0
     assert out["scores"]["overconfidence"]["score"] == 20.0
-    assert out["n_excluded_no_link"] == 0
 
 
 def test_load_excludes_results_without_trade_link(db):
-    """trade_id 없는 옛 결과는 매수/매도를 알 수 없어 제외하고 건수로 알린다."""
+    """trade_id 없는 옛 결과는 매수/매도를 알 수 없어 계산에서 빠진다."""
     _add(db, 1, "매도", _scores(d=0.9), link=False)
-    _add(db, 1, "매도", None, link=False)            # 점수도 없던 결과는 세지 않음
     out = load_account_bias_scores(db, 1)
-    assert out["n_excluded_no_link"] == 1
-    assert out["scores"]["disposition_strength"]["n_trades"] == 0
+    assert out == {"scores": out["scores"]}
+    assert out["scores"]["disposition_strength"] == {
+        "score": None, "n_trades": 0, "side": "매도"}
 
 
 # ─ API: GET /coach/scores (실제 로그인 흐름 — test_survey와 같은 방식) ─
@@ -160,4 +159,4 @@ def test_scores_returns_only_own_account(client):
                                     "lottery_preference", "herd_sensitivity"}
     assert body1["scores"]["overconfidence"] == {"score": None, "n_trades": 0,
                                                  "side": "매수"}
-    assert body1["n_excluded_no_link"] == 0
+    assert set(body1) == {"scores"}

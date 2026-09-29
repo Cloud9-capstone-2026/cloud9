@@ -50,19 +50,13 @@ def load_account_bias_scores(db, user_id: int) -> dict:
     """본인 분석 결과 전체로 계좌 점수 계산.
 
     결과 detail에는 매수/매도가 없어 trade_id로 거래와 이어 구분을 얻는다.
-    trade_id가 없는 옛 결과(거래 연결 도입 전)는 구분을 알 수 없어 빼고,
-    그중 점수가 있던 건수를 n_excluded_no_link로 알린다."""
+    trade_id가 없는 옛 결과(거래 연결 도입 전)는 구분을 알 수 없어 조인에서
+    빠진다."""
     rows = (
         db.query(Trade.거래구분, AnalysisResult.detail)
-        .outerjoin(Trade, Trade.id == AnalysisResult.trade_id)
+        .join(Trade, Trade.id == AnalysisResult.trade_id)
         .filter(AnalysisResult.user_id == user_id)
         .all()
     )
-    linked, excluded = [], 0
-    for side, detail in rows:
-        scores = (detail or {}).get("bias_scores")
-        if side is None:
-            excluded += bool(scores)
-            continue
-        linked.append((side, scores))
-    return {"scores": account_bias_scores(linked), "n_excluded_no_link": excluded}
+    return {"scores": account_bias_scores(
+        (side, (detail or {}).get("bias_scores")) for side, detail in rows)}
