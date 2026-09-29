@@ -12,6 +12,7 @@ import pytest
 
 from models.rule_based import run_rule_based
 from models.zscore import MIN_BASELINE_ROWS, run_zscore
+from pipeline.coach import ADVICE_DISCLAIMER
 from pipeline.detect import DEEP_THRESHOLD, _build_ensemble
 
 # 신규 거래 추출(_extract_new_trades)은 2026-09-02 삭제 — 신규 판정은 저장
@@ -225,6 +226,11 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
         assert r.deep_score == 0.9
         assert r.upload_id == 1
+        # 처분효과 0.9 ≥ 기준, 기본 조합엔 최소 보유기간이 꺼져 있음 → 조언 1건
+        assert x["rule_advice"] == [{
+            "bias": "disposition_strength", "rule_id": "min_holding",
+            "label": "최소_보유기간", "suggested_param": 3, "param_unit": "일"}]
+        assert x["advice_disclaimer"] == ADVICE_DISCLAIMER
 
 
 def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
@@ -371,6 +377,9 @@ def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
         assert r.deep_score is None
         # 프론트가 주의 문구를 띄울 유일한 신호 — 행마다 저장돼야 한다
         assert r.detail["deep_excluded"] is True
+        # 3계층 판정이 없으면 조언도 없다 — 칸은 항상 존재
+        assert r.detail["rule_advice"] == []
+        assert r.detail["advice_disclaimer"] is None
     db.close()
 
 

@@ -37,6 +37,8 @@ from sqlalchemy.orm import Session
 
 from models.rule_based import run_rule_based
 from models.zscore import run_zscore
+from pipeline.coach import (ADVICE_DISCLAIMER, daily_amount_median,
+                            rule_advice)
 from pipeline.monitor import check_distribution
 from pipeline.user_rules import load_ruleset
 
@@ -305,10 +307,15 @@ def run_pipeline_from_db(
         raise RuntimeError(
             f"결과-거래 개수 불일치: ensemble {len(ensemble)} != trades {len(trades)}")
     trade_by_id = {t.id: t for t in trades}
+    # 규칙 조언 재료 — 분석 시점에 켜져 있던 규칙, 전체 이력의 하루 매매대금
+    enabled_rules = {rule_id for rule_id, _param in ruleset}
+    daily_median = daily_amount_median(full_history)
     for tid, e in zip(std_tids, ensemble):
         t = trade_by_id[int(tid)]
         deep = e["deep"] or {}
         stat = e["stat"] or {}
+        advice = rule_advice(deep.get("bias_scores"), enabled_rules,
+                             daily_median, DEEP_THRESHOLD)
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,
@@ -335,6 +342,10 @@ def run_pipeline_from_db(
                 # 문구를 띄우는 유일한 신호라 행마다 싣는다(계좌 단위 값이지만
                 # GET /analysis/가 행 단위 계약이라 여기에 넣어야 전달된다).
                 "deep_excluded": dist_check["deep_excluded"],
+                # 편향 점수가 기준을 넘은 거래에 권하는 절제 규칙(없으면 빈
+                # 목록). 책임 문구는 조언이 있을 때만 함께 싣는다.
+                "rule_advice": advice,
+                "advice_disclaimer": ADVICE_DISCLAIMER if advice else None,
             },
         ))
     db.commit()

@@ -1,12 +1,15 @@
 """
 계좌 편향 점수(pipeline.coach) — 편향별로 맞는 거래 쪽만 평균, 해당 거래가 없으면 None.
+규칙 조언 — 거래의 편향 점수가 기준을 넘고 짝 규칙이 꺼져 있을 때만.
 """
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
-from pipeline.coach import account_bias_scores, load_account_bias_scores
+from pipeline.coach import (account_bias_scores, daily_amount_median,
+                            load_account_bias_scores, rule_advice)
 
 N = 5  # 테스트 표본 크기(점수 계산에 최소 건수 기준은 없음)
 
@@ -44,6 +47,72 @@ def test_trades_without_scores_skipped():
 def test_no_rows_all_withheld():
     out = account_bias_scores([])
     assert all(v["score"] is None and v["n_trades"] == 0 for v in out.values())
+
+
+# ─ 규칙 조언 (거래 1건 단위) ─
+
+TH = 0.7283        # 3계층 기준(detect.DEEP_THRESHOLD)과 같은 값을 넘겨 쓴다
+MEDIAN = 2_600_000.0
+
+
+def test_advice_per_bias_over_threshold():
+    """과잉확신 → 일일 매매대금 상한(본인 중앙값), 처분효과 → 최소 보유기간 3일."""
+    assert rule_advice(_scores(o=0.8), set(), MEDIAN, TH) == [{
+        "bias": "overconfidence", "rule_id": "daily_total_cap",
+        "label": "일일_매매대금_상한", "suggested_param": MEDIAN, "param_unit": "원"}]
+    assert rule_advice(_scores(d=0.8), set(), MEDIAN, TH) == [{
+        "bias": "disposition_strength", "rule_id": "min_holding",
+        "label": "최소_보유기간", "suggested_param": 3, "param_unit": "일"}]
+
+
+def test_advice_not_limited_to_top_bias():
+    """가장 강한 편향이 복권형이어도 과잉확신이 기준을 넘으면 조언한다."""
+    out = rule_advice(_scores(o=0.80, l=0.85), set(), MEDIAN, TH)
+    assert [a["bias"] for a in out] == ["overconfidence"]
+
+
+def test_advice_both_biases_listed():
+    out = rule_advice(_scores(d=0.9, o=0.9), set(), MEDIAN, TH)
+    assert {a["rule_id"] for a in out} == {"daily_total_cap", "min_holding"}
+
+
+@pytest.mark.parametrize("scores,enabled", [
+    (_scores(o=0.72, d=0.72), set()),                  # 기준 미달
+    (_scores(l=0.9, h=0.9), set()),                    # 복권형·군집은 조언 없음
+    (_scores(o=0.9, d=0.9), {"daily_total_cap", "min_holding"}),  # 이미 켜 둠
+    (None, set()),                                     # 3계층 판정 없는 거래
+])
+def test_no_advice(scores, enabled):
+    assert rule_advice(scores, enabled, MEDIAN, TH) == []
+
+
+def test_advice_at_threshold_boundary():
+    assert rule_advice(_scores(o=TH), set(), MEDIAN, TH) != []
+
+
+def test_no_cap_advice_without_history_amount():
+    """하루 매매대금을 못 구하면 상한은 권하지 않는다(값 없이 켤 수 없는 규칙)."""
+    assert rule_advice(_scores(o=0.9), set(), None, TH) == []
+
+
+def _history(rows):
+    return pd.DataFrame(rows, columns=["날짜", "매매구분", "총거래금액"])
+
+
+def test_daily_median_sums_buy_and_sell_per_day():
+    """하루 합(매수+매도) 200만·500만·260만 → 중앙값 260만. 평균(320만)이 아니다."""
+    h = _history([
+        ("2026-09-01", "매수", 1_200_000), ("2026-09-01", "매도", 800_000),
+        ("2026-09-03", "매수", 5_000_000),
+        ("2026-09-08", "매수", 2_600_000),
+    ])
+    assert daily_amount_median(h) == 2_600_000.0
+
+
+def test_daily_median_rounds_to_ten_thousand_with_floor():
+    assert daily_amount_median(_history([("2026-09-01", "매수", 1_234_567)])) == 1_230_000.0
+    assert daily_amount_median(_history([("2026-09-01", "매수", 3_000)])) == 10_000.0
+    assert daily_amount_median(_history([])) is None
 
 
 @pytest.fixture()
