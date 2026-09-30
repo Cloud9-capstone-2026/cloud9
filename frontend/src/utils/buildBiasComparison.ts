@@ -1,5 +1,6 @@
-import type { AnalysisResult } from '../api/analysis';
 import type { SurveyResult } from '../api/survey';
+import type { AnalysisResult } from '../api/analysis';
+import type { AccountBiasScoresResponse } from '../api/coach';
 import type { BiasComparisonDatum } from '../data/types';
 import { BIAS_KEYS, BiasKey } from '../theme/tokens';
 
@@ -13,26 +14,19 @@ const SUBJECT_LABEL: Record<BiasKey, string> = {
 
 // "검사 결과 vs 실제 거래 데이터" 비교 카드용 데이터.
 // self(검사 결과) = 최근 자가진단의 normalized 점수(0~100) 그대로.
-// trading(실제 거래 데이터) = bias_scores가 있는(=3계층 다 판정된) 거래들의 평균을 ×100 — bias_scores 자체는
-// 0~1 범위 내부 점수라 검사 결과와 같은 축 위에서 비교하려면 스케일을 맞춰야 한다.
-// bias_scores가 null인 거래(딥러닝 계층 제외/미판정)는 평균에서 제외.
+// trading(실제 거래 데이터) = 서버(GET /coach/scores)가 계산해서 주는 계좌 단위 편향 점수(0~100).
+// 편향마다 의미 있는 매수/매도 방향의 거래만 평균 낸 값이라, 프론트에서 직접 전체 평균을
+// 내는 것보다 정확하다(매수/매도 섞으면 반대쪽의 0에 가까운 값에 희석됨). 해당 방향
+// 거래가 아예 없으면 서버가 score: null로 줌 — 0점과 구분해서 그대로 null을 전달한다.
 export function buildBiasComparison(
   latestSurvey: SurveyResult | null,
-  analysis: AnalysisResult[]
+  accountScores: AccountBiasScoresResponse | null
 ): BiasComparisonDatum[] {
   if (!latestSurvey) return [];
-  const withScores = analysis.filter((a) => a.detail.bias_scores != null);
 
   return BIAS_KEYS.map((key) => {
     const self = Math.round(latestSurvey.scores[key].normalized);
-    let trading = 0;
-    if (withScores.length > 0) {
-      const sum = withScores.reduce(
-        (acc, a) => acc + (a.detail.bias_scores as Record<BiasKey, number>)[key],
-        0
-      );
-      trading = Math.round((sum / withScores.length) * 100);
-    }
+    const trading = accountScores?.scores[key]?.score ?? null;
     return { subject: SUBJECT_LABEL[key], self, trading };
   });
 }

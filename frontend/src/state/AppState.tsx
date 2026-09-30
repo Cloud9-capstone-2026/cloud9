@@ -13,6 +13,7 @@ import type { NotificationApiItem } from '../api/notifications';
 import * as newsApi from '../api/news';
 import * as journalsApi from '../api/journals';
 import type { JournalApiItem } from '../api/journals';
+import * as coachApi from '../api/coach';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -170,6 +171,10 @@ interface AppStateValue {
   getRelatedNews: (tradeId: number, limit?: number) => Promise<DartNews[]>;
   // 전체 소식 화면의 기간 필터용 — 해당 기간에 해당하는 공시를 끝까지 페이지네이션 순회해서 모아옴.
   getAllNews: (period: string) => Promise<DartNews[]>;
+
+  // 계좌 단위 편향 점수(성향분석 탭 "검사 결과 vs 실제 거래 데이터" 비교용) — 서버가 편향마다
+  // 의미 있는 매수/매도 방향만 골라 평균 낸 값. 해당 방향 거래가 없으면 score가 null.
+  getAccountBiasScores: () => Promise<import('../api/coach').AccountBiasScoresResponse>;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -414,6 +419,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       offset += PAGE;
     }
     return all;
+  }, []);
+
+  const getAccountBiasScores = useCallback(async () => {
+    return coachApi.getAccountBiasScores();
   }, []);
 
   const logout = useCallback(async () => {
@@ -664,6 +673,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       getNews,
       getRelatedNews,
       getAllNews,
+      getAccountBiasScores,
     }),
     [
       journals, refreshJournals, saveJournal, createJournalEntry, deleteJournal, isJournaled, notif,
@@ -677,7 +687,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       updateProfileName, changePassword, withdrawAccount,
       signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
       getLatestSurvey, getSurveyHistory,
-      getNews, getRelatedNews, getAllNews,
+      getNews, getRelatedNews, getAllNews, getAccountBiasScores,
     ]
   );
 

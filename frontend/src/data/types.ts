@@ -23,7 +23,8 @@ export interface DartNews {
 export interface BiasComparisonDatum {
   subject: string;
   self: number;
-  trading: number;
+  // null = 서버가 판정할 재료(해당 방향 거래)가 아예 없다고 알려준 경우 — 0점과 구분.
+  trading: number | null;
 }
 
 export interface BiasTrendDatum {

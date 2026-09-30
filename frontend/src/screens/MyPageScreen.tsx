@@ -14,6 +14,7 @@ import { formatDate } from '../utils/formatDate';
 import { withSubjectParticle } from '../utils/korean';
 import type { SurveyResult } from '../api/survey';
 import type { AnalysisResult } from '../api/analysis';
+import type { AccountBiasScoresResponse } from '../api/coach';
 import type { BiasComparisonDatum } from '../data/types';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
@@ -22,31 +23,33 @@ import { useAppState } from '../state/AppState';
 const EMPTY_COMPARISON: BiasComparisonDatum[] = BIAS_TREND_KEYS.map((subject) => ({ subject, self: 0, trading: 0 }));
 
 export function MyPageScreen() {
-  const { openBiasInfo, getLatestSurvey, getSurveyHistory, getAllAnalysis } = useAppState();
+  const { openBiasInfo, getLatestSurvey, getSurveyHistory, getAllAnalysis, getAccountBiasScores } = useAppState();
   // undefined = 아직 조회 안 됨(로딩), null = 조회했지만 결과 없음(검사 이력 없음)
   const [latest, setLatest] = useState<SurveyResult | null | undefined>(undefined);
   const [history, setHistory] = useState<SurveyResult[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
+  const [accountScores, setAccountScores] = useState<AccountBiasScoresResponse | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
         try {
-          const [latestRes, historyRes, analysisRes] = await Promise.all([
-            getLatestSurvey(), getSurveyHistory(20), getAllAnalysis(),
+          const [latestRes, historyRes, analysisRes, accountScoresRes] = await Promise.all([
+            getLatestSurvey(), getSurveyHistory(20), getAllAnalysis(), getAccountBiasScores(),
           ]);
           if (!cancelled) {
             setLatest(latestRes);
             setHistory(historyRes);
             setAnalysis(analysisRes);
+            setAccountScores(accountScoresRes);
           }
         } catch {
           // 네트워크 실패 시 기존 값 유지 — 화면은 이전 상태(또는 빈 상태)로 남는다.
         }
       })();
       return () => { cancelled = true; };
-    }, [getLatestSurvey, getSurveyHistory, getAllAnalysis])
+    }, [getLatestSurvey, getSurveyHistory, getAllAnalysis, getAccountBiasScores])
   );
 
   const trend = useMemo(() => buildBiasTrend(history), [history]);
@@ -54,17 +57,22 @@ export function MyPageScreen() {
   const hasAnalysis = analysis.length > 0;
 
   const topBias = useMemo(() => computeTopBias(analysis), [analysis]);
-  const comparison = useMemo(() => buildBiasComparison(latest ?? null, analysis), [latest, analysis]);
+  const comparison = useMemo(
+    () => buildBiasComparison(latest ?? null, accountScores),
+    [latest, accountScores]
+  );
 
   const insight = useMemo(() => {
-    if (comparison.length === 0) return null;
-    let best = comparison[0];
+    // trading이 null인(해당 방향 거래가 없어 판정 불가) 편향은 격차 비교 대상에서 제외.
+    const withTrading = comparison.filter((d): d is { subject: string; self: number; trading: number } => d.trading != null);
+    if (withTrading.length === 0) return null;
+    let best = withTrading[0];
     let bestDiff = -1;
-    comparison.forEach((d) => {
+    withTrading.forEach((d) => {
       const diff = Math.abs(d.trading - d.self);
       if (diff > bestDiff) { bestDiff = diff; best = d; }
     });
-    return { subject: best.subject, diff: bestDiff, bigger: best.trading > best.self };
+    return { subject: best.subject, diff: Math.round(bestDiff), bigger: best.trading > best.self };
   }, [comparison]);
 
   return (

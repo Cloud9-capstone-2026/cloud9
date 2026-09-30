@@ -23,8 +23,14 @@ export function DumbbellChart({ data, empty }: { data: BiasComparisonDatum[]; em
             <SvgText x={0} y={cy + 4} fontSize={13} fill="#16213b">{d.subject}</SvgText>
             {!empty && (
               <>
-                <Line x1={x(d.self)} y1={cy} x2={x(d.trading)} y2={cy} stroke={ACCENT} strokeWidth={2.5} strokeLinecap="round" />
-                <Circle cx={x(d.trading)} cy={cy} r={4.5} fill="#64748b" stroke="#fff" strokeWidth={1.6} />
+                {/* trading이 null이면(해당 방향 거래가 아예 없어 서버가 판정 불가로 응답)
+                    실제 데이터 없는 값을 0인 것처럼 꾸미지 않고 그 점·연결선만 생략한다. */}
+                {d.trading != null && (
+                  <>
+                    <Line x1={x(d.self)} y1={cy} x2={x(d.trading)} y2={cy} stroke={ACCENT} strokeWidth={2.5} strokeLinecap="round" />
+                    <Circle cx={x(d.trading)} cy={cy} r={4.5} fill="#64748b" stroke="#fff" strokeWidth={1.6} />
+                  </>
+                )}
                 <Circle cx={x(d.self)} cy={cy} r={4.5} fill={ACCENT} stroke="#fff" strokeWidth={1.6} />
               </>
             )}
