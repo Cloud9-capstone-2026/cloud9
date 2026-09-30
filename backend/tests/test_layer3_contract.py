@@ -219,6 +219,36 @@ def test_window_scores_match_manual_slices(tiny_window_layer3, synthetic_trades,
                 assert got[p] == pytest.approx(float(want[j]), abs=1e-4)
 
 
+def test_top_bias_restricted_to_trade_side(fake_layer3, synthetic_trades,
+                                           price_df, index_df, monkeypatch):
+    """대표 편향은 거래 방향에 맞는 편향 중에서 고른다 — 매도에 복권형 점수가
+    가장 높아도 top_bias는 처분효과, trade_score는 그 점수. 매수는 처분효과 제외."""
+    import numpy as np
+    import torch
+
+    model, meta = fake_layer3._load_artifacts()
+    meta = {**meta, "attr_side": {"attr_disposition": "매도", "attr_overconfidence": "매수",
+                                  "attr_lottery": "매수", "attr_herd": "매수"}}
+    monkeypatch.setattr(fake_layer3, "_load_artifacts", lambda: (model, meta))
+    # 전 거래 동일 점수: 처분 0.1 / 과잉 0.2 / 복권 0.9 / 군집 0.3
+    fixed = np.array([0.1, 0.2, 0.9, 0.3], dtype="float32")
+    monkeypatch.setattr(fake_layer3, "_score_windows",
+                        lambda m, M, W: torch.from_numpy(np.tile(fixed, (M.shape[0], 1))))
+
+    out = fake_layer3.score_from_trades(synthetic_trades, price_df=price_df,
+                                        index_df=index_df)
+    sides = {e["거래구분"] for e in out["per_trade"]}
+    assert sides == {"매수", "매도"}, "픽스처에 매수·매도가 모두 있어야 하는 테스트"
+    for e in out["per_trade"]:
+        if e["거래구분"] == "매도":
+            assert e["top_bias"] == "disposition_strength"
+            assert e["trade_score"] == 0.1
+        else:
+            assert e["top_bias"] == "lottery_preference"
+            assert e["trade_score"] == 0.9
+        assert set(e["bias_scores"]) == BIAS_PARAMS  # 점수 4종은 그대로 전부 실림
+
+
 def test_no_market_data_trades_not_scored(fake_layer3, synthetic_trades,
                                           price_df, index_df):
     """시세가 전혀 없는 종목의 거래는 채점 제외 — "시세 조회 실패"라는 시스템

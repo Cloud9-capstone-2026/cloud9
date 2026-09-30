@@ -9,7 +9,8 @@ ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 
   per_trade   거래별 판정 리스트(전 거래 — 이력이 max_len을 넘으면 창을 1건씩
               밀며 나눠 채점, _score_windows 참조). 각 항목 =
               {row(입력 행 위치), bias_scores(편향별 귀속 확률 0~1 — 모델 sigmoid
-               출력 그대로), top_bias, trade_score(=최대 귀속 확률),
+               출력 그대로), top_bias(거래 방향에 맞는 편향 중 최고 — 매도는
+               처분효과, 매수는 나머지 셋), trade_score(=top_bias의 점수),
                evidence(편향별 판정 근거 — models.xai IG 분해: 이 거래 자신의
                값 피처별 기여 전체 + 현재/과거 문맥 기여율. 계산 실패 시 키 부재)}.
               "이 거래는 ~편향 때문일 수도"의 지도학습 직접 추정 — 타깃이 생성기의
@@ -443,6 +444,15 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
         W = int(meta["max_len"])
         P = _score_windows(model, M, W).numpy()  # [N, 4] 거래별 편향 귀속 확률
         params = [meta["attr_param"][a] for a in meta["attrs"]]
+        # 대표 편향(top_bias)은 거래 방향에 맞는 편향 중에서 고른다 — 처분효과는
+        # 매도, 나머지 셋은 매수에서만 라벨이 정의돼 반대편 점수는 0 근처의 잔향
+        # 이다. 네 점수 전체의 최댓값을 고르면 전부 낮은 매도 거래에 복권형이
+        # 대표로 찍히는 일이 생긴다(s103 매도의 16%, 판정 기준 초과는 0건).
+        # 방향 정보(attr_side)가 메타에 없거나 구분을 모르면 전체에서 고른다.
+        side_of = meta.get("attr_side", {})
+        allowed = {}
+        for a, p in zip(meta["attrs"], params):
+            allowed.setdefault(side_of.get(a), []).append(p)
         src = (trades["_src_row"].to_numpy()
                if "_src_row" in trades.columns else trades.index.to_numpy())
 
@@ -454,16 +464,17 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
                 continue
             row = trades.iloc[r]
             scores = {p: round(float(P[i, j]), 4) for j, p in enumerate(params)}
-            top = max(scores, key=scores.get)
+            side = str(row["거래구분"])
+            top = max(allowed.get(side) or params, key=scores.get)
             per_trade.append({
                 "row": int(src[r]),
                 "거래일자": str(row["거래일자"]),
                 "종목코드": str(row["종목코드"]),
-                "거래구분": str(row["거래구분"]),
+                "거래구분": side,
                 "bias_scores": scores,
                 "top_bias": top,
                 "top_bias_명": BIAS_NAMES.get(top, top),
-                "trade_score": round(max(scores.values()), 4),
+                "trade_score": scores[top],
             })
             positions.append(i)
         if not per_trade:

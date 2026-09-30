@@ -50,6 +50,8 @@ def _rank_norm(candidates: list[str], values: dict[str, float]) -> dict[str, flo
     if n <= 1:
         return {t: 0.0 for t in candidates}
     vals = [values[t] for t in candidates]
+    if any(v != v for v in vals):  # NaN — 비교가 전부 거짓이라 음수 순위가 됨
+        raise ValueError("_rank_norm: 결측값은 호출부에서 먼저 처리해야 함")
     out = {}
     for t in candidates:
         v = values[t]
@@ -289,7 +291,11 @@ class MarketModel(mesa.Model):
         시장 전체 월별 순위표(config.LOTT_TABLE_PATH)를 조회한다. 표는 이미 '직전 달
         계산 → 이 달 적용' 매핑이 끝난 적용월 기준이라 (연, 월) 그대로 찾는다."""
         s = self._lott_table.get((current_date.year, current_date.month))
-        return {} if s is None else s.to_dict()
+        # 결측 순위는 뺀다 — 표에 없는 종목과 같이 0.0(최하위)으로 처리되게.
+        # 결측이 그대로 _rank_norm에 들어가면 비교가 전부 거짓이 되어 음수 순위
+        # (−0.25 등)가 나오고, 그게 선택 가중치와 복권형 라벨을 음수로 만든다
+        # (2026-10-01 발견: 7세트 라벨 212건 음수, 최솟값 −0.03).
+        return {} if s is None else s.dropna().to_dict()
 
     def _prepare_market(self, tickers: list[str]):
         """코스피 지수 수익률·복권성 순위표·attention 스코어를 미리 준비.
