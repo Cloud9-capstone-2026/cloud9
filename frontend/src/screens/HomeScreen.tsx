@@ -212,7 +212,7 @@ export function HomeScreen() {
                 <Text style={styles.summaryValue}>{hasData ? analysis.length : '-'}</Text>
                 <Text style={styles.summaryUnit}>건</Text>
               </View>
-              <Text style={[styles.summaryDiff, { color: hasData ? C.red : C.muted }]}>
+              <Text style={[styles.summaryDiff, { color: hasData && diff ? (diff.tradesDiff >= 0 ? C.red : C.blue) : C.muted }]}>
                 {hasData && diff ? `${diff.tradesDiff >= 0 ? '+' : '-'} ${Math.abs(diff.tradesDiff)}건` : '- 건'}
               </Text>
             </Card>
@@ -222,7 +222,7 @@ export function HomeScreen() {
                 <Text style={styles.summaryValue}>{hasData ? anomalyRate : '-'}</Text>
                 <Text style={styles.summaryUnit}>%</Text>
               </View>
-              <Text style={[styles.summaryDiff, { color: hasData ? C.blue : C.muted }]}>
+              <Text style={[styles.summaryDiff, { color: hasData && diff ? (diff.rateDiff >= 0 ? C.red : C.blue) : C.muted }]}>
                 {hasData && diff ? `${diff.rateDiff >= 0 ? '+' : '-'} ${Math.abs(diff.rateDiff)}%` : '- %'}
               </Text>
             </Card>

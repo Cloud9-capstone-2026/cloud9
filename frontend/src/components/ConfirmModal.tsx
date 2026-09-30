@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { AppModal } from './AppModal';
 import { C, shadow } from '../theme/tokens';
 
 export function ConfirmModal({
@@ -16,7 +17,7 @@ export function ConfirmModal({
   onCancel: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+    <AppModal visible={visible} onRequestClose={onCancel}>
       <View style={styles.overlay}>
         <View style={[styles.card, shadow.modal]}>
           <Text style={styles.title}>{title}</Text>
@@ -31,7 +32,7 @@ export function ConfirmModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
