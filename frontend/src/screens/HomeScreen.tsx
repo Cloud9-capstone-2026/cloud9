@@ -155,6 +155,15 @@ export function HomeScreen() {
               <View style={{ width: 100, height: 100 }} />
             )}
             <View style={styles.biasBars}>
+              <View style={styles.biasAxisRow}>
+                <View style={{ width: 56 }} />
+                <View style={styles.biasAxisLabelsWrap}>
+                  {['낮음', '약간 낮음', '약간 높음', '높음'].map((t) => (
+                    <Text key={t} style={styles.biasAxisText} numberOfLines={1}>{t}</Text>
+                  ))}
+                </View>
+                <View style={{ width: 24 }} />
+              </View>
               {BIAS_LABELS.map((label, i) => {
                 const score = latest ? Math.round(latest.scores[BIAS_KEYS[i]].normalized) : null;
                 return (
@@ -162,6 +171,9 @@ export function HomeScreen() {
                     <Text style={styles.biasLabel}>{label}</Text>
                     <View style={styles.biasTrack}>
                       <View style={[styles.biasFill, { width: `${score ?? 0}%`, backgroundColor: BIAS_COLORS[i] }]} />
+                      <View style={[styles.biasTick, { left: '25%' }]} />
+                      <View style={[styles.biasTick, { left: '50%' }]} />
+                      <View style={[styles.biasTick, { left: '75%' }]} />
                     </View>
                     <Text style={[styles.biasScore, { color: BIAS_COLORS[i] }]}>{score ?? '-'}</Text>
                   </View>
@@ -323,7 +335,11 @@ const styles = StyleSheet.create({
   biasLabel: { fontSize: 12, color: C.muted, width: 56 },
   biasTrack: { height: 5, backgroundColor: C.mutedBg, borderRadius: 999, overflow: 'hidden', flex: 1 },
   biasFill: { height: '100%', borderRadius: 999 },
+  biasTick: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: 'rgba(255,255,255,0.5)' },
   biasScore: { fontSize: 12, fontWeight: '500', width: 24, textAlign: 'right' },
+  biasAxisRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  biasAxisLabelsWrap: { flex: 1, flexDirection: 'row' },
+  biasAxisText: { flex: 1, fontSize: 9, color: C.muted, opacity: 0.7, textAlign: 'center' },
   summaryGrid: { flexDirection: 'row', gap: 13 },
   summaryLeftCol: { flex: 1.15 },
   summaryRightCol: { flex: 1, gap: 13 },
