@@ -33,6 +33,19 @@ TRADES_COLUMNS = [
 _BIAS_PARAMS = list(config.NEUTRAL_VALUES)  # 4개 편향 파라미터 명
 
 
+ATTR_COLUMNS = ["attr_disposition", "attr_overconfidence", "attr_lottery", "attr_herd"]
+
+
+def check_trade_labels(tl: pd.DataFrame) -> None:
+    """거래별 라벨 4종이 전부 0~1 안인지 — 아니면 생성을 중단한다.
+
+    라벨은 확률 비·가중치 비중이라 정의상 0~1이다. 범위 밖 값은 라벨 계산이
+    아니라 그 재료(순위·가중치)의 결함 신호다(2026-10-01 결측 순위 건)."""
+    bad = ~tl[ATTR_COLUMNS].apply(lambda c: c.between(0.0, 1.0)).all(axis=1)
+    if bad.any():
+        raise ValueError(f"거래별 라벨이 0~1 범위 밖: {int(bad.sum())}건")
+
+
 def package_outputs(model, trades_path, labels_path, meta_path,
                     trade_labels_path=None, quiet=False):
     """run() 끝난 model을 trades/labels/meta(+trade_labels) 파일로 기록.
@@ -53,6 +66,7 @@ def package_outputs(model, trades_path, labels_path, meta_path,
             }
             for t in model.trades
         )
+        check_trade_labels(tl)
         tl.to_csv(trade_labels_path, index=False, encoding="utf-8-sig")
 
     labels = pd.DataFrame(
