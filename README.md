@@ -28,7 +28,7 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 ### 이론적 배경 (선행연구)
 탐지 대상과 산식은 행동재무학 실증 연구를 따릅니다.
 
-* **국내 실증:** 자본시장연구원 [이슈보고서 22-02](https://www.kcmi.re.kr/report/report_view?report_no=1481) 「국내 개인투자자의 행태적 편의와 거래행태」(개인투자자 20만 명 거래 분석 — 4축 체계와 지표 정의의 근거), [이슈보고서 21-11](https://www.kcmi.re.kr/report/report_view?report_no=1243) 「코로나19 국면의 개인투자자」
+* **국내 실증:** 자본시장연구원 [이슈보고서 22-02](https://www.kcmi.re.kr/report/report_view?report_no=1481) 「국내 개인투자자의 행태적 편의와 거래행태」(개인투자자 20만 명 거래 분석: 4축 체계와 지표 정의의 근거), [이슈보고서 21-11](https://www.kcmi.re.kr/report/report_view?report_no=1243) 「코로나19 국면의 개인투자자」
 * **행태적 편의:** 전망이론(Kahneman & Tversky 1979), 처분효과(Odean 1998), 과잉확신(Barber & Odean 2001), 복권형 주식 선호(Kumar 2009), 군집거래(Sias 2004)
 * **산식:** 시장수익률-거래회전율 반응(Statman et al. 2006), Fama-French 3요인 모형(1993, 고유변동성 추정), 사전적 고유왜도 EISKEW(Boyer et al. 2010)
 
@@ -57,7 +57,7 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 
 * **1계층 (Rule-based):** 규칙 템플릿 7종(일중 반복매매 N회, 당일 왕복매매, 최소 보유기간 X일, 손실 후 재진입 D일, 물타기 반복 M회, 1회 매수금액 상한, 일일 매매대금 상한)을 사용자가 온보딩·설정 화면에서 켜고 끄거나 횟수·일수·금액 파라미터를 직접 정하고, 위반 여부를 판정합니다. 수정 사항은 소급 적용 없이 다음 업로드 분석부터 반영됩니다.
 * **2계층 (Statistical Anomaly):** 사용자의 평소 매매 패턴을 기준으로 삼아, 새로 올라온 거래가 평소와 얼마나 다른지를 Mahalanobis 거리를 재어 이상 여부를 판정합니다.
-* **3계층 (Deep Learning):** GRU 시퀀스 모델이 거래마다 4개 KCMI 편향 각각의 귀속 확률을 예측하고, 그중 최댓값이 임계값을 넘으면 해당 거래를 이상으로 판정.
+* **3계층 (Deep Learning):** GRU 시퀀스 모델이 거래마다 4개 KCMI 편향 각각의 점수(0~1)를 내고, 거래 방향에 맞는 편향(매도는 처분효과, 매수는 나머지 셋) 중 최댓값이 임계값을 넘으면 해당 거래를 편향 거래로 판정. 이 점수는 KCMI 통계에 맞춘 가상 투자자 시뮬레이션에서 학습한 편향 패턴의 정도이며, 실제 계좌에서 검증된 확률은 아니라서 화면에는 참고용 점수로 표시됩니다. 학습 방법과 한계는 [synthetic_data.md](synthetic_data.md), [methodology.md](methodology.md) 참조.
 
 > 사용자의 매매 데이터가 학습 데이터 분포와 크게 다를 경우, 3계층 결과는 노출하지 않고 1·2계층 결과만 제공합니다.
 
@@ -69,7 +69,7 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 * **개인 행동 데이터:** 3계층 판정 결과 + **Integrated Gradients** 기반 피처별 기여도(XAI)
 * **투자 성향 프로파일:** KCMI 4축 기반 자가진단·매매 로그 분석 결과와의 일치·이탈 분석
 * **시장 외부 컨텍스트:** 뉴스·공시 API를 통해 해당 거래 시점의 외부 이벤트를 참고 정보로 제공
-* **코칭 리포트:** 개발 중
+* **규칙 조언:** 거래의 과잉확신·처분효과 점수가 임계값을 넘고 짝이 되는 1계층 규칙이 꺼져 있으면, 그 거래의 리포트에 규칙을 켜 보라는 조언을 붙입니다(과잉확신 → 일일 매매대금 상한, 추천값은 본인 하루 매매대금의 중앙값 / 처분효과 → 최소 보유기간 3일). 조언은 투자 권유가 아닌 매매 습관 참고용이라는 문구와 함께 제공되며, 사용자가 수락하면 1계층 규칙 설정에 바로 반영됩니다.
 
 ### 4. 증권사 무관 거래내역 업로드
 어느 증권사의 거래내역 파일이든 그대로 올리면 자동으로 인식됩니다. 
@@ -114,20 +114,30 @@ Canary는 수익 창출이 아닌, 손실을 유발하는 행동을 줄이는 �
 ```
 cloud9/
 ├── frontend/         # React Native(Expo) 앱
-│   └── src/              # screens(화면)·components·navigation·state·theme
+│   └── src/              # api(서버 호출)·screens(화면)·components·navigation·state·theme·utils
 │
 ├── backend/          # FastAPI 서버
-│   ├── routers/          # API 엔드포인트 (auth, trades, jobs, analysis, survey, rules)
+│   ├── routers/          # API 엔드포인트 (auth, trades, jobs, analysis, survey, rules, coach, journals, news, notifications)
 │   ├── models/           # 이상 탐지 (rule_based·zscore·layer3·xai)
-│   ├── pipeline/         # 비동기 잡·CSV 매핑·탐지 파이프라인·분포 점검
+│   ├── pipeline/         # 비동기 잡·CSV 매핑(LLM)·탐지 파이프라인·분포 점검·계좌 점수와 규칙 조언·공시 수집
 │   ├── alembic/          # DB 마이그레이션
-│   └── tests/            # 테스트 (CI에서 자동 실행)
+│   └── tests/            # 테스트 (CI에서 자동 실행, 느린 재현 검증은 수동)
 │
-├── ml/               # 3계층 모델 학습·실험·재현성 도구
-├── synthetic_data/   # 합성 학습 데이터 생성기 (시뮬레이션·검증)
-├── data/             # 데모용 샘플 거래내역
+├── ml/               # 3계층 모델
+│   ├── train/            # 학습·복권성 순위표·분포 기준·지문(해시) 생성
+│   ├── experiments/      # 임계값 보정·검증 실험
+│   └── artifacts/        # 배포 모델과 메타(Release로 서버에 자동 배포)
+│
+├── synthetic_data/   # 합성 학습 데이터 생성기
+│   ├── core/             # 가상 투자자·시장 시뮬레이션 (agent, model, params)
+│   ├── market/           # 시세·복권성 점수·종목 유니버스
+│   └── validation/       # KCMI 통계 재현 검증
+│
+├── data/             # 데모용 샘플 거래내역, 복권성 월별 순위표
 ├── config/           # 서버 튜닝값 (settings.yaml)
-└── doc/              # 기획 문서
+├── doc/              # 기획 문서
+├── methodology.md    # 편향 4종의 정의·측정·판정 방법론
+└── synthetic_data.md # 생성기 설계·캘리브레이션·라벨 정의
 ```
 
 <br>
@@ -164,11 +174,11 @@ npx expo start
 
 | 이름 | 역할 | 담당 영역 |
 | --- | --- | --- |
-| [최은우](https://github.com/suesu1204) | AI / 데이터 · 백엔드 | 3계층 탐지 엔진, 합성 데이터 생성기(시뮬레이션·KCMI 캘리브레이션·재현성), 모델 학습·배포(피처 엔지니어링 포함), 분석 파이프라인(CSV 매핑·분포 점검·시장 데이터 수집·비동기 처리), XAI, DB 스키마 설계 |
+| [최은우](https://github.com/suesu1204) | AI / 데이터 · 백엔드 | 3계층 탐지 엔진, 합성 데이터 생성기, 모델 학습·배포, 피처 엔지니어링, 분석 파이프라인, XAI, DB 스키마 설계 |
 | [박나림](https://github.com/nariming) | 백엔드 | FastAPI 서버, 인증(JWT/소셜로그인), DB 스키마 설계, AWS 인프라, CI/CD |
 | [임도경](https://github.com/ldkxllux) | 프론트엔드 | React Native 앱 구현, 대시보드·리포트·성향진단 UI, 백엔드 연동 |
 
 지도교수: 이민수 교수님
 
 ---
-최종수정일 : 2026.09.01
+최종수정일 : 2026.10.01
