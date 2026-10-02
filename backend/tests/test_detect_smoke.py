@@ -4,7 +4,7 @@ detect.py 순수 함수 스모크 — DB·네트워크 없이 표준화 → 신�
 run_pipeline_from_db 자체(DB 세션 필요)는 test_analysis_jobs가 job 단위로 커버.
 
 판정 계약: 계층별 독립 flag(rule=위반 존재, stat=마할라노비스>2.5,
-deep=점수>=DEEP_THRESHOLD) → flag 개수 0/1/2+ = 정상/경고/이상.
+deep=layer3의 축별 임계값 판정 deep_flag) → flag 개수 0/1/2+ = 정상/경고/이상.
 """
 
 import pandas as pd
@@ -13,7 +13,8 @@ import pytest
 from models.rule_based import run_rule_based
 from models.zscore import MIN_BASELINE_ROWS, run_zscore
 from pipeline.coach import ADVICE_DISCLAIMER
-from pipeline.detect import DEEP_THRESHOLD, _build_ensemble
+from models.layer3 import DEEP_THRESHOLDS
+from pipeline.detect import _build_ensemble
 
 # 신규 거래 추출(_extract_new_trades)은 2026-09-02 삭제 — 신규 판정은 저장
 # 단계(_store_trades의 5키 개수 대조)가 유일 책임. 분석은 upload_id 소속 행
@@ -62,9 +63,14 @@ def _stat_row(anomalous, m=None):
             "is_anomaly": anomalous}
 
 
+TH_D = DEEP_THRESHOLDS["disposition_strength"]
+
+
 def _deep_row(score):
-    return {"score": score, "top_bias": "disposition_strength",
-            "top_bias_명": "처분효과",
+    """layer3 per_trade 축약형 — 처분효과 점수 하나짜리 매도 거래. deep_flag는
+    layer3가 축별 임계값으로 판정해 내려주는 값(여기선 처분효과 기준으로 흉내)."""
+    return {"score": score, "deep_flag": score >= TH_D,
+            "top_bias": "disposition_strength", "top_bias_명": "처분효과",
             "bias_scores": {"disposition_strength": score, "overconfidence": 0.1,
                             "lottery_preference": 0.1, "herd_sensitivity": 0.1}}
 
@@ -77,8 +83,8 @@ def _one(rule_on, stat_on, deep_score):
     return _build_ensemble(rule, stat, rows)[0]
 
 
-HI = DEEP_THRESHOLD + 0.01   # deep flag 켜지는 점수
-LO = DEEP_THRESHOLD - 0.01   # 안 켜지는 점수
+HI = TH_D + 0.01   # deep flag 켜지는 점수
+LO = TH_D - 0.01   # 안 켜지는 점수
 
 
 @pytest.mark.parametrize("rule_on,stat_on,deep_score,want", [
@@ -94,7 +100,7 @@ def test_verdict_mapping(rule_on, stat_on, deep_score, want):
     e = _one(rule_on, stat_on, deep_score)
     assert e["verdict"] == want
     assert e["flags"] == {"rule": rule_on, "stat": stat_on,
-                          "deep": deep_score >= DEEP_THRESHOLD}
+                          "deep": deep_score >= TH_D}
     assert e["layers_available"] == 3
 
 
@@ -132,9 +138,10 @@ def test_verdict_without_stat_layer(rule_on, deep_score, want, layers):
 
 
 def test_deep_flag_theta_boundary():
-    """θ 경계: 정확히 θ면 flag(이상 신호는 포함 판정), 그 아래면 미flag."""
-    assert _one(False, False, DEEP_THRESHOLD)["flags"]["deep"] is True
-    assert _one(False, False, DEEP_THRESHOLD - 1e-6)["flags"]["deep"] is False
+    """θ 경계: 정확히 θ면 flag(이상 신호는 포함 판정), 그 아래면 미flag.
+    앙상블은 layer3가 내려준 deep_flag를 그대로 쓴다(점수 재비교 없음)."""
+    assert _one(False, False, TH_D)["flags"]["deep"] is True
+    assert _one(False, False, TH_D - 1e-6)["flags"]["deep"] is False
 
 
 def test_ensemble_row_contract():
@@ -196,7 +203,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
     def fake_layer3(df, user_id="user"):
         return {
             "per_trade": [{
-                "row": i, "trade_score": 0.9,
+                "row": i, "trade_score": 0.9, "deep_flag": True,
                 "top_bias": "disposition_strength", "top_bias_명": "처분효과",
                 "bias_scores": {"disposition_strength": 0.9, "overconfidence": 0.1,
                                 "lottery_preference": 0.1, "herd_sensitivity": 0.1},

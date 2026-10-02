@@ -8,6 +8,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
+from models.layer3 import DEEP_THRESHOLDS
 from pipeline.coach import (account_bias_scores, daily_amount_median,
                             load_account_bias_scores, rule_advice)
 
@@ -51,7 +52,7 @@ def test_no_rows_all_withheld():
 
 # ─ 규칙 조언 (거래 1건 단위) ─
 
-TH = 0.7283        # 3계층 기준(detect.DEEP_THRESHOLD)과 같은 값을 넘겨 쓴다
+TH = DEEP_THRESHOLDS   # 3계층 판정과 같은 편향별 임계값을 넘겨 쓴다
 MEDIAN = 2_600_000.0
 
 
@@ -80,7 +81,8 @@ def test_advice_only_for_trade_side():
 
 
 @pytest.mark.parametrize("side,scores,enabled", [
-    ("매수", _scores(o=0.72), set()),                     # 기준 미달
+    ("매수", _scores(o=0.64), set()),                     # 과잉확신 기준(0.649) 미달
+    ("매도", _scores(d=0.73), set()),                     # 처분효과 기준(0.7345) 미달
     ("매수", _scores(l=0.9, h=0.9), set()),               # 복권형·군집은 조언 없음
     ("매수", _scores(o=0.9), {"daily_total_cap"}),        # 이미 켜 둠
     ("매도", _scores(d=0.9), {"min_holding"}),            # 이미 켜 둠
@@ -91,7 +93,14 @@ def test_no_advice(side, scores, enabled):
 
 
 def test_advice_at_threshold_boundary():
-    assert rule_advice("매수", _scores(o=TH), set(), MEDIAN, TH) != []
+    """편향마다 자기 임계값과 같은 점수면 조언(>=)."""
+    assert rule_advice("매수", _scores(o=TH["overconfidence"]), set(), MEDIAN, TH) != []
+    assert rule_advice("매도", _scores(d=TH["disposition_strength"]), set(), MEDIAN, TH) != []
+    # 처분효과 임계값(0.7345)은 과잉확신 임계값(0.649)보다 높다 — 그 사이 점수는
+    # 과잉확신엔 조언, 처분효과엔 조언 없음
+    mid = 0.70
+    assert rule_advice("매수", _scores(o=mid), set(), MEDIAN, TH) != []
+    assert rule_advice("매도", _scores(d=mid), set(), MEDIAN, TH) == []
 
 
 def test_no_cap_advice_without_history_amount():
