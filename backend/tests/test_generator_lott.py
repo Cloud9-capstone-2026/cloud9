@@ -52,6 +52,20 @@ def test_rank_norm_rejects_nan():
         _rank_norm(["a", "b"], {"a": 0.2, "b": float("nan")})
 
 
+def test_check_label_alignment_rejects_row_mismatch():
+    """trade_labels는 trades와 행 순서 1:1 — 식별 열이 한 행이라도 어긋나면 중단."""
+    from synthetic_data.main import check_label_alignment
+    tr = pd.DataFrame({"agent_id": [1, 1, 2], "거래일자": ["2020-03-02"] * 3,
+                       "거래구분": ["매수", "매도", "매수"], "거래수량": [1, 1, 1]})
+    tl = tr[["agent_id", "거래일자", "거래구분"]].copy()
+    check_label_alignment(tr, tl)
+    check_label_alignment(tr, tl.assign(agent_id=tl["agent_id"].astype(str)))  # dtype 무관
+    with pytest.raises(ValueError):
+        check_label_alignment(tr, tl.iloc[[1, 0, 2]].reset_index(drop=True))  # 순서 바뀜
+    with pytest.raises(ValueError):
+        check_label_alignment(tr, tl.iloc[:2])  # 행수 다름
+
+
 def test_check_trade_labels_rejects_out_of_range():
     """라벨 4종은 정의상 0~1 — 범위 밖이면 생성을 중단한다."""
     from synthetic_data.main import check_trade_labels

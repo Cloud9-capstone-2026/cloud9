@@ -30,6 +30,7 @@ from scipy.stats import spearmanr
 from torch import nn
 
 from synthetic_data import config
+from synthetic_data.main import check_label_alignment, check_trade_labels
 from .. import seqfeat
 from ..gru_model import GRUTagger
 
@@ -61,7 +62,12 @@ def _load_set(name: str):
     ev = pd.read_parquet(os.path.join(CACHE_DIR, f"{name}_events.parquet"))
     tr = pd.read_csv(config.dataset_path(name, "trades"))
     tl = pd.read_csv(config.dataset_path(name, "trade_labels"))
-    assert len(ev) == len(tr) == len(tl), f"{name}: events/trades/trade_labels 행수 불일치"
+    assert len(ev) == len(tr), f"{name}: events/trades 행수 불일치"
+    # 라벨 파일이 거래와 행 단위로 맞고(식별 열 일치) 값이 0~1인지 — 생성기와
+    # 같은 검사를 학습 입구에서 한 번 더. 2026-10-01 음수 라벨 건처럼 재료 결함이
+    # 조용히 학습에 들어가는 것을 막는다.
+    check_label_alignment(tr, tl)
+    check_trade_labels(tl)
     ev = seqfeat.attach_trade_rows(ev, tr)
     feat = seqfeat.event_features(ev)
     return feat, tl[ATTRS].to_numpy(dtype="float32"), tr["거래구분"].to_numpy()

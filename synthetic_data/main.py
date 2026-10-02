@@ -46,6 +46,18 @@ def check_trade_labels(tl: pd.DataFrame) -> None:
         raise ValueError(f"거래별 라벨이 0~1 범위 밖: {int(bad.sum())}건")
 
 
+def check_label_alignment(trades: pd.DataFrame, trade_labels: pd.DataFrame) -> None:
+    """trade_labels가 trades와 행 순서 1:1인지 — 행수뿐 아니라 거래 식별 열
+    (agent_id·거래일자·거래구분)이 행마다 같아야 한다. 어긋나면 라벨이 다른
+    거래에 붙은 채 학습되므로 중단한다."""
+    if len(trades) != len(trade_labels):
+        raise ValueError(f"trades {len(trades)}행 / trade_labels {len(trade_labels)}행")
+    for col in ("agent_id", "거래일자", "거래구분"):
+        same = trades[col].astype(str).to_numpy() == trade_labels[col].astype(str).to_numpy()
+        if not same.all():
+            raise ValueError(f"trade_labels의 {col}이 trades와 {int((~same).sum())}행 불일치")
+
+
 def package_outputs(model, trades_path, labels_path, meta_path,
                     trade_labels_path=None, quiet=False):
     """run() 끝난 model을 trades/labels/meta(+trade_labels) 파일로 기록.
