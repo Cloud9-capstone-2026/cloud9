@@ -1,5 +1,7 @@
 """
-3계층 (딥러닝) — 시퀀스 태깅 GRU로 거래별 편향 귀속 확률 추론 (2단계).
+3계층 (딥러닝) — 시퀀스 태깅 GRU로 거래별 편향 점수(0~1) 추론 (2단계).
+점수는 생성기가 정의한 거래별 편향 기여도의 추정이며 실제 거래의 인과 확률이
+아니다. 제품 판정은 임계값 비교로만 쓴다(methodology.md 3절).
 
 ml/train/train_tagger.py가 저장한 아티팩트(ml/artifacts/tagger.pt, tagger_meta.json)만
 읽는다. 피처 생성은 학습과 동일 코드 경로(synthetic_data.features.build_features →
@@ -8,13 +10,13 @@ ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 
 출력 (score_account) — 거래 우선(trade-first):
   per_trade   거래별 판정 리스트(전 거래 — 이력이 max_len을 넘으면 창을 1건씩
               밀며 나눠 채점, _score_windows 참조). 각 항목 =
-              {row(입력 행 위치), bias_scores(편향별 귀속 확률 0~1 — 모델 sigmoid
+              {row(입력 행 위치), bias_scores(편향별 점수 0~1 — 모델 sigmoid
                출력 그대로), top_bias(거래 방향에 맞는 편향 중 최고 — 매도는
                처분효과, 매수는 나머지 셋), trade_score(=top_bias의 점수),
                evidence(편향별 판정 근거 — models.xai IG 분해: 이 거래 자신의
                값 피처별 기여 전체 + 현재/과거 문맥 기여율. 계산 실패 시 키 부재)}.
-              "이 거래는 ~편향 때문일 수도"의 지도학습 직접 추정 — 타깃이 생성기의
-              거래별 인과 라벨이므로 1단계의 IG 프록시와 달리 의미가 정의상 일치.
+              생성기가 정의한 거래별 편향 기여도의 지도학습 직접 추정 — 타깃이
+              거래 단위 라벨이므로 1단계의 IG 프록시와 달리 출력 단위가 일치.
               시장 맥락이 전무한 거래(시세 조회 실패 등)는 제외 — 사유는
               score_from_trades 본문 주석 참조.
   deep_score  per_trade trade_score의 최댓값 (계좌 요약 참고용, 옛 이름 lstm_score)
@@ -442,7 +444,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
         M = torch.from_numpy(X[0, :N])  # [N, 17] 정규화 완료 전체 시퀀스
         seq_rows = rows[0, :N]          # 각 위치의 trades 행 번호
         W = int(meta["max_len"])
-        P = _score_windows(model, M, W).numpy()  # [N, 4] 거래별 편향 귀속 확률
+        P = _score_windows(model, M, W).numpy()  # [N, 4] 거래별 편향 점수
         params = [meta["attr_param"][a] for a in meta["attrs"]]
         # 대표 편향(top_bias)은 거래 방향에 맞는 편향 중에서 고른다 — 처분효과는
         # 매도, 나머지 셋은 매수에서만 라벨이 정의돼 반대편 점수는 0 근처의 잔향

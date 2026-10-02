@@ -12,9 +12,9 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class GRUTagger(nn.Module):
-    """이벤트 시퀀스 [B, T, C] → 각 시점(거래)별 편향 귀속 로짓 [B, T, n_targets].
+    """이벤트 시퀀스 [B, T, C] → 각 시점(거래)별 편향 기여도 로짓 [B, T, n_targets].
 
-    2단계 시퀀스 태깅: 타깃은 생성기의 거래별 인과 귀속 확률(trade_labels).
+    2단계 시퀀스 태깅: 타깃은 생성기가 정의한 거래별 편향 기여도(trade_labels).
     단방향 GRU라 시점 t의 출력은 거래 1..t 이력만 조건으로 한다 — "그 시점까지의
     이전 거래들을 고려해 이 거래를 판단"하는 인과 방향이 구조적으로 보장된다.
     출력은 로짓 — 확률은 sigmoid, 학습 손실은 BCEWithLogits(패딩 마스크 적용).

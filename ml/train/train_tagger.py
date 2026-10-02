@@ -1,16 +1,18 @@
 """
-3계층 시퀀스 태깅 학습 (2단계): 거래별 인과 귀속 라벨 직접 학습.
+3계층 시퀀스 태깅 학습 (2단계): 거래별 편향 기여도 라벨 직접 학습.
 
 실행: python -m ml.train.train_tagger  (레포 최상위, ml.train.prepare + trade_labels 생성 후)
 학습: train_extended s11~s23 (계좌 90/10 학습/검증 분할, 검증은 early stopping용)
-평가: eval_natural s101·s102 (최종 평가 전용 — 학습·튜닝에 미사용)
+평가: eval_natural s103·s104 (최종 평가 전용 — 학습에 미사용. s103은 임계값
+      캘리브레이션에 쓰였으므로 완전한 독립 세트는 아니다)
 
-타깃 = 생성기가 기록한 거래별 편향 귀속 확률(trade_labels 4컬럼, DECISIONS 8-1):
-  attr_disposition   (매도) 1 − p₀/p₁ — 처분효과가 만든 초과 확률 귀속
-  attr_overconfidence(매수) 1 − p₀/p₁ — 상승일 증폭 귀속
-  attr_lottery/herd  (매수) 선택 가중의 성분 비중
-모델 출력(sigmoid)이 곧 "이 거래가 그 편향 때문일 확률"의 추정 — 출력 단위가
-거래라 1·2계층과 정합.
+타깃 = 생성기가 기록한 거래별 편향 기여도(trade_labels 4컬럼, DECISIONS 8-1).
+시뮬레이터가 그 거래를 결정할 때 쓴 확률에서 편향 항이 차지한 몫이며, 실제
+거래의 인과 확률이 아니다(synthetic_data.md "편향별 구현"):
+  attr_disposition   (매도) 1 − p₀/p₁ — 매도 확률에서 처분효과 항의 몫
+  attr_overconfidence(매수) 1 − p₀/p₁ — 매수 발생률에서 상승일 증폭의 몫
+  attr_lottery/herd  (매수) 종목 선택 가중치에서 해당 항의 비중
+모델 출력(sigmoid)은 이 기여도의 추정 — 출력 단위가 거래라 1·2계층과 정합.
 
 데이터 적재·학습 루프는 함수로 분리되어 sweep_tagger(하이퍼파라미터 스윕)가
 재사용한다. 이 스크립트의 기본값 실행 = 스윕 이전의 1차 설정.
