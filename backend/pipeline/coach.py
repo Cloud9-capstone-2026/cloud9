@@ -55,17 +55,18 @@ def daily_amount_median(history: pd.DataFrame) -> float | None:
     return float(max(round(median, -4), 10_000))
 
 
-def rule_advice(side, bias_scores, enabled_rule_ids, daily_median, threshold) -> list:
+def rule_advice(side, bias_scores, enabled_rule_ids, daily_median, thresholds) -> list:
     """거래 1건의 (거래구분, 편향 점수) → 규칙 조언 목록(없으면 빈 목록).
 
-    편향마다 따로 본다(가장 강한 편향이 아니어도 기준을 넘으면 조언). 그 거래
-    방향의 편향만 본다(매도는 처분효과, 매수는 과잉확신 — 반대편 점수는 판정에도
-    쓰지 않는 값). 짝 규칙이 이미 켜져 있으면 권하지 않는다. bias_scores가 없는
-    거래(3계층 제외·판정 불가)는 조언 없음."""
+    편향마다 따로 본다(가장 강한 편향이 아니어도 그 편향의 임계값을 넘으면 조언).
+    thresholds는 편향별 임계값 dict(models.layer3.DEEP_THRESHOLDS) — 판정과 같은
+    값. 그 거래 방향의 편향만 본다(매도는 처분효과, 매수는 과잉확신 — 반대편
+    점수는 판정에도 쓰지 않는 값). 짝 규칙이 이미 켜져 있으면 권하지 않는다.
+    bias_scores가 없는 거래(3계층 제외·판정 불가)는 조언 없음."""
     advice = []
     for bias, rule_id in ADVICE_RULE.items():
         score = (bias_scores or {}).get(bias)
-        if (BIAS_SIDE[bias] != side or score is None or score < threshold
+        if (BIAS_SIDE[bias] != side or score is None or score < thresholds[bias]
                 or rule_id in enabled_rule_ids):
             continue
         template = TEMPLATES[rule_id]

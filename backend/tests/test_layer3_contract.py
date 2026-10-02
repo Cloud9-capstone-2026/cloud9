@@ -32,12 +32,16 @@ def _assert_contract(out, n_trades):
 
     rows_seen = set()
     for e in out["per_trade"]:
-        assert set(e) >= {"row", "거래일자", "종목코드", "거래구분",
-                          "bias_scores", "top_bias", "top_bias_명", "trade_score"}
+        assert set(e) >= {"row", "거래일자", "종목코드", "거래구분", "bias_scores",
+                          "top_bias", "top_bias_명", "trade_score", "deep_flag"}
         assert set(e["bias_scores"]) == BIAS_PARAMS
         assert all(0.0 <= v <= 1.0 for v in e["bias_scores"].values())
-        assert e["trade_score"] == max(e["bias_scores"].values())
-        assert e["top_bias"] in BIAS_PARAMS
+        # trade_score·top_bias는 거래 방향 안의 편향(매도=처분효과, 매수=나머지)에서
+        eligible = (["disposition_strength"] if e["거래구분"] == "매도"
+                    else ["overconfidence", "lottery_preference", "herd_sensitivity"])
+        assert e["trade_score"] == max(e["bias_scores"][p] for p in eligible)
+        assert e["top_bias"] in eligible
+        assert isinstance(e["deep_flag"], bool)
         rows_seen.add(e["row"])
     assert rows_seen == set(range(n_trades))  # 행 매칭 1:1
 
@@ -243,10 +247,61 @@ def test_top_bias_restricted_to_trade_side(fake_layer3, synthetic_trades,
         if e["거래구분"] == "매도":
             assert e["top_bias"] == "disposition_strength"
             assert e["trade_score"] == 0.1
+            assert e["deep_flag"] is False   # 복권 0.9는 매도의 판정 대상이 아님
         else:
             assert e["top_bias"] == "lottery_preference"
             assert e["trade_score"] == 0.9
+            assert e["deep_flag"] is True    # 복권 0.9 ≥ 0.703
         assert set(e["bias_scores"]) == BIAS_PARAMS  # 점수 4종은 그대로 전부 실림
+
+
+def _fixed_scores_layer3(fake_layer3, monkeypatch, fixed):
+    import numpy as np
+    import torch
+
+    model, meta = fake_layer3._load_artifacts()
+    meta = {**meta, "attr_side": {"attr_disposition": "매도", "attr_overconfidence": "매수",
+                                  "attr_lottery": "매수", "attr_herd": "매수"}}
+    monkeypatch.setattr(fake_layer3, "_load_artifacts", lambda: (model, meta))
+    arr = np.array(fixed, dtype="float32")
+    monkeypatch.setattr(fake_layer3, "_score_windows",
+                        lambda m, M, W: torch.from_numpy(np.tile(arr, (M.shape[0], 1))))
+    return fake_layer3
+
+
+def test_deep_flag_and_top_bias_use_per_axis_thresholds(fake_layer3, synthetic_trades,
+                                                        price_df, index_df, monkeypatch):
+    """축별 임계값 판정: 과잉확신 0.66(≥0.649 넘음)·복권 0.69(<0.703 못 넘음)인 매수는
+    편향 거래이고 대표 편향은 넘은 쪽(과잉확신)이다. 단순 최고점이면 복권이 찍혀
+    판정과 어긋난다. trade_score는 방향 내 최고점 0.69로 대표 편향 점수(0.66)와 다르다.
+    매도는 처분효과 0.1뿐이라 플래그 없음."""
+    l3 = _fixed_scores_layer3(fake_layer3, monkeypatch, [0.1, 0.66, 0.69, 0.3])
+    out = l3.score_from_trades(synthetic_trades, price_df=price_df, index_df=index_df)
+    for e in out["per_trade"]:
+        if e["거래구분"] == "매수":
+            assert e["deep_flag"] is True
+            assert e["top_bias"] == "overconfidence"
+            assert e["trade_score"] == 0.69
+            assert e["bias_scores"]["overconfidence"] == 0.66
+        else:
+            assert e["deep_flag"] is False
+            assert e["top_bias"] == "disposition_strength"
+
+
+def test_deep_flag_boundary_and_no_trigger(fake_layer3, synthetic_trades,
+                                           price_df, index_df, monkeypatch):
+    """임계값과 정확히 같은 점수는 판정(>=): 처분효과 0.7345인 매도는 플래그.
+    매수 쪽은 과잉 0.64·복권 0.70·군집 0.70 전부 자기 임계값 바로 아래라 플래그
+    없음 — 공통 임계값 0.649였다면 셋 다 넘었을 점수."""
+    l3 = _fixed_scores_layer3(fake_layer3, monkeypatch, [0.7345, 0.64, 0.70, 0.70])
+    out = l3.score_from_trades(synthetic_trades, price_df=price_df, index_df=index_df)
+    for e in out["per_trade"]:
+        if e["거래구분"] == "매도":
+            assert e["deep_flag"] is True
+            assert e["bias_scores"]["disposition_strength"] == 0.7345
+        else:
+            assert e["deep_flag"] is False
+            assert e["top_bias"] in {"lottery_preference", "herd_sensitivity"}
 
 
 def test_no_market_data_trades_not_scored(fake_layer3, synthetic_trades,

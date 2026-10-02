@@ -7,7 +7,8 @@ DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스)
   각 거래에 대해 계층이 각자 판정한다.
     rule  = 위반 규칙 존재 여부
     stat  = 마할라노비스 거리 > 임계(2.5, zscore 정의)
-    deep  = 거래 편향 확률(4종 최댓값) >= DEEP_THRESHOLD
+    deep  = 거래 방향에 맞는 편향 점수 중 하나라도 축별 임계값 이상
+            (models.layer3.DEEP_THRESHOLDS — 판정은 layer3가 deep_flag로 내려줌)
   verdict = flag 개수 0 → "정상", 1 → "경고", 2 이상 → "이상".
   가중합 점수는 폐기 — 캘리브레이션에서 3계층 단독이 가중합(0.3/0.3/0.4)보다
   나았고(AP 0.948 vs 0.883), 1·2계층의 가치(명백 위반·비편향 이상치)는 독립
@@ -43,11 +44,13 @@ from pipeline.monitor import check_distribution
 from pipeline.user_rules import load_ruleset
 
 try:  # 3계층 — 의존성(torch)·아티팩트가 없으면 2계층으로 폴백
+    from models.layer3 import DEEP_THRESHOLDS
     from models.layer3 import account_metrics as layer3_metrics
     from models.layer3 import score_account as layer3_score
 except Exception:  # noqa: BLE001
     layer3_score = None
     layer3_metrics = None
+    DEEP_THRESHOLDS = {}  # 3계층 없음 → 거래별 점수도 없어 조언 판정에 쓰이지 않음
 
 # backend/pipeline/detect.py → backend/
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -62,11 +65,6 @@ DB_TO_STANDARD = {
 }
 
 REPORTS_DIR = BACKEND_DIR / "reports"
-
-# 3계층 flag 임계값 — ml.experiments.calibrate_ensemble의 "최약축≥0.3" 후보
-# (튜닝 s11+s13: 정밀도 0.977, 4개 편향축 재현율 전부 ≥0.30 / 평가 s103·s104
-#  검증: 정밀도 0.967~0.968, 재현율 0.345~0.355). 2026-08-06 확정.
-DEEP_THRESHOLD = 0.7283
 
 
 def _standardize(df: pd.DataFrame) -> pd.DataFrame:
@@ -127,7 +125,7 @@ def _build_ensemble(
 ) -> list[dict]:
     """거래별 계층 독립 판정 + 단계형 등급.
 
-    lstm_rows: 거래별 {score, top_bias, top_bias_명, bias_scores} 리스트 —
+    lstm_rows: 거래별 {score, deep_flag, top_bias, top_bias_명, bias_scores} 리스트 —
     rule/stat의 trade_results와 같은 순서·길이. 항목이 None이면 그 거래는
     3계층 판정 불가(시세 조회 실패·채점 실패) → flags에 deep 키 없이 두 계층만.
     stat의 trade_results 항목이 None이면(baseline 부족 — zscore 판정 불가)
@@ -145,7 +143,7 @@ def _build_ensemble(
             stat = {"score": s["stat_score"], "mahalanobis": s["mahalanobis"]}
         deep = None
         if lr is not None:
-            flags["deep"] = lr["score"] >= DEEP_THRESHOLD
+            flags["deep"] = bool(lr["deep_flag"])  # 축별 임계값 판정(layer3)
             deep = {
                 "score": lr["score"],
                 "top_bias": lr["top_bias"],          # "이 거래는 ~편향일 수도"
@@ -262,6 +260,7 @@ def run_pipeline_from_db(
             # 계좌 최대점수 대입은 부풀림 편향이라 그 행만 2계층 폴백(None).
             lstm_rows.append(None if e is None else {
                 "score": e["trade_score"],
+                "deep_flag": e["deep_flag"],
                 "top_bias": e["top_bias"],
                 "top_bias_명": e.get("top_bias_명"),
                 "bias_scores": e["bias_scores"],
@@ -315,7 +314,7 @@ def run_pipeline_from_db(
         deep = e["deep"] or {}
         stat = e["stat"] or {}
         advice = rule_advice(t.거래구분, deep.get("bias_scores"), enabled_rules,
-                             daily_median, DEEP_THRESHOLD)
+                             daily_median, DEEP_THRESHOLDS)
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,

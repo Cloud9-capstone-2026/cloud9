@@ -11,8 +11,10 @@ ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 
   per_trade   거래별 판정 리스트(전 거래 — 이력이 max_len을 넘으면 창을 1건씩
               밀며 나눠 채점, _score_windows 참조). 각 항목 =
               {row(입력 행 위치), bias_scores(편향별 점수 0~1 — 모델 sigmoid
-               출력 그대로), top_bias(거래 방향에 맞는 편향 중 최고 — 매도는
-               처분효과, 매수는 나머지 셋), trade_score(=top_bias의 점수),
+               출력 그대로), deep_flag(거래 방향에 맞는 편향 중 하나라도 축별
+               임계값 DEEP_THRESHOLDS 이상), top_bias(임계값을 넘은 편향 중 최고,
+               없으면 방향 내 최고 — 매도는 처분효과, 매수는 나머지 셋),
+               trade_score(방향 내 최고 점수 — 대표 편향의 점수와 다를 수 있음),
                evidence(편향별 판정 근거 — models.xai IG 분해: 이 거래 자신의
                값 피처별 기여 전체 + 현재/과거 문맥 기여율. 계산 실패 시 키 부재)}.
               생성기가 정의한 거래별 편향 기여도의 지도학습 직접 추정 — 타깃이
@@ -57,6 +59,19 @@ _ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifact
 _RELEASE_ASSETS = ("tagger.pt", "tagger_meta.json", "distribution_ref.json",
                    "hashes.json")  # 복권성 순위표는 별도 Release(lott_table._download 참조)
 logger = logging.getLogger(__name__)
+
+# 3계층 판정 임계값 — 편향별 (2026-10-02 보정, ml.experiments.calibrate_layer3).
+# 선택 세트 s103에서 "양성 = 거래별 라벨 ≥ 0.5"로 두고 각 축의 재현율이 0.30 이상이
+# 되는 가장 높은 값. 거래는 방향에 맞는 축(매도=처분효과, 매수=나머지) 중 하나라도
+# 자기 임계값 이상이면 편향 거래(deep_flag). 모델과 한 쌍이라 다른 모델에 그대로
+# 쓰면 안 된다 — _load_artifacts가 생성시각을 대조해 어긋나면 경고한다.
+DEEP_THRESHOLDS = {
+    "disposition_strength": 0.7345,
+    "overconfidence": 0.649,
+    "lottery_preference": 0.703,
+    "herd_sensitivity": 0.705,
+}
+DEEP_THRESHOLDS_MODEL = "2026-10-02T16:53:35"  # 대상 모델 = tagger_meta.json의 created
 
 try:
     import torch
@@ -246,6 +261,9 @@ def _load_artifacts():
     art = _ensure_artifacts()
     with open(art / "tagger_meta.json", encoding="utf-8") as fp:
         meta = json.load(fp)
+    if meta.get("created") != DEEP_THRESHOLDS_MODEL:
+        logger.warning("판정 임계값은 모델 %s 기준인데 로드된 모델은 %s — 임계값 재보정 필요",
+                       DEEP_THRESHOLDS_MODEL, meta.get("created"))
     m = meta["model"]
     model = GRUTagger(m["n_channels"], m["hidden"], m["layers"], len(meta["attrs"]),
                       dropout=m.get("dropout", 0.0))  # eval 모드라 추론엔 무영향
@@ -467,7 +485,14 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             row = trades.iloc[r]
             scores = {p: round(float(P[i, j]), 4) for j, p in enumerate(params)}
             side = str(row["거래구분"])
-            top = max(allowed.get(side) or params, key=scores.get)
+            # 판정은 축별 임계값: 방향에 맞는 축 중 자기 임계값 이상인 축이 있으면
+            # 편향 거래. 대표 편향은 넘은 축 중 최고점(없으면 방향 내 최고점) —
+            # 단순 최고점으로 고르면 "과잉확신 0.66(넘음)·복권 0.69(못 넘음)"에서
+            # 복권이 대표로 찍혀 판정과 어긋난다. trade_score는 방향 내 최고점이라
+            # 대표 편향의 점수와 다를 수 있다(bias_scores[top_bias]가 그 점수).
+            eligible = allowed.get(side) or params
+            triggered = [p for p in eligible if scores[p] >= DEEP_THRESHOLDS[p]]
+            top = max(triggered or eligible, key=scores.get)
             per_trade.append({
                 "row": int(src[r]),
                 "거래일자": str(row["거래일자"]),
@@ -476,7 +501,8 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
                 "bias_scores": scores,
                 "top_bias": top,
                 "top_bias_명": BIAS_NAMES.get(top, top),
-                "trade_score": scores[top],
+                "trade_score": max(scores[p] for p in eligible),
+                "deep_flag": bool(triggered),
             })
             positions.append(i)
         if not per_trade:
