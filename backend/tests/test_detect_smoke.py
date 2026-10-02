@@ -226,11 +226,18 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
         assert r.deep_score == 0.9
         assert r.upload_id == 1
-        # 처분효과 0.9 ≥ 기준, 기본 조합엔 최소 보유기간이 꺼져 있음 → 조언 1건
-        assert x["rule_advice"] == [{
-            "bias": "disposition_strength", "rule_id": "min_holding",
-            "label": "최소_보유기간", "suggested_param": 3, "param_unit": "일"}]
-        assert x["advice_disclaimer"] == ADVICE_DISCLAIMER
+        # 처분효과 0.9 ≥ 기준, 기본 조합엔 최소 보유기간이 꺼져 있음 → 매도에만
+        # 조언 1건. 매수는 처분효과가 판정 대상이 아니라 조언도 없다.
+        trade = db.get(orm.Trade, r.trade_id)
+        if trade.거래구분 == "매도":
+            assert x["rule_advice"] == [{
+                "bias": "disposition_strength", "rule_id": "min_holding",
+                "label": "최소_보유기간", "suggested_param": 3, "param_unit": "일"}]
+            assert x["advice_disclaimer"] == ADVICE_DISCLAIMER
+        else:
+            assert x["rule_advice"] == []
+            assert x["advice_disclaimer"] is None
+    assert any(db.get(orm.Trade, r.trade_id).거래구분 == "매도" for r in rows)
 
 
 def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,

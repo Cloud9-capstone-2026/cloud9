@@ -314,7 +314,7 @@ def run_pipeline_from_db(
         t = trade_by_id[int(tid)]
         deep = e["deep"] or {}
         stat = e["stat"] or {}
-        advice = rule_advice(deep.get("bias_scores"), enabled_rules,
+        advice = rule_advice(t.거래구분, deep.get("bias_scores"), enabled_rules,
                              daily_median, DEEP_THRESHOLD)
         db.add(AnalysisResult(
             user_id     = parsed_uid,
