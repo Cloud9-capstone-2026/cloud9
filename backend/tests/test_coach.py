@@ -56,43 +56,47 @@ MEDIAN = 2_600_000.0
 
 
 def test_advice_per_bias_over_threshold():
-    """과잉확신 → 일일 매매대금 상한(본인 중앙값), 처분효과 → 최소 보유기간 3일."""
-    assert rule_advice(_scores(o=0.8), set(), MEDIAN, TH) == [{
+    """매수의 과잉확신 → 일일 매매대금 상한(본인 중앙값), 매도의 처분효과 → 최소 보유기간 3일."""
+    assert rule_advice("매수", _scores(o=0.8), set(), MEDIAN, TH) == [{
         "bias": "overconfidence", "rule_id": "daily_total_cap",
         "label": "일일_매매대금_상한", "suggested_param": MEDIAN, "param_unit": "원"}]
-    assert rule_advice(_scores(d=0.8), set(), MEDIAN, TH) == [{
+    assert rule_advice("매도", _scores(d=0.8), set(), MEDIAN, TH) == [{
         "bias": "disposition_strength", "rule_id": "min_holding",
         "label": "최소_보유기간", "suggested_param": 3, "param_unit": "일"}]
 
 
 def test_advice_not_limited_to_top_bias():
     """가장 강한 편향이 복권형이어도 과잉확신이 기준을 넘으면 조언한다."""
-    out = rule_advice(_scores(o=0.80, l=0.85), set(), MEDIAN, TH)
+    out = rule_advice("매수", _scores(o=0.80, l=0.85), set(), MEDIAN, TH)
     assert [a["bias"] for a in out] == ["overconfidence"]
 
 
-def test_advice_both_biases_listed():
-    out = rule_advice(_scores(d=0.9, o=0.9), set(), MEDIAN, TH)
-    assert {a["rule_id"] for a in out} == {"daily_total_cap", "min_holding"}
+def test_advice_only_for_trade_side():
+    """반대편 편향은 점수가 높아도 조언하지 않는다 — 매도에 과잉확신, 매수에 처분효과.
+    모델은 네 점수를 다 내지만 판정은 거래 방향의 편향만 쓰므로 조언도 같은 범위."""
+    both = _scores(d=0.9, o=0.9)
+    assert [a["rule_id"] for a in rule_advice("매도", both, set(), MEDIAN, TH)] == ["min_holding"]
+    assert [a["rule_id"] for a in rule_advice("매수", both, set(), MEDIAN, TH)] == ["daily_total_cap"]
 
 
-@pytest.mark.parametrize("scores,enabled", [
-    (_scores(o=0.72, d=0.72), set()),                  # 기준 미달
-    (_scores(l=0.9, h=0.9), set()),                    # 복권형·군집은 조언 없음
-    (_scores(o=0.9, d=0.9), {"daily_total_cap", "min_holding"}),  # 이미 켜 둠
-    (None, set()),                                     # 3계층 판정 없는 거래
+@pytest.mark.parametrize("side,scores,enabled", [
+    ("매수", _scores(o=0.72), set()),                     # 기준 미달
+    ("매수", _scores(l=0.9, h=0.9), set()),               # 복권형·군집은 조언 없음
+    ("매수", _scores(o=0.9), {"daily_total_cap"}),        # 이미 켜 둠
+    ("매도", _scores(d=0.9), {"min_holding"}),            # 이미 켜 둠
+    ("매도", None, set()),                                # 3계층 판정 없는 거래
 ])
-def test_no_advice(scores, enabled):
-    assert rule_advice(scores, enabled, MEDIAN, TH) == []
+def test_no_advice(side, scores, enabled):
+    assert rule_advice(side, scores, enabled, MEDIAN, TH) == []
 
 
 def test_advice_at_threshold_boundary():
-    assert rule_advice(_scores(o=TH), set(), MEDIAN, TH) != []
+    assert rule_advice("매수", _scores(o=TH), set(), MEDIAN, TH) != []
 
 
 def test_no_cap_advice_without_history_amount():
     """하루 매매대금을 못 구하면 상한은 권하지 않는다(값 없이 켤 수 없는 규칙)."""
-    assert rule_advice(_scores(o=0.9), set(), None, TH) == []
+    assert rule_advice("매수", _scores(o=0.9), set(), None, TH) == []
 
 
 def _history(rows):

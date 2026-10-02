@@ -14,7 +14,7 @@ DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스)
   flag로 사는 구조가 맞다.
 
 3계층(models.layer3)은 거래 우선(trade-first) 출력 — 이번 업로드 + 이전 업로드
-전체 거래를 시퀀스 태깅 GRU에 통과시켜 새 거래 각각에 편향 귀속 확률과 주도
+전체 거래를 시퀀스 태깅 GRU에 통과시켜 새 거래 각각에 편향 점수(0~1)와 주도
 편향(top_bias)을 단다(이력이 길면 창 분할로 전 거래 채점). 시장 맥락 없는
 거래(시세 조회 실패 — layer3가 채점 제외)·채점 전체 실패(아티팩트 부재·torch
 미설치) 시 그 거래는 deep 판정 없이 두 계층만으로 같은 규칙을 적용하고
@@ -314,7 +314,7 @@ def run_pipeline_from_db(
         t = trade_by_id[int(tid)]
         deep = e["deep"] or {}
         stat = e["stat"] or {}
-        advice = rule_advice(deep.get("bias_scores"), enabled_rules,
+        advice = rule_advice(t.거래구분, deep.get("bias_scores"), enabled_rules,
                              daily_median, DEEP_THRESHOLD)
         db.add(AnalysisResult(
             user_id     = parsed_uid,

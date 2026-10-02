@@ -15,9 +15,10 @@ Canary Base Agent 합성 데이터 생성기 - 엔트리포인트
 - meta   : 그룹 태그(표 Ⅲ-1 4축)·진입일·초기 보유 정보 + 확장 샘플링 성분 4컬럼
            (7-5) — 분석 전용, ML 학습 사용 금지. 성분 플래그는 agent별 가변
            비타깃 정보라 labels가 아닌 여기에 둔다(leakage 원칙)
-- trade_labels : 거래별 인과 귀속 확률 4종 (2단계) — trades와 행 순서 1:1.
-           "이 거래가 각 편향 채널 때문에 발생했을 확률"(반사실 비·성분 비중,
-           schema.Trade.귀속라벨 주석 참조). 시퀀스 태깅 모델의 학습 타깃 전용
+- trade_labels : 거래별 편향 기여도 4종 (2단계) — trades와 행 순서 1:1.
+           시뮬레이터가 그 거래를 결정할 때 쓴 확률에서 편향 항이 차지한 몫
+           (확률 비·가중치 비중, schema.Trade.귀속라벨 주석 참조). 실제 거래의
+           인과 확률이 아니다. 시퀀스 태깅 모델의 학습 타깃 전용
 """
 
 import pandas as pd
@@ -46,6 +47,18 @@ def check_trade_labels(tl: pd.DataFrame) -> None:
         raise ValueError(f"거래별 라벨이 0~1 범위 밖: {int(bad.sum())}건")
 
 
+def check_label_alignment(trades: pd.DataFrame, trade_labels: pd.DataFrame) -> None:
+    """trade_labels가 trades와 행 순서 1:1인지 — 행수뿐 아니라 거래 식별 열
+    (agent_id·거래일자·거래구분)이 행마다 같아야 한다. 어긋나면 라벨이 다른
+    거래에 붙은 채 학습되므로 중단한다."""
+    if len(trades) != len(trade_labels):
+        raise ValueError(f"trades {len(trades)}행 / trade_labels {len(trade_labels)}행")
+    for col in ("agent_id", "거래일자", "거래구분"):
+        same = trades[col].astype(str).to_numpy() == trade_labels[col].astype(str).to_numpy()
+        if not same.all():
+            raise ValueError(f"trade_labels의 {col}이 trades와 {int((~same).sum())}행 불일치")
+
+
 def package_outputs(model, trades_path, labels_path, meta_path,
                     trade_labels_path=None, quiet=False):
     """run() 끝난 model을 trades/labels/meta(+trade_labels) 파일로 기록.
@@ -53,7 +66,7 @@ def package_outputs(model, trades_path, labels_path, meta_path,
     df = model.trades_to_dataframe()[TRADES_COLUMNS]
     df.to_csv(trades_path, index=False, encoding="utf-8-sig")
 
-    if trade_labels_path:  # 거래별 인과 귀속 (행 순서 = trades와 1:1)
+    if trade_labels_path:  # 거래별 편향 기여도 (행 순서 = trades와 1:1)
         tl = pd.DataFrame(
             {
                 "agent_id": t.agent_id,

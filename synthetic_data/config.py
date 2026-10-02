@@ -395,8 +395,8 @@ def dataset_path(name: str, kind: str) -> str:
 OUTPUT_CSV_PATH = "synthetic_trades.csv"
 LABELS_CSV_PATH = "synthetic_labels.csv"
 META_CSV_PATH = "synthetic_meta.csv"
-# 거래별 인과 귀속 라벨 (2단계): trades와 행 순서 1:1, 학습 타깃 전용.
-# 실계좌에 존재할 수 없는 정보(본인도 모르는 발생 인과)라 trades에서 물리 분리.
+# 거래별 편향 기여도 라벨 (2단계): trades와 행 순서 1:1, 학습 타깃 전용.
+# 시뮬레이터 내부 값이라 실계좌에 존재할 수 없는 정보 — trades에서 물리 분리.
 TRADE_LABELS_CSV_PATH = "synthetic_trade_labels.csv"
 
 # pykrx 시세 캐시 디렉터리 (재생성 가능한 파생 데이터 — .gitignore 대상)

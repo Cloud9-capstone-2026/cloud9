@@ -26,8 +26,9 @@ class Trade:
     # 체결 후 현금 잔고 스냅샷 — Trade 생성 뒤 agent가 시뮬레이션 상태를 반영해 채움.
     예수금: float = field(init=False, default=0.0)  # 거래 후 현금 잔고(원)
     편향라벨: dict = field(default_factory=dict)
-    # 거래별 인과 귀속 (2단계): 이 거래가 각 편향 채널 '때문에' 발생했을 확률.
-    # 발생 확률의 반사실 비(1 − p₀/p₁) 또는 선택 가중의 성분 비중 — agent가 매매를
+    # 거래별 편향 기여도 (2단계): 시뮬레이터가 이 거래를 결정할 때 쓴 확률에서
+    # 각 편향 항이 차지한 몫. 실제 거래의 인과 확률이 아니다.
+    # 발생 확률의 비(1 − p₀/p₁) 또는 선택 가중치의 성분 비중 — agent가 매매를
     # 결정하는 순간 이미 계산된 값을 기록만 하므로 RNG를 소비하지 않는다(바이트 회귀
     # 검증 대상). trades CSV(11필드)에는 절대 미포함 — trade_labels 별도 파일로만 출력.
     귀속라벨: dict = field(default_factory=dict)
