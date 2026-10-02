@@ -17,10 +17,13 @@
 - 선택 세트(s103)로 고르고 확인 세트(s104)는 고른 값을 고정해 한 번만 평가한다.
 - 범위(0~1) 밖 라벨 거래는 입력 시퀀스에는 두고 집계에서만 제외하며 그 수를 기록한다.
 
-산출: ml/cache/l3scores_{세트}_{모델생성시각}.parquet (점수 캐시, 모델별 분리),
-      ml/cache/calibrate_layer3_{실행시각}.json (보정 기록)
+산출: ml/cache/l3scores_{세트}_{지문}.parquet (점수 캐시 — 지문 = 모델 가중치·메타·
+      그 세트의 피처 캐시 파일 해시라 셋 중 하나만 바뀌어도 다시 채점),
+      ml/cache/calibrate_layer3_{실행시각}.json (보정 기록: 지문·세트·τ·하한·후보 간격·
+      공통/축별 임계값과 두 세트의 결과)
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -47,6 +50,21 @@ GRID = np.round(np.arange(0.05, 0.9951, 0.0005), 4)  # 후보 θ (점수 전 구
 SELECT_SET, CHECK_SET = "eval_natural_s103", "eval_natural_s104"
 
 
+def _sha(path, n=12):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:n]
+
+
+def fingerprint(name):
+    """세트별 점수 지문: 모델 가중치 + 메타(정규화 통계·max_len) + 그 세트의 피처 캐시."""
+    return "-".join(_sha(p) for p in (os.path.join(ART_DIR, "tagger.pt"),
+                                      os.path.join(ART_DIR, "tagger_meta.json"),
+                                      os.path.join(CACHE_DIR, f"{name}_events.parquet")))
+
+
 def load_model():
     meta = json.load(open(os.path.join(ART_DIR, "tagger_meta.json"), encoding="utf-8"))
     m = meta["model"]
@@ -68,9 +86,8 @@ def load_set(name):
 
 
 def score_set(name, model, meta):
-    """세트 전 거래의 축별 점수 (서비스 경로). 캐시는 모델 생성시각으로 분리."""
-    tag = meta["created"].replace(":", "").replace("-", "")
-    path = os.path.join(CACHE_DIR, f"l3scores_{name}_{tag}.parquet")
+    """세트 전 거래의 축별 점수 (서비스 경로). 캐시는 지문(모델·메타·피처 캐시)으로 분리."""
+    path = os.path.join(CACHE_DIR, f"l3scores_{name}_{fingerprint(name)}.parquet")
     if os.path.exists(path):
         return pd.read_parquet(path)
     feat, tr, _tl = load_set(name)
@@ -184,19 +201,27 @@ def main():
     params = [meta["attr_param"][a] for a in meta["attrs"]]
     print(f"모델 생성 {meta['created']} / 학습 세트 {meta.get('train_sets')}")
     record = {"model_created": meta["created"], "tau": TAU, "axis_floor": AXIS_FLOOR,
+              "grid": {"start": float(GRID[0]), "stop": float(GRID[-1]), "step": 0.0005},
               "rule": "네 축 모두 재현율 ≥ axis_floor인 후보 중 가장 높은 θ (각 축 자신의 점수·방향 기준)",
-              "select_set": args.select, "check_set": args.check, "sets": {}}
+              "select_set": args.select, "check_set": args.check,
+              "fingerprints": {s: fingerprint(s) for s in (args.select, args.check) if s},
+              "sets": {}}
 
     E_sel, bad_sel = build_eval(args.select, model, meta)
     print(f"\n[{args.select}] 평가 {len(E_sel):,}건 (범위 밖 라벨 제외 {bad_sel}건)")
     record["sets"][args.select] = {"n_eval": len(E_sel), "n_bad_label_excluded": bad_sel}
 
+    per_axis = None
     if args.theta is None:
         tbl = sweep(E_sel, meta)
         theta = select_common(tbl, params)
         per_axis = select_per_axis(tbl, params)
         print(f"\n선택(공통 θ, 규칙: {record['rule']}): {theta}")
         print(f"참고(축별 θ, 각 축 재현율 ≥ {AXIS_FLOOR}): {per_axis}")
+        if theta is None or any(v is None for v in per_axis.values()):
+            tbl.to_csv(os.path.join(CACHE_DIR, f"calibrate_layer3_sweep_{args.select}.csv"), index=False)
+            raise SystemExit(f"기준 미달: 네 축 재현율 ≥ {AXIS_FLOOR}를 만족하는 후보가 없다 "
+                             f"(공통 {theta}, 축별 {per_axis}). 후보표는 저장함.")
         f1 = 2 * tbl["precision"] * tbl["recall"] / (tbl["precision"] + tbl["recall"]).clip(lower=1e-12)
         print("\n후보표 발췌 (전체 정밀도/재현율, 축별 재현율):")
         marks = {"현행 0.7283": 0.7283, "F1 최대": float(tbl.loc[f1.idxmax(), "theta"]),
@@ -215,20 +240,25 @@ def main():
     else:
         theta = args.theta
 
-    for nm, (E, bad) in {args.select: (E_sel, bad_sel)}.items():
+    def _report(nm, E, bad):
+        rec = record["sets"].setdefault(nm, {"n_eval": len(E), "n_bad_label_excluded": bad})
         m = metrics(E, meta, theta)
-        print(f"\n[{nm}] θ={theta}\n{_fmt(m, params)}")
-        record["sets"][nm]["at_theta"] = m
+        print(f"\n[{nm}] 공통 θ={theta}\n{_fmt(m, params)}")
+        rec["common"] = m
+        if per_axis:
+            mp = metrics(E, meta, per_axis)
+            print(f"[{nm}] 축별 θ\n{_fmt(mp, params)}")
+            rec["per_axis"] = mp
         if theta != 0.7283:
             m0 = metrics(E, meta, 0.7283)
-            print(f"[{nm}] 현행 0.7283 비교\n{_fmt(m0, params)}")
-            record["sets"][nm]["at_0.7283"] = m0
+            print(f"[{nm}] 옛 공통 0.7283 비교\n{_fmt(m0, params)}")
+            rec["at_0.7283"] = m0
 
+    _report(args.select, E_sel, bad_sel)
     if args.check:
         E_chk, bad_chk = build_eval(args.check, model, meta)
-        m = metrics(E_chk, meta, theta)
-        print(f"\n[{args.check}] 확인 세트 — θ={theta} 고정 (범위 밖 라벨 제외 {bad_chk}건)\n{_fmt(m, params)}")
-        record["sets"][args.check] = {"n_eval": len(E_chk), "n_bad_label_excluded": bad_chk, "at_theta": m}
+        print(f"\n[{args.check}] 확인 세트 — 선택 세트에서 고른 값 고정 (범위 밖 라벨 제외 {bad_chk}건)")
+        _report(args.check, E_chk, bad_chk)
 
     out = os.path.join(CACHE_DIR, f"calibrate_layer3_{datetime.now():%Y%m%d_%H%M%S}.json")
     json.dump(record, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2, default=float)
