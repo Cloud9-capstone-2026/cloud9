@@ -164,6 +164,8 @@ def fake_layer3(monkeypatch):
             "attr_lottery": "lottery_preference",
             "attr_herd": "herd_sensitivity",
         },
+        "attr_side": {"attr_disposition": "매도", "attr_overconfidence": "매수",
+                      "attr_lottery": "매수", "attr_herd": "매수"},
         "norm_stats": {f: {"mean": 0.0, "std": 1.0} for f in seqfeat.NORM_FEATURES},
         "max_len": 64,
         "model": {"n_channels": seqfeat.N_CHANNELS, "hidden": 8, "layers": 1,

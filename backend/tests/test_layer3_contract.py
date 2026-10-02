@@ -36,8 +36,11 @@ def _assert_contract(out, n_trades):
                           "top_bias", "top_bias_명", "trade_score", "deep_flag"}
         assert set(e["bias_scores"]) == BIAS_PARAMS
         assert all(0.0 <= v <= 1.0 for v in e["bias_scores"].values())
-        assert e["trade_score"] == max(e["bias_scores"].values())
-        assert e["top_bias"] in BIAS_PARAMS
+        # trade_score·top_bias는 거래 방향 안의 편향(매도=처분효과, 매수=나머지)에서
+        eligible = (["disposition_strength"] if e["거래구분"] == "매도"
+                    else ["overconfidence", "lottery_preference", "herd_sensitivity"])
+        assert e["trade_score"] == max(e["bias_scores"][p] for p in eligible)
+        assert e["top_bias"] in eligible
         assert isinstance(e["deep_flag"], bool)
         rows_seen.add(e["row"])
     assert rows_seen == set(range(n_trades))  # 행 매칭 1:1

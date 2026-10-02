@@ -58,6 +58,15 @@ def _sha(path, n=12):
     return h.hexdigest()[:n]
 
 
+def _git_head():
+    try:
+        import subprocess
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=_REPO,
+                                       text=True).strip()
+    except Exception:  # noqa: BLE001 — git 없는 환경이면 기록만 비움
+        return None
+
+
 def fingerprint(name):
     """세트별 점수 지문: 모델 가중치 + 메타(정규화 통계·max_len) + 그 세트의 피처 캐시."""
     return "-".join(_sha(p) for p in (os.path.join(ART_DIR, "tagger.pt"),
@@ -205,6 +214,11 @@ def main():
               "rule": "네 축 모두 재현율 ≥ axis_floor인 후보 중 가장 높은 θ (각 축 자신의 점수·방향 기준)",
               "select_set": args.select, "check_set": args.check,
               "fingerprints": {s: fingerprint(s) for s in (args.select, args.check) if s},
+              # 평가에 쓴 거래·라벨 파일과 실행 코드 — 어떤 라벨로 계산한 결과인지 식별용
+              "data_hashes": {s: {"trades": _sha(config.dataset_path(s, "trades")),
+                                  "trade_labels": _sha(config.dataset_path(s, "trade_labels"))}
+                              for s in (args.select, args.check) if s},
+              "code_commit": _git_head(),
               "sets": {}}
 
     E_sel, bad_sel = build_eval(args.select, model, meta)
