@@ -1,7 +1,8 @@
 """
-GET /rules       — 전체 규칙 템플릿 7종 + 본인 설정값 병합 조회.
-PUT /rules/{id}  — 규칙 하나 설정(켜기/끄기, 파라미터). upsert.
-DELETE /rules/{id} — 설정 삭제(기본값으로 되돌림).
+GET /rules          — 전체 규칙 템플릿 7종 + 본인 설정값 병합 조회.
+PUT /rules/{id}     — 규칙 하나 설정(켜기/끄기, 파라미터). upsert.
+DELETE /rules/{id}  — 설정 삭제(기본값으로 되돌림).
+GET /rules/history  — 본인 규칙 변경 이력(최신순).
 
 1계층(Rule-based) "사용자가 스스로 정한 절제 규칙" 온보딩/설정 화면용 API.
 models/rule_based/templates.py(TEMPLATES, 7종 정의)와 pipeline/user_rules.py
@@ -12,22 +13,32 @@ models/rule_based/templates.py(TEMPLATES, 7종 정의)와 pipeline/user_rules.py
 
 [2026-08-27] user_rules 테이블(orm.UserRule)은 있었지만 이 값을 사용자가
 실제로 넣을 API가 없어서 추가.
+[2026-10-03] 변경 이력(orm.RuleChangeLog) 기록 추가. 진단→규칙 추천→재업로드
+효과 측정에서 "규칙을 켠 시점"이 비교 기준점이라, PUT/DELETE가 상태를 바꿀
+때마다 같은 트랜잭션에서 1행씩 쌓는다. 추천 카드에서 켤 때는 프론트가
+source="recommendation"을 보내 수동 설정과 구분한다.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
 from database import get_db
 from models.rule_based.templates import TEMPLATES
-from orm import User, UserRule
+from orm import RuleChangeLog, User, UserRule
 
 router = APIRouter()
+
+HISTORY_DEFAULT_LIMIT = 50
+HISTORY_MAX_LIMIT = 200
 
 
 class RuleUpdateRequest(BaseModel):
     enabled: bool
     param: float | None = None
+    source: Literal["manual", "recommendation"] = "manual"
 
 
 def _template_or_404(rule_id: str):
@@ -35,6 +46,27 @@ def _template_or_404(rule_id: str):
     if template is None:
         raise HTTPException(status_code=404, detail=f"존재하지 않는 규칙입니다: {rule_id}")
     return template
+
+
+def _effective(template, user_rule: UserRule | None) -> tuple[bool, float | None]:
+    """지금 실제로 적용되는 (enabled, param).
+
+    설정이 없으면 템플릿 기본값, param을 비워 뒀으면 템플릿 추천값 —
+    pipeline/user_rules.load_ruleset의 폴백 우선순위와 같다."""
+    if user_rule is None:
+        return template.default_on, template.default_param
+    param = user_rule.param if user_rule.param is not None else template.default_param
+    return user_rule.enabled, param
+
+
+def _log_change(db: Session, user_id: int, rule_id: str, action: str,
+                enabled: bool, param: float | None, source: str) -> None:
+    """변경 이력 1행 추가. commit은 호출부가 설정 변경과 함께 한 번에 한다
+    (설정은 바뀌었는데 이력만 빠지는 상태를 막기 위해)."""
+    db.add(RuleChangeLog(
+        user_id=user_id, rule_id=rule_id, action=action,
+        enabled=enabled, param=param, source=source,
+    ))
 
 
 def _serialize(template, user_rule: UserRule | None) -> dict:
@@ -75,6 +107,38 @@ def list_rules(
     return [_serialize(t, user_rules.get(t.id)) for t in TEMPLATES.values()]
 
 
+@router.get("/history")
+def rule_history(
+    rule_id: str | None = None,
+    limit: int = Query(HISTORY_DEFAULT_LIMIT, ge=1, le=HISTORY_MAX_LIMIT),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """본인 규칙 변경 이력, 최신순. rule_id를 주면 그 규칙만.
+
+    /{rule_id} 경로보다 먼저 선언해야 "history"가 rule_id로 잡히지 않는다
+    (현재 GET /{rule_id}는 없지만 나중에 생길 때를 대비한 순서)."""
+    if rule_id is not None:
+        _template_or_404(rule_id)
+    q = db.query(RuleChangeLog).filter(RuleChangeLog.user_id == current_user.id)
+    if rule_id is not None:
+        q = q.filter(RuleChangeLog.rule_id == rule_id)
+    rows = q.order_by(RuleChangeLog.id.desc()).limit(limit).all()
+    return [
+        {
+            "id": r.id,
+            "rule_id": r.rule_id,
+            "label": TEMPLATES[r.rule_id].표시명 if r.rule_id in TEMPLATES else r.rule_id,
+            "action": r.action,
+            "enabled": r.enabled,
+            "param": r.param,
+            "source": r.source,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+
 @router.put("/{rule_id}")
 def set_rule(
     rule_id: str,
@@ -84,7 +148,7 @@ def set_rule(
 ):
     """규칙 하나를 켜거나/끄거나 파라미터를 설정. 이미 설정이 있으면 UPDATE,
     없으면 새로 생성(upsert) — templates.py 운영 규약의 "(user_id, rule_id)당
-    1행" 원칙을 지킨다."""
+    1행" 원칙을 지킨다. 실제 적용 상태가 바뀐 경우에만 이력을 남긴다."""
     template = _template_or_404(rule_id)
 
     # 켜려는데 파라미터가 필요한 규칙(param_unit 있음)인데 값도 없고
@@ -104,11 +168,11 @@ def set_rule(
         .filter(UserRule.user_id == current_user.id, UserRule.rule_id == rule_id)
         .first()
     )
+    before = _effective(template, existing)
+
     if existing is not None:
         existing.enabled = payload.enabled
         existing.param = payload.param
-        db.commit()
-        db.refresh(existing)
         row = existing
     else:
         row = UserRule(
@@ -116,9 +180,14 @@ def set_rule(
             enabled=payload.enabled, param=payload.param,
         )
         db.add(row)
-        db.commit()
-        db.refresh(row)
 
+    after = _effective(template, row)
+    if after != before:
+        _log_change(db, current_user.id, rule_id, "set",
+                    after[0], after[1], payload.source)
+
+    db.commit()
+    db.refresh(row)
     return _serialize(template, row)
 
 
@@ -128,7 +197,8 @@ def reset_rule(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """설정을 지워 템플릿 기본값으로 되돌린다. 설정한 적 없어도 200(멱등)."""
+    """설정을 지워 템플릿 기본값으로 되돌린다. 설정한 적 없어도 200(멱등).
+    되돌린 결과 적용 상태가 바뀐 경우에만 이력을 남긴다."""
     template = _template_or_404(rule_id)
 
     existing = (
@@ -137,7 +207,12 @@ def reset_rule(
         .first()
     )
     if existing is not None:
+        before = _effective(template, existing)
+        after = _effective(template, None)
         db.delete(existing)
+        if after != before:
+            _log_change(db, current_user.id, rule_id, "reset",
+                        after[0], after[1], "manual")
         db.commit()
 
     return _serialize(template, None)
