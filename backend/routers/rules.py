@@ -3,6 +3,7 @@ GET /rules          — 전체 규칙 템플릿 7종 + 본인 설정값 병합 �
 PUT /rules/{id}     — 규칙 하나 설정(켜기/끄기, 파라미터). upsert.
 DELETE /rules/{id}  — 설정 삭제(기본값으로 되돌림).
 GET /rules/history  — 본인 규칙 변경 이력(최신순).
+GET /rules/{id}/effect — 규칙 하나의 업로드별 위반율 + 켠 시점 전후 비교.
 
 1계층(Rule-based) "사용자가 스스로 정한 절제 규칙" 온보딩/설정 화면용 API.
 models/rule_based/templates.py(TEMPLATES, 7종 정의)와 pipeline/user_rules.py
@@ -17,6 +18,9 @@ models/rule_based/templates.py(TEMPLATES, 7종 정의)와 pipeline/user_rules.py
 효과 측정에서 "규칙을 켠 시점"이 비교 기준점이라, PUT/DELETE가 상태를 바꿀
 때마다 같은 트랜잭션에서 1행씩 쌓는다. 추천 카드에서 켤 때는 프론트가
 source="recommendation"을 보내 수동 설정과 구분한다.
+[2026-10-04] 효과 측정 추가(계산은 pipeline/rule_effect.py). 지금 기준
+규칙·파라미터를 모든 업로드에 똑같이 다시 적용해 위반율을 비교한다 —
+저장된 판정은 켜기 전 업로드가 항상 0이라 비교에 쓸 수 없다.
 """
 from typing import Literal
 
@@ -28,6 +32,7 @@ from auth import get_current_user
 from database import get_db
 from models.rule_based.templates import TEMPLATES
 from orm import RuleChangeLog, User, UserRule
+from pipeline.rule_effect import EffectParamError, compute_rule_effect
 
 router = APIRouter()
 
@@ -137,6 +142,28 @@ def rule_history(
         }
         for r in rows
     ]
+
+
+@router.get("/{rule_id}/effect")
+def rule_effect(
+    rule_id: str,
+    param: float | None = Query(None, gt=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """규칙 하나를 지금 기준으로 모든 업로드에 다시 적용한 위반율.
+
+    param을 주면 그 값으로 미리보기한다(예: 추천 카드에서 "이 상한이었다면
+    지난 업로드에서 몇 건 위반이었는지"). 안 주면 사용자 설정값, 그것도 없으면
+    템플릿 추천값. 금액 한도류는 추천값이 없어 설정도 param도 없으면 400.
+
+    adopted_at은 현재 켜져 있는 구간의 시작 시각(변경 이력 기준). 이력이 없으면
+    null — 2026-10-03 이전에 켠 규칙은 시작점을 알 수 없어 전후 비교를 하지 않는다."""
+    _template_or_404(rule_id)
+    try:
+        return compute_rule_effect(db, current_user.id, rule_id, param)
+    except EffectParamError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.put("/{rule_id}")
