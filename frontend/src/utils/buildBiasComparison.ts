@@ -32,11 +32,15 @@ export function buildBiasComparison(
 }
 
 // "최근 거래에서 가장 많이 나타난 편향" — top_bias_명(서버가 이미 한글로 준 라벨)의 최빈값.
+// flags.deep이 true인(= 그 거래가 실제로 편향 임계값을 넘어 깃발 꽂힌) 거래만 센다.
+// top_bias_명 자체는 3계층이 돌기만 하면 항상 채워지는 값(4개 편향 점수 중 최댓값을
+// 그냥 뽑은 것)이라, 이것만으로 거르면 특별히 두드러진 편향이 없는 평범한 거래까지
+// 섞여서 통계가 흐려진다.
 export function computeTopBias(analysis: AnalysisResult[]): { label: string; count: number } | null {
   const counts: Record<string, number> = {};
   analysis.forEach((a) => {
     const label = a.detail.top_bias_명;
-    if (label) counts[label] = (counts[label] || 0) + 1;
+    if (label && a.detail.flags.deep) counts[label] = (counts[label] || 0) + 1;
   });
   let bestLabel: string | null = null;
   let bestCount = 0;
