@@ -115,6 +115,33 @@ class UserRule(Base):
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
 
+class RuleChangeLog(Base):
+    """1계층 규칙 설정 변경 이력 (2026-10-03, 진단→규칙 추천→재업로드 효과 측정).
+
+    user_rules는 (user_id, rule_id)당 1행을 덮어쓰는 구조라 "언제 켰는지"가
+    남지 않는다. 효과 측정은 "규칙을 켠 시점 전후 업로드 비교"라 그 시점이
+    필요해서 변경마다 1행씩 쌓는 append-only 로그를 따로 둔다.
+
+    - action: 'set'(PUT /rules/{id}) | 'reset'(DELETE /rules/{id}, 기본값 복귀)
+    - enabled/param: 변경 직후 실제로 적용되는 상태. param은 사용자가 비워 두면
+      템플릿 추천값으로 채워 기록한다(load_ruleset이 판정에 쓰는 값과 동일).
+    - source: 'manual'(규칙 설정 화면) | 'recommendation'(편향 기반 추천 수락)
+    - 상태가 그대로인 PUT은 기록하지 않는다(같은 값 재저장 = 변경 아님).
+
+    회원 탈퇴 시 scheduler._delete_user_cascade가 함께 지운다.
+    """
+    __tablename__ = "rule_change_logs"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    rule_id    = Column(String(30), nullable=False)
+    action     = Column(String(10), nullable=False)   # 'set' | 'reset'
+    enabled    = Column(Boolean, nullable=False)
+    param      = Column(Float, nullable=True)
+    source     = Column(String(20), nullable=False, default="manual")  # 'manual' | 'recommendation'
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
 class UploadFile(Base):
     """업로드 CSV/XLS 원본 파일 실제 바이트를 DB에 보관.
 
