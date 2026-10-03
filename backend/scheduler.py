@@ -17,8 +17,9 @@ from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from database import SessionLocal
-from orm import (AnalysisJob, AnalysisResult, CsvUpload, SurveyResult, Trade,
-                  UploadFile, User, UserRule)
+from orm import (AnalysisJob, AnalysisResult, CsvUpload, Notification,
+                 RuleChangeLog, SurveyResult, Trade, TradeJournal, UploadFile,
+                 User, UserRule)
 from pipeline.dart_news import refresh_dart_disclosures
 
 WITHDRAWAL_GRACE_DAYS = 30
@@ -30,6 +31,13 @@ def _delete_user_cascade(db, user_id: int) -> None:
     upload_ids = [
         row.id for row in db.query(CsvUpload.id).filter(CsvUpload.user_id == user_id).all()
     ]
+
+    # 알림(→ users·analysis_jobs·csv_uploads), 거래일지(→ users·trades)는 부모보다
+    # 먼저 지운다. 2026-09-10에 두 테이블이 생기면서 여기 추가가 빠져 있었다 —
+    # Postgres는 FK를 강제하므로, 알림이 하나라도 있는 계정(업로드한 적 있는
+    # 모든 계정)은 삭제가 FK 위반으로 실패하고 배치 전체가 롤백됐다.
+    db.query(Notification).filter(Notification.user_id == user_id).delete(synchronize_session=False)
+    db.query(TradeJournal).filter(TradeJournal.user_id == user_id).delete(synchronize_session=False)
 
     if upload_ids:
         db.query(AnalysisResult).filter(AnalysisResult.upload_id.in_(upload_ids)).delete(synchronize_session=False)
@@ -45,6 +53,7 @@ def _delete_user_cascade(db, user_id: int) -> None:
     db.query(CsvUpload).filter(CsvUpload.user_id == user_id).delete(synchronize_session=False)
     db.query(SurveyResult).filter(SurveyResult.user_id == user_id).delete(synchronize_session=False)
     db.query(UserRule).filter(UserRule.user_id == user_id).delete(synchronize_session=False)
+    db.query(RuleChangeLog).filter(RuleChangeLog.user_id == user_id).delete(synchronize_session=False)
 
     db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
 
