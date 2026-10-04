@@ -1,5 +1,5 @@
 """
-회원 탈퇴 실삭제(scheduler._delete_user_cascade) 검증 — FK 강제 상태에서.
+회원 탈퇴 실삭제(account_deletion.delete_user_cascade) 검증 — FK 강제 상태에서.
 
 SQLite는 기본적으로 FK를 검사하지 않아, 자식 테이블 삭제가 빠져도 로컬
 테스트에선 통과하고 운영(Postgres)에서만 터진다. 그래서 PRAGMA foreign_keys=ON
@@ -65,12 +65,12 @@ def _seed_full_user(db, user_id: int) -> None:
 
 
 def test_delete_user_cascade_with_fk_enforced(db):
-    from scheduler import _delete_user_cascade
+    from account_deletion import delete_user_cascade
 
     _seed_full_user(db, 1)
     _seed_full_user(db, 2)
 
-    _delete_user_cascade(db, 1)
+    delete_user_cascade(db, 1)
     db.commit()  # FK 위반이면 여기서 IntegrityError
 
     assert db.get(orm.User, 1) is None

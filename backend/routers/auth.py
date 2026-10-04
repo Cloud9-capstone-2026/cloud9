@@ -7,8 +7,6 @@ POST /auth/login    - OAuth2PasswordRequestForm 사용 (username 필드에 이�
                       [주의] email_verified 여부로 로그인을 막지 않는다 —
                       발송 수단이 아직 없어 막으면 아무도 가입을 완료 못 함.
                       발송 수단 확정 후 이 게이트를 켤지는 별도 논의 필요.
-                      탈퇴 유예 중(deleted_at IS NOT NULL) 계정은 403으로 거부
-                      (2026-09-02, 회원 탈퇴 정책 도입).
 POST /auth/verify-email         - 이메일+6자리 코드로 email_verified=True 처리.
                       (2026-08-24, 딥링크 방식에서 전환 — 도경과 협의 완료)
 POST /auth/verify-email/resend  - 인증 메일 재발송(미인증 상태일 때만, 존재 여부는 비노출).
@@ -40,15 +38,13 @@ PUT  /auth/me/password              - 로그인 상태에서 비밀번호 변경
                       provider != 'local'인 계정(소셜로그인)은 애초에
                       비밀번호가 없으므로 400.
 
-[2026-09-02 추가 — 회원 탈퇴 정책]
-POST /auth/withdraw         - 탈퇴 요청. 즉시 삭제하지 않고 30일 유예기간을
-                      둔다(실수 탈퇴 복구용). 유예기간 중에는 로그인 자체가
-                      막힌다(get_current_user, login에서 deleted_at 확인).
-                      실제 데이터 삭제는 scheduler.process_scheduled_withdrawals가
-                      매일 새벽 배치로 처리(scheduler.py 참고).
-POST /auth/withdraw/cancel  - 유예기간 중 탈퇴 취소. get_current_user를 거치지
-                      않는다(탈퇴 계정은 그 의존성에서 막히므로) — login과
-                      동일하게 이메일+비밀번호로 별도 인증.
+[2026-09-02 추가, 2026-10-04 변경 — 회원 탈퇴 정책]
+POST /auth/withdraw         - 탈퇴 즉시 계정과 모든 데이터를 삭제한다
+                      (account_deletion.delete_user_cascade). 로컬/소셜 공통.
+                      기존 30일 유예기간 + /auth/withdraw/cancel은 폐지 —
+                      프론트에 복구 경로가 없어 유예가 사실상 재가입 차단으로만
+                      작동했음(도경과 협의). 되돌릴 수 없으므로 프론트 탈퇴
+                      모달에 영구 삭제 경고 문구를 둔다.
 
 [레이트리밋 — 2026-08-17 최초 추가, 2026-08-18/27/09-02 신규 엔드포인트분 추가]
 login: 5/minute, signup: 3/minute — 브루트포스/스팸 방지.
@@ -61,9 +57,7 @@ social/{provider}: 10/minute — 로그인류라 login과 비슷한 수준이되
 password-reset/request: 3/minute — verify-email/resend와 동일 이유(이메일 스팸 방지).
 password-reset/confirm: 5/minute — verify-email과 동일 이유(코드 브루트포스 방지).
 me/password: 5/minute — current_password 브루트포스 시도 방지.
-withdraw: 3/minute — 실수/악의적 반복 요청 방지(어차피 상태 변경뿐이라 큰 위험은
-아니지만 다른 계정관리류와 일관성 유지).
-withdraw/cancel: 5/minute — login과 동일 이유(비밀번호 브루트포스 방지).
+withdraw: 3/minute — 실수/악의적 반복 요청 방지(다른 계정관리류와 일관성 유지).
 slowapi 데코레이터가 동작하려면 엔드포인트 함수가 정확히 `request: Request`
 파라미터를 받아야 함(내부적으로 이 파라미터에서 클라이언트 IP를 읽음).
 """
@@ -79,6 +73,7 @@ from auth import (EMAIL_VERIFY_CODE_EXPIRE_MINUTES,
                   generate_verification_code, get_current_user,
                   get_password_hash, hash_verification_code, verify_password,
                   verify_verification_code)
+from account_deletion import delete_user_cascade
 from database import get_db
 from email_service import send_password_reset_email, send_verification_email
 from orm import User
@@ -193,9 +188,6 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
             detail="이메일 또는 비밀번호가 올바르지 않습니다",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    if user.deleted_at is not None:
-        raise HTTPException(status_code=403, detail="탈퇴 처리된 계정입니다")
 
     token = create_access_token(user.id)
     return TokenResponse(access_token=token)
@@ -374,33 +366,12 @@ def withdraw(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """탈퇴 요청. 즉시 삭제하지 않고 30일 유예기간을 둔다 — 실수 탈퇴 복구용.
-    유예기간 중에는 로그인 자체가 막힌다(get_current_user, login에서 확인).
-    실제 데이터 삭제는 scheduler.process_scheduled_withdrawals가 처리."""
-    now = datetime.now(timezone.utc)
-    current_user.deleted_at = now
-    current_user.scheduled_deletion_at = now + timedelta(days=30)
-    db.commit()
-    return {
-        "message": "탈퇴가 접수되었습니다. 30일간 유예기간이며, 이 기간 내 재로그인 시 자동으로 취소됩니다.",
-        "scheduled_deletion_at": current_user.scheduled_deletion_at,
-    }
-
-
-@router.post("/withdraw/cancel", response_model=TokenResponse)
-@limiter.limit("5/minute")
-def cancel_withdrawal(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """유예기간 중 탈퇴 취소. login과 동일하게 이메일+비밀번호로 인증하되,
-    get_current_user를 거치지 않는다(탈퇴 계정은 그 의존성에서 이미 막히므로
-    별도 엔드포인트로 우회 처리)."""
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="이메일 또는 비밀번호가 올바르지 않습니다")
-    if user.deleted_at is None:
-        raise HTTPException(status_code=400, detail="탈퇴 처리 중인 계정이 아닙니다")
-
-    user.deleted_at = None
-    user.scheduled_deletion_at = None
-    db.commit()
-    token = create_access_token(user.id)
-    return TokenResponse(access_token=token)
+    """탈퇴 즉시 계정과 모든 데이터를 삭제한다. 되돌릴 수 없다.
+    삭제 직후 같은 이메일로 바로 재가입 가능하다."""
+    try:
+        delete_user_cascade(db, current_user.id)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return {"message": "탈퇴가 완료되었습니다. 계정과 모든 데이터가 삭제되었습니다."}

@@ -31,6 +31,8 @@ class User(Base):
     password_reset_code_hash       = Column(String(64), nullable=True)
     password_reset_code_expires_at = Column(TIMESTAMP, nullable=True)
     created_at      = Column(TIMESTAMP, server_default=func.now())
+    # 2026-10-04 탈퇴 즉시삭제 전환으로 미사용. 컬럼 삭제는 위험 마이그레이션이라
+    # 일단 남겨둠 — 제거 시 별도 Alembic 마이그레이션(PR merge 후 deploy.yml 적용).
     deleted_at            = Column(TIMESTAMP(timezone=True), nullable=True)
     scheduled_deletion_at = Column(TIMESTAMP(timezone=True), nullable=True)
     __table_args__ = (
@@ -128,7 +130,7 @@ class RuleChangeLog(Base):
     - source: 'manual'(규칙 설정 화면) | 'recommendation'(편향 기반 추천 수락)
     - 상태가 그대로인 PUT은 기록하지 않는다(같은 값 재저장 = 변경 아님).
 
-    회원 탈퇴 시 scheduler._delete_user_cascade가 함께 지운다.
+    회원 탈퇴 시 account_deletion.delete_user_cascade가 함께 지운다.
     """
     __tablename__ = "rule_change_logs"
 
