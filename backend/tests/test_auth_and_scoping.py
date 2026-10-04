@@ -755,3 +755,33 @@ def test_change_password_rejected_for_social_account(client, monkeypatch):
         "current_password": "whatever", "new_password": "newpassword456",
     }, headers=_auth_header(token))
     assert r2.status_code == 400
+
+# ---------------------------------------------------------------------------
+# 회원 탈퇴 (2026-10-04: 30일 유예 폐지 → 즉시 삭제)
+# ---------------------------------------------------------------------------
+
+def test_withdraw_deletes_account_immediately(client):
+    token = _signup(client).json()["access_token"]
+
+    res = client.post("/auth/withdraw", headers=_auth_header(token))
+    assert res.status_code == 200
+
+    # 계정이 사라졌으므로 기존 토큰은 401, 같은 계정으로 로그인도 401
+    assert client.get("/auth/me", headers=_auth_header(token)).status_code == 401
+    assert _login(client).status_code == 401
+
+
+def test_withdraw_then_resignup_same_email(client):
+    token = _signup(client).json()["access_token"]
+    client.post("/auth/withdraw", headers=_auth_header(token))
+
+    # 유예기간 때문에 막히던 같은 이메일 재가입이 바로 가능해야 함
+    res = _signup(client)
+    assert res.status_code == 201
+    new_token = res.json()["access_token"]
+    assert client.get("/auth/me", headers=_auth_header(new_token)).status_code == 200
+
+
+def test_withdraw_cancel_endpoint_removed(client):
+    res = client.post("/auth/withdraw/cancel", data={"username": "a@test.com", "password": "password123"})
+    assert res.status_code in (404, 405)
