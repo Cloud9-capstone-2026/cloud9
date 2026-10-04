@@ -7,9 +7,20 @@ import type { BiasShareResult } from '../utils/buildBiasShare';
 import type { BiasKey } from '../theme/tokens';
 
 const HEADLINE: Record<Exclude<BiasShareResult['status'], 'ok'>, string> = {
+  loading: '불러오는 중이에요',
   noSurvey: '자가진단을 먼저 해보세요',
   noTrades: '거래 내역을 올리면\n비교할 수 있어요',
+  noSelfScore: '아직 비교할 수 없어요',
   noDetection: '아직 감지된 편향이\n없어요',
+};
+
+// 아래 막대 우측의 보조 라벨 — 상태마다 분모가 달라서 문구도 달라진다.
+const DETECT_SUB: Record<Exclude<BiasShareResult['status'], 'ok'>, string> = {
+  loading: '',
+  noSurvey: '',
+  noTrades: '분석된 거래 없음',
+  noSelfScore: '',
+  noDetection: '감지된 편향 없음',
 };
 
 const labelOf = (key: BiasKey) => BIAS_LABELS[BIAS_KEYS.indexOf(key)];
@@ -73,7 +84,7 @@ export function BiasShareCompare({ data }: { data: BiasShareResult }) {
         <View style={styles.blockTop}>
           <Text style={styles.blockLabel}>실제 데이터로 본 나</Text>
           <Text style={styles.blockSub}>
-            {status === 'ok' ? `편향이 감지된 ${detectedCount}건` : '감지된 편향 없음'}
+            {status === 'ok' ? `편향이 감지된 ${detectedCount}건` : DETECT_SUB[status]}
           </Text>
         </View>
         <ShareBar keys={keys} values={(key) => rows.find((r) => r.key === key)?.trading ?? null} />

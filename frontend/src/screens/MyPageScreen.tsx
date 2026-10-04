@@ -52,7 +52,8 @@ export function MyPageScreen() {
 
   const topBias = useMemo(() => computeTopBias(analysis), [analysis]);
   const share = useMemo(
-    () => buildBiasShare(latest ?? null, analysis, accountScores),
+    // latest의 undefined(로딩)/null(검사 이력 없음) 구분을 그대로 넘긴다.
+    () => buildBiasShare(latest, analysis, accountScores),
     [latest, analysis, accountScores]
   );
 

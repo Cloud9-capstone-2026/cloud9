@@ -14,8 +14,10 @@ export const SIMILAR_THRESHOLD = 10;
 
 export type BiasShareStatus =
   | 'ok'              // 양쪽 다 비중이 있음
+  | 'loading'         // 아직 조회 전 — "없음"과 구분해야 잘못된 안내가 깜빡이지 않는다
   | 'noSurvey'        // 자가진단 결과 없음
   | 'noTrades'        // 분석된 거래 없음
+  | 'noSelfScore'     // 자가진단은 했지만 네 축 합이 0이라 비중을 낼 수 없음
   | 'noDetection';    // 거래는 있지만 감지된 편향 0건
 
 export interface BiasShareRow {
@@ -56,25 +58,33 @@ function toPercent(values: Record<string, number>, keys: BiasKey[]): Record<stri
 }
 
 export function buildBiasShare(
-  latestSurvey: SurveyResult | null,
+  // undefined = 아직 조회 전(로딩), null = 조회했지만 검사 이력 없음 — 둘을 구분해야
+  // 불러오는 동안 "자가진단을 먼저 해보세요" 같은 틀린 안내가 깜빡이지 않는다.
+  latestSurvey: SurveyResult | null | undefined,
   analysis: AnalysisResult[],
   accountScores: AccountBiasScoresResponse | null
 ): BiasShareResult {
   // 그 방향 거래가 한 건도 없는 축은 구조적으로 감지될 수 없다(처분효과는 매도,
   // 나머지 셋은 매수에서만 판정). 한쪽 막대에서만 빼면 남은 축 비중이 부풀려지므로
   // 양쪽에서 함께 빼고 나머지로 다시 100%를 잡는다.
-  const excludedKeys = accountScores
-    ? BIAS_KEYS.filter((k) => accountScores.scores[k]?.n_trades === 0)
-    : [];
-  const keys = BIAS_KEYS.filter((k) => !excludedKeys.includes(k));
-
   const detectCounts: Record<string, number> = Object.fromEntries(BIAS_KEYS.map((k) => [k, 0]));
   analysis.forEach((a) => {
     // 한글 라벨(top_bias_명)이 아니라 키로 센다 — 앱 안에 라벨 표기가 두 가지라 매칭이 깨질 수 있다.
     const key = a.detail.top_bias;
     if (key && a.detail.flags.deep) detectCounts[key] += 1;
   });
-  const detectedCount = keys.reduce((sum, k) => sum + detectCounts[k], 0);
+  const detectedCount = BIAS_KEYS.reduce((sum, k) => sum + detectCounts[k], 0);
+
+  // 축 제외는 "두 막대를 같은 축 집합으로 맞춰 공정하게 비교"하기 위한 장치다.
+  // 아래 막대가 아예 안 그려지는 상황(감지 0건·거래 0건)에서는 맞출 상대가 없으므로
+  // 제외하지 않는다 — 그러지 않으면 거래가 없을 때 네 축이 모두 빠져서 멀쩡히 있는
+  // 자가진단 막대까지 사라진다.
+  // accountScores가 null이면 제외 판정을 못 하지만, 화면이 네 요청을 Promise.all
+  // 하나로 묶어 실패 시 아무 값도 갱신하지 않으므로 이때는 detectedCount도 0이다.
+  const excludedKeys = accountScores && detectedCount > 0
+    ? BIAS_KEYS.filter((k) => accountScores.scores[k]?.n_trades === 0)
+    : [];
+  const keys = BIAS_KEYS.filter((k) => !excludedKeys.includes(k));
 
   const surveyValues = latestSurvey
     ? Object.fromEntries(BIAS_KEYS.map((k) => [k, latestSurvey.scores[k].normalized]))
@@ -82,11 +92,15 @@ export function buildBiasShare(
   const self = surveyValues ? toPercent(surveyValues, keys) : null;
   const trading = detectedCount > 0 ? toPercent(detectCounts, keys) : null;
 
+  // 계산 결과(self/trading이 null인지)가 아니라 입력을 직접 보고 상태를 정한다.
+  // 결과로 역추적하면 "거래가 없어서 비교 대상이 비었다"를 "자가진단이 없다"로 잘못 읽는다.
   const status: BiasShareStatus =
-    self == null ? 'noSurvey'
-      : analysis.length === 0 ? 'noTrades'
-        : trading == null ? 'noDetection'
-          : 'ok';
+    latestSurvey === undefined ? 'loading'
+      : latestSurvey === null ? 'noSurvey'
+        : analysis.length === 0 ? 'noTrades'
+          : self == null ? 'noSelfScore'
+            : detectedCount === 0 ? 'noDetection'
+              : 'ok';
 
   const rows: BiasShareRow[] = BIAS_KEYS.map((key) => ({
     key,
