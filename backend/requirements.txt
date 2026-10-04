@@ -1,6 +1,9 @@
 fastapi
 uvicorn
-sqlalchemy
+# sqlalchemy 버전 고정 (2026-10-04): 2.1부터 postgresql:// 기본 드라이버가 psycopg2 →
+# psycopg(v3)로 바뀌어, EC2 venv 재생성 시 미고정 설치로 2.1.3이 깔리며
+# ModuleNotFoundError: psycopg로 기동 실패. 운영 venv 현행 버전으로 고정.
+sqlalchemy==2.0.51
 psycopg2-binary
 # 수치 라이브러리 버전 고정 (2026-09-02): 배포가 미고정 설치라 pandas 3.0으로 올라가며
 # 분석이 AttributeError로 전멸(빈 프레임 concat dtype 규칙 변경). requirements.lock과 동일 버전.
