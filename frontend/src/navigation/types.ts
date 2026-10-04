@@ -43,7 +43,8 @@ export type RootStackParamList = {
   Profile: undefined;
   ChangePassword: undefined;
   Legal: { kind: LegalKind; variant: 'auth' | 'app' };
-  RulesSettings: undefined;
+  // 규칙 조언 카드의 "규칙 켜기 →"를 거쳐 들어오면 그 규칙을 미리 켜고 제안값을 채워둔다.
+  RulesSettings: { recommendedRuleId?: string; recommendedParam?: number } | undefined;
   Uploading: undefined;
   Analyzing: undefined;
   UploadDone: undefined;

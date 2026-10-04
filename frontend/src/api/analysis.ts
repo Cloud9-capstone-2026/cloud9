@@ -12,6 +12,17 @@ export interface AnalysisEvidenceAxis {
   features: AnalysisEvidenceFeature[];
 }
 
+// 규칙 조언(코치) — 이 거래의 편향 점수가 3계층 임계값을 넘었을 때, 그 편향을
+// 줄이는 데 도움되는 1계층 규칙을 켜보라는 제안. 매핑된 규칙이 없거나(복권형·군집),
+// 이미 켜져 있는 규칙이면 애초에 비어있는 배열로 온다(pipeline/coach.py::rule_advice).
+export interface RuleAdviceItem {
+  bias: BiasKey;
+  rule_id: string;
+  label: string;
+  suggested_param: number;
+  param_unit: string | null;
+}
+
 export interface AnalysisDetail {
   날짜: string;
   종목명: string;
@@ -25,6 +36,8 @@ export interface AnalysisDetail {
   bias_scores: Record<BiasKey, number> | null;
   evidence: Record<BiasKey, AnalysisEvidenceAxis> | null;
   deep_excluded: boolean;
+  rule_advice: RuleAdviceItem[];
+  advice_disclaimer: string | null;
 }
 
 export interface AnalysisResult {

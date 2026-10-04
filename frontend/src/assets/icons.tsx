@@ -148,11 +148,11 @@ export function IconExt({ size = 11 }: { size?: number }) {
   );
 }
 
-export function IconSearch({ size = 16 }: { size?: number }) {
+export function IconSearch({ color = C.muted, size = 16 }: { color?: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={11} cy={11} r={8} stroke={C.muted} strokeWidth={1.8} />
-      <Path d="M21 21l-4.35-4.35" stroke={C.muted} strokeWidth={1.8} strokeLinecap="round" />
+      <Circle cx={11} cy={11} r={8} stroke={color} strokeWidth={1.8} />
+      <Path d="M21 21l-4.35-4.35" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -227,3 +227,13 @@ export function IconTick({ size = 24 }: { size?: number }) {
     </Svg>
   );
 }
+
+export function IconLightbulb({ color = C.blue, size = 22 }: { color?: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M9 18h6M10 21h4" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M12 3a6 6 0 00-3.5 10.9c.6.45 1 1.2 1 2.1h5c0-.9.4-1.65 1-2.1A6 6 0 0012 3z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+    </Svg>
+  );
+}
+

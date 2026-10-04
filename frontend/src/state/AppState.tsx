@@ -114,6 +114,10 @@ interface AppStateValue {
   ruleRevert: () => void;
   loadRules: () => Promise<void>;
   saveRules: () => Promise<void>;
+  // 규칙 조언 카드의 "규칙 켜기" → 설정 화면 진입 시, 그 규칙을 켜고 제안값을 미리 채워둔다.
+  // 저장 시에만 그 규칙 하나를 source:'recommendation'으로 보낸다(나머지는 기본 'manual').
+  prefillRuleFromAdvice: (ruleId: string, param: number) => void;
+  getRuleEffect: (ruleId: string, param?: number | null) => Promise<import('../api/rules').RuleEffectResponse>;
 
   // 업로드 플로우
   upFile: UpFile | null;
@@ -261,6 +265,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     Object.fromEntries(RULES.filter((r) => r.isMoney).map((r) => [r.id, 0]))
   );
   const ruleSnapRef = useRef<RuleSnapshot | null>(null);
+  // 규칙 조언 카드를 거쳐 켠 규칙의 id — saveRules가 이 규칙에만 source:'recommendation'을
+  // 보내고, 저장(성공) 또는 취소(ruleRevert) 시 비운다.
+  const recommendedRuleIdRef = useRef<string | null>(null);
 
   const [upFile, setUpFile] = useState<UpFile | null>(null);
   const [pendingUpload, setPendingUploadState] = useState<PendingUpload | null>(null);
@@ -529,6 +536,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setRuleMoneyState(snap.ruleMoney);
       ruleSnapRef.current = null;
     }
+    recommendedRuleIdRef.current = null;
+  }, []);
+
+  const prefillRuleFromAdvice = useCallback((ruleId: string, param: number) => {
+    recommendedRuleIdRef.current = ruleId;
+    setRuleOn((prev) => ({ ...prev, [ruleId]: true }));
+    const template = RULES.find((r) => r.id === ruleId);
+    if (template?.isMoney) setRuleMoneyState((prev) => ({ ...prev, [ruleId]: param }));
+    else setRuleValState((prev) => ({ ...prev, [ruleId]: param }));
   }, []);
 
   // 서버의 규칙 7종 상태를 불러와 ruleOn/ruleVal/ruleMoney에 채운다. 백엔드는
@@ -554,7 +570,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   // 7종 규칙 전부를 현재 로컬 상태 그대로 PUT — 두 맵(ruleVal/ruleMoney)을 다시
   // param 필드 하나로 합친다. same_day_roundtrip처럼 파라미터가 없는 규칙은 null.
+  // 규칙 조언 카드를 거쳐온 규칙(recommendedRuleIdRef)만 source:'recommendation'으로 보낸다.
   const saveRules = useCallback(async () => {
+    const recommendedId = recommendedRuleIdRef.current;
     await Promise.all(RULES.map((template) => {
       const enabled = !!ruleOn[template.id];
       const param = template.isMoney
@@ -562,10 +580,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         : template.unit !== null
           ? (ruleVal[template.id] ?? null)
           : null;
-      return rulesApi.setRule(template.id, enabled, param);
+      const source = template.id === recommendedId ? 'recommendation' : undefined;
+      return rulesApi.setRule(template.id, enabled, param, source);
     }));
+    recommendedRuleIdRef.current = null;
     ruleSnapRef.current = { ruleOn, ruleVal, ruleMoney };
   }, [ruleOn, ruleVal, ruleMoney]);
+
+  const getRuleEffect = useCallback(async (ruleId: string, param?: number | null) => {
+    return rulesApi.getRuleEffect(ruleId, param);
+  }, []);
 
   const refreshNotifications = useCallback(async () => {
     const res = await notificationsApi.getNotifications();
@@ -674,12 +698,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       getRelatedNews,
       getAllNews,
       getAccountBiasScores,
+      prefillRuleFromAdvice,
+      getRuleEffect,
     }),
     [
       journals, refreshJournals, saveJournal, createJournalEntry, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert, loadRules, saveRules,
+      prefillRuleFromAdvice, getRuleEffect,
       upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, getAllTrades, pendingUpload, clearPendingUpload,
       notifications, refreshNotifications, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,

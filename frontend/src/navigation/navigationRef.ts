@@ -53,8 +53,8 @@ export function goToLegal(kind: LegalKind) {
   if (navigationRef.isReady()) navigationRef.navigate('Legal', { kind, variant: 'app' });
 }
 
-export function goToRulesSettings() {
-  if (navigationRef.isReady()) navigationRef.navigate('RulesSettings');
+export function goToRulesSettings(params?: { recommendedRuleId?: string; recommendedParam?: number }) {
+  if (navigationRef.isReady()) navigationRef.navigate('RulesSettings', params);
 }
 
 export function goToUploading() {
