@@ -20,13 +20,6 @@ export interface DartNews {
   date: string;
 }
 
-export interface BiasComparisonDatum {
-  subject: string;
-  self: number;
-  // null = 서버가 판정할 재료(해당 방향 거래)가 아예 없다고 알려준 경우 — 0점과 구분.
-  trading: number | null;
-}
-
 export interface BiasTrendDatum {
   date: string;
   // tested=true(그 달에 실제 검사) → 채워진 점, false(직전 검사값을 이어옴) → 빈 점,

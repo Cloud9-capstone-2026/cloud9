@@ -4,23 +4,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
-import { DumbbellChart } from '../components/charts/DumbbellChart';
+import { BiasShareCompare } from '../components/BiasShareCompare';
 import { TrendLineChart } from '../components/charts/TrendLineChart';
-import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, text } from '../theme/tokens';
+import { C, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, text } from '../theme/tokens';
 import { getCharacter } from '../constants/characterAssets';
 import { buildBiasTrend } from '../utils/buildBiasTrend';
-import { buildBiasComparison, computeTopBias } from '../utils/buildBiasComparison';
+import { buildBiasShare, computeTopBias } from '../utils/buildBiasShare';
 import { formatDate } from '../utils/formatDate';
-import { withSubjectParticle } from '../utils/korean';
 import type { SurveyResult } from '../api/survey';
 import type { AnalysisResult } from '../api/analysis';
 import type { AccountBiasScoresResponse } from '../api/coach';
-import type { BiasComparisonDatum } from '../data/types';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
-
-// 검사도 거래도 없을 때 DumbbellChart의 그리드·라벨만 보여주기 위한 자리표시자(empty=true라 값은 안 쓰임).
-const EMPTY_COMPARISON: BiasComparisonDatum[] = BIAS_TREND_KEYS.map((subject) => ({ subject, self: 0, trading: 0 }));
 
 export function MyPageScreen() {
   const { openBiasInfo, getLatestSurvey, getSurveyHistory, getAllAnalysis, getAccountBiasScores } = useAppState();
@@ -54,26 +49,12 @@ export function MyPageScreen() {
 
   const trend = useMemo(() => buildBiasTrend(history), [history]);
   const character = latest ? getCharacter(latest.type_code) : null;
-  const hasAnalysis = analysis.length > 0;
 
   const topBias = useMemo(() => computeTopBias(analysis), [analysis]);
-  const comparison = useMemo(
-    () => buildBiasComparison(latest ?? null, accountScores),
-    [latest, accountScores]
+  const share = useMemo(
+    () => buildBiasShare(latest ?? null, analysis, accountScores),
+    [latest, analysis, accountScores]
   );
-
-  const insight = useMemo(() => {
-    // trading이 null인(해당 방향 거래가 없어 판정 불가) 편향은 격차 비교 대상에서 제외.
-    const withTrading = comparison.filter((d): d is { subject: string; self: number; trading: number } => d.trading != null);
-    if (withTrading.length === 0) return null;
-    let best = withTrading[0];
-    let bestDiff = -1;
-    withTrading.forEach((d) => {
-      const diff = Math.abs(d.trading - d.self);
-      if (diff > bestDiff) { bestDiff = diff; best = d; }
-    });
-    return { subject: best.subject, diff: Math.round(bestDiff), bigger: best.trading > best.self };
-  }, [comparison]);
 
   return (
     <Screen contentStyle={styles.content}>
@@ -153,32 +134,7 @@ export function MyPageScreen() {
             </View>
           </Card>
 
-          <Card>
-            <Text style={styles.compareSubtitle}>검사 결과 vs 실제 거래 데이터</Text>
-            <View style={styles.legendRow}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: ACCENT }]} />
-                <Text style={styles.legendText}>검사 결과</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#64748b' }]} />
-                <Text style={styles.legendText}>실제 거래 데이터</Text>
-              </View>
-            </View>
-            <View style={{ marginTop: 10 }}>
-              <DumbbellChart data={comparison.length > 0 ? comparison : EMPTY_COMPARISON} empty={!hasAnalysis || !latest} />
-            </View>
-            {hasAnalysis && latest && insight && (
-              <View style={styles.insightBlock}>
-                <View style={styles.insightIconBox}>
-                  <Text style={styles.insightIconText}>!</Text>
-                </View>
-                <Text style={styles.insightText}>
-                  {withSubjectParticle(insight.subject)} 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
-                </Text>
-              </View>
-            )}
-          </Card>
+          <BiasShareCompare data={share} />
         </View>
       </View>
 
@@ -236,16 +192,6 @@ const styles = StyleSheet.create({
   topBiasLabel: { fontSize: 13, color: '#94a3b8', lineHeight: 18, flex: 1, paddingRight: 10 },
   topBiasTag: { fontSize: 17, fontWeight: '600', color: '#16213b', lineHeight: 18 },
   topBiasCount: { fontSize: 12, color: '#94a3b8', marginTop: 4 },
-  compareSubtitle: { fontSize: 13, color: '#94a3b8' },
-  legendRow: { flexDirection: 'row', gap: 16, marginTop: 8 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 9, height: 9, borderRadius: 5 },
-  legendText: { fontSize: 12, color: C.navy },
-  insightBlock: { flexDirection: 'row', gap: 10, backgroundColor: '#eff6ff', borderRadius: 18, padding: 13, marginTop: 16, alignItems: 'flex-start' },
-  insightIconBox: { width: 19, height: 19, borderRadius: 10, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  insightIconText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  insightText: { flex: 1, fontSize: 13, color: C.navy, lineHeight: 19 },
-  insightNum: { color: C.blue, fontWeight: '600' },
   trendGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 13 },
   trendCard: { width: '46%', flexGrow: 1, borderRadius: 26, padding: 10, paddingTop: 14 },
   trendHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 },
