@@ -3,6 +3,7 @@ import { View, Text, Pressable, ScrollView, NativeSyntheticEvent, NativeScrollEv
 import { useRoute, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
+import { RuleAdviceCard } from '../components/RuleAdviceCard';
 import { NewsRow } from '../components/NewsRow';
 import { Spinner } from '../components/FlowOverlay';
 import { LayerRing } from '../components/charts/LayerRing';
@@ -214,6 +215,10 @@ export function ReportDetailScreen() {
           </Card>
         </View>
       )}
+
+      {d.ruleAdvice.map((advice) => (
+        <RuleAdviceCard key={advice.rule_id} advice={advice} disclaimer={d.adviceDisclaimer} />
+      ))}
 
       {d.showEvidence && (
         <View>

@@ -67,7 +67,7 @@ export function SettingsScreen() {
       <View>
         <Text style={styles.sectionLabel}>분석 설정</Text>
         <Card>
-          <Pressable onPress={goToRulesSettings} style={styles.toggleRow}>
+          <Pressable onPress={() => goToRulesSettings()} style={styles.toggleRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={styles.toggleLabel}>탐지 규칙 설정</Text>
               <Text style={styles.toggleSub}>규칙 계층의 판정 기준을 직접 설정할 수 있어요</Text>

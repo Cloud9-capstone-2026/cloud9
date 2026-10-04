@@ -13,6 +13,7 @@ import type { NotificationApiItem } from '../api/notifications';
 import * as newsApi from '../api/news';
 import * as journalsApi from '../api/journals';
 import type { JournalApiItem } from '../api/journals';
+import * as coachApi from '../api/coach';
 
 export type AuthPhase = 'auth' | 'onboarding' | 'main';
 
@@ -20,9 +21,14 @@ export type AuthPhase = 'auth' | 'onboarding' | 'main';
 // 남아있어도 자동 로그인을 시도하지 않는다(로그인 시점에 같이 기록).
 const KEEP_LOGIN_STORAGE_KEY = '@canary/keepLogin';
 
-// 튜토리얼(온보딩)을 한 번이라도 완료했는지 — "로그인 상태 유지"와 별개로 항상 저장됨.
-// 로그아웃하거나 로그인 상태 유지를 꺼도 이 기록은 남아있어서, 다시 로그인하면 튜토리얼을 또 보여주지 않음.
-const ONBOARDING_DONE_STORAGE_KEY = '@canary/onboardingDone';
+// 튜토리얼(온보딩)을 완료했는지 — 계정(user id)별로 저장한다. 이메일이 아니라 id인 이유:
+// 탈퇴 후 같은 이메일로 다시 가입하면 이메일은 그대로지만 계정은 새것이라, 이메일을 키로
+// 쓰면 새 계정인데도 튜토리얼을 건너뛴다. "로그인 상태 유지"와 별개로 항상 저장됨.
+const onboardingDoneKey = (userId: number) => `@canary/onboardingDone:${userId}`;
+
+// 계정 구분 없이 기기 단위로 쓰던 옛 키(2026-10-04 이전). 이게 남아있으면 어떤 계정으로
+// 로그인하든 튜토리얼을 건너뛰는 버그가 있어서 계정별 키로 바꿨고, 남은 값은 한 번 지운다.
+const LEGACY_ONBOARDING_DONE_STORAGE_KEY = '@canary/onboardingDone';
 
 // 이 기기에 로컬 플래그가 없을 때만(새 기기, 재설치, 저장소 삭제 등) 쓰는 폴백 —
 // 서버에 "자가진단 제출 이력"과 "규칙을 직접 저장한 이력"이 둘 다 있으면 온보딩을
@@ -38,6 +44,16 @@ async function checkServerOnboardingDone(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// 이 계정이 온보딩을 끝냈는지 — 기기에 저장된 계정별 기록을 먼저 보고, 없으면 서버로 확인한다.
+// 로그인·앱 재실행 두 경로가 같은 판단을 하도록 한 군데로 모아둔다.
+async function resolveOnboardingDone(userId: number): Promise<boolean> {
+  const saved = await AsyncStorage.getItem(onboardingDoneKey(userId)).catch(() => null);
+  if (saved === '1') return true;
+  const done = await checkServerOnboardingDone();
+  if (done) AsyncStorage.setItem(onboardingDoneKey(userId), '1').catch(() => {});
+  return done;
 }
 
 // 업로드 성공~분석 완료/실패 사이의 "진행 중인 job" 기록. 이 값이 있는 동안은 화면
@@ -113,6 +129,10 @@ interface AppStateValue {
   ruleRevert: () => void;
   loadRules: () => Promise<void>;
   saveRules: () => Promise<void>;
+  // 규칙 조언 카드의 "규칙 켜기" → 설정 화면 진입 시, 그 규칙을 켜고 제안값을 미리 채워둔다.
+  // 저장 시에만 그 규칙 하나를 source:'recommendation'으로 보낸다(나머지는 기본 'manual').
+  prefillRuleFromAdvice: (ruleId: string, param: number) => void;
+  getRuleEffect: (ruleId: string, param?: number | null) => Promise<import('../api/rules').RuleEffectResponse>;
 
   // 업로드 플로우
   upFile: UpFile | null;
@@ -170,6 +190,10 @@ interface AppStateValue {
   getRelatedNews: (tradeId: number, limit?: number) => Promise<DartNews[]>;
   // 전체 소식 화면의 기간 필터용 — 해당 기간에 해당하는 공시를 끝까지 페이지네이션 순회해서 모아옴.
   getAllNews: (period: string) => Promise<DartNews[]>;
+
+  // 계좌 단위 편향 점수(성향분석 탭 "검사 결과 vs 실제 거래 데이터" 비교용) — 서버가 편향마다
+  // 의미 있는 매수/매도 방향만 골라 평균 낸 값. 해당 방향 거래가 없으면 score가 null.
+  getAccountBiasScores: () => Promise<import('../api/coach').AccountBiasScoresResponse>;
 }
 
 const AppStateContext = createContext<AppStateValue | null>(null);
@@ -183,6 +207,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [onboardingDone, setOnboardingDone] = useState(false);
   const [keepLogin, setKeepLogin] = useState(true);
   const [pfEmail, setPfEmail] = useState('');
+  // 온보딩 완료 기록을 계정별로 저장/삭제하기 위한 현재 로그인 계정 id.
+  const [userId, setUserId] = useState<number | null>(null);
 
   useEffect(() => {
     // 로그인 상태 유지된 사용자는 스플래시 화면(App.tsx)이 최소 이만큼은 보인 뒤에
@@ -193,14 +219,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     const startedAt = Date.now();
     (async () => {
       try {
-        const [token, keepLoginRaw, onboardingRaw, pendingUploadRaw] = await Promise.all([
+        const [token, keepLoginRaw, pendingUploadRaw] = await Promise.all([
           getToken(),
           AsyncStorage.getItem(KEEP_LOGIN_STORAGE_KEY),
-          AsyncStorage.getItem(ONBOARDING_DONE_STORAGE_KEY),
           AsyncStorage.getItem(PENDING_UPLOAD_STORAGE_KEY),
         ]);
-        const savedOnboardingDone = onboardingRaw === '1';
-        if (savedOnboardingDone) setOnboardingDone(true);
+        // 온보딩 완료 여부는 계정별 키라 user id를 알아야 읽을 수 있다 — getMe() 이후로 미룬다.
+        AsyncStorage.removeItem(LEGACY_ONBOARDING_DONE_STORAGE_KEY).catch(() => {});
         if (pendingUploadRaw) {
           try { setPendingUploadState(JSON.parse(pendingUploadRaw)); } catch { /* 손상된 값은 무시 */ }
         }
@@ -212,20 +237,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (token && wantsKeepLogin) {
           try {
             const profile = await authApi.getMe();
+            setUserId(profile.id);
             setPfName(profile.name);
             setPfEmail(profile.email ?? '');
             notificationsApi.getNotifications().then((res) => {
               setNotifications(res.notifications);
               setUnreadNotifCount(res.unread_count);
             }).catch(() => {});
-            let effectiveOnboardingDone = savedOnboardingDone;
-            if (!effectiveOnboardingDone) {
-              effectiveOnboardingDone = await checkServerOnboardingDone();
-              if (effectiveOnboardingDone) {
-                setOnboardingDone(true);
-                AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-              }
-            }
+            const effectiveOnboardingDone = await resolveOnboardingDone(profile.id);
+            setOnboardingDone(effectiveOnboardingDone);
             const elapsed = Date.now() - startedAt;
             if (elapsed < MIN_SPLASH_MS) await new Promise((r) => setTimeout(r, MIN_SPLASH_MS - elapsed));
             setAuthPhase(effectiveOnboardingDone ? 'main' : 'onboarding');
@@ -256,6 +276,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     Object.fromEntries(RULES.filter((r) => r.isMoney).map((r) => [r.id, 0]))
   );
   const ruleSnapRef = useRef<RuleSnapshot | null>(null);
+  // 규칙 조언 카드를 거쳐 켠 규칙의 id — saveRules가 이 규칙에만 source:'recommendation'을
+  // 보내고, 저장(성공) 또는 취소(ruleRevert) 시 비운다.
+  const recommendedRuleIdRef = useRef<string | null>(null);
 
   const [upFile, setUpFile] = useState<UpFile | null>(null);
   const [pendingUpload, setPendingUploadState] = useState<PendingUpload | null>(null);
@@ -309,28 +332,24 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     // keepLogin이 꺼져있었으면 남아있는 토큰을 무시하고 지운다.
     await AsyncStorage.setItem(KEEP_LOGIN_STORAGE_KEY, keepLogin ? '1' : '0');
     const profile = await authApi.getMe();
+    setUserId(profile.id);
     setPfName(profile.name);
     setPfEmail(profile.email ?? '');
     notificationsApi.getNotifications().then((res) => {
       setNotifications(res.notifications);
       setUnreadNotifCount(res.unread_count);
     }).catch(() => {});
-    let effectiveOnboardingDone = onboardingDone;
-    if (!effectiveOnboardingDone) {
-      effectiveOnboardingDone = await checkServerOnboardingDone();
-      if (effectiveOnboardingDone) {
-        setOnboardingDone(true);
-        AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-      }
-    }
+    // 직전에 다른 계정으로 쓰던 메모리 상태가 아니라, 이 계정의 기록으로만 판단한다.
+    const effectiveOnboardingDone = await resolveOnboardingDone(profile.id);
+    setOnboardingDone(effectiveOnboardingDone);
     setAuthPhase(effectiveOnboardingDone ? 'main' : 'onboarding');
-  }, [onboardingDone, keepLogin]);
+  }, [keepLogin]);
 
   const enterMainDirectly = useCallback(() => {
     setOnboardingDone(true);
     setAuthPhase('main');
-    AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-  }, []);
+    if (userId != null) AsyncStorage.setItem(onboardingDoneKey(userId), '1').catch(() => {});
+  }, [userId]);
 
   const clearPendingUpload = useCallback(() => {
     setPendingUploadState(null);
@@ -416,6 +435,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     return all;
   }, []);
 
+  const getAccountBiasScores = useCallback(async () => {
+    return coachApi.getAccountBiasScores();
+  }, []);
+
   const logout = useCallback(async () => {
     setAuthPhase('auth');
     await clearToken();
@@ -424,6 +447,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     clearPendingUpload();
     setNotifications([]);
     setUnreadNotifCount(0);
+    // 다음에 로그인하는 계정이 이 계정의 온보딩 여부를 물려받지 않도록 메모리 상태만 되돌린다
+    // (저장된 계정별 기록은 그 계정이 다시 로그인할 때 쓰도록 그대로 둔다).
+    setUserId(null);
+    setOnboardingDone(false);
   }, [clearPendingUpload]);
 
   // 회원가입 자체는 토큰을 발급받지만(자동 로그인 가능) 제품 결정상 쓰지 않고 버린다 —
@@ -479,10 +506,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setAuthPhase('auth');
     await clearToken();
     await AsyncStorage.removeItem(KEEP_LOGIN_STORAGE_KEY);
+    // 탈퇴한 계정의 온보딩 기록은 되살아날 일이 없으니 아예 지운다.
+    if (userId != null) await AsyncStorage.removeItem(onboardingDoneKey(userId)).catch(() => {});
+    setUserId(null);
+    setOnboardingDone(false);
     clearPendingUpload();
     setNotifications([]);
     setUnreadNotifCount(0);
-  }, [clearPendingUpload]);
+  }, [clearPendingUpload, userId]);
 
   // 401(토큰 만료/무효) 응답을 받으면 어느 화면에 있든 로그인 화면으로 돌려보낸다.
   useEffect(() => {
@@ -493,8 +524,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     setOnboardingDone(true);
     setAuthPhase('main');
     setNotifPermModalOpen(true);
-    AsyncStorage.setItem(ONBOARDING_DONE_STORAGE_KEY, '1').catch(() => {});
-  }, []);
+    if (userId != null) AsyncStorage.setItem(onboardingDoneKey(userId), '1').catch(() => {});
+  }, [userId]);
 
   const toggleRule = useCallback((id: string) => {
     setRuleOn((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -520,6 +551,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       setRuleMoneyState(snap.ruleMoney);
       ruleSnapRef.current = null;
     }
+    recommendedRuleIdRef.current = null;
+  }, []);
+
+  const prefillRuleFromAdvice = useCallback((ruleId: string, param: number) => {
+    recommendedRuleIdRef.current = ruleId;
+    setRuleOn((prev) => ({ ...prev, [ruleId]: true }));
+    const template = RULES.find((r) => r.id === ruleId);
+    if (template?.isMoney) setRuleMoneyState((prev) => ({ ...prev, [ruleId]: param }));
+    else setRuleValState((prev) => ({ ...prev, [ruleId]: param }));
   }, []);
 
   // 서버의 규칙 7종 상태를 불러와 ruleOn/ruleVal/ruleMoney에 채운다. 백엔드는
@@ -545,7 +585,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
 
   // 7종 규칙 전부를 현재 로컬 상태 그대로 PUT — 두 맵(ruleVal/ruleMoney)을 다시
   // param 필드 하나로 합친다. same_day_roundtrip처럼 파라미터가 없는 규칙은 null.
+  // 규칙 조언 카드를 거쳐온 규칙(recommendedRuleIdRef)만 source:'recommendation'으로 보낸다.
   const saveRules = useCallback(async () => {
+    const recommendedId = recommendedRuleIdRef.current;
     await Promise.all(RULES.map((template) => {
       const enabled = !!ruleOn[template.id];
       const param = template.isMoney
@@ -553,10 +595,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         : template.unit !== null
           ? (ruleVal[template.id] ?? null)
           : null;
-      return rulesApi.setRule(template.id, enabled, param);
+      const source = template.id === recommendedId ? 'recommendation' : undefined;
+      return rulesApi.setRule(template.id, enabled, param, source);
     }));
+    recommendedRuleIdRef.current = null;
     ruleSnapRef.current = { ruleOn, ruleVal, ruleMoney };
   }, [ruleOn, ruleVal, ruleMoney]);
+
+  const getRuleEffect = useCallback(async (ruleId: string, param?: number | null) => {
+    return rulesApi.getRuleEffect(ruleId, param);
+  }, []);
 
   const refreshNotifications = useCallback(async () => {
     const res = await notificationsApi.getNotifications();
@@ -664,12 +712,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       getNews,
       getRelatedNews,
       getAllNews,
+      getAccountBiasScores,
+      prefillRuleFromAdvice,
+      getRuleEffect,
     }),
     [
       journals, refreshJournals, saveJournal, createJournalEntry, deleteJournal, isJournaled, notif,
       authPhase, authReady, login, enterMainDirectly, logout, completeOnboarding, onboardingDone, keepLogin,
       tutStep, rulesConfirmed,
       ruleOn, ruleVal, ruleMoney, toggleRule, setRuleVal, setRuleMoney, ruleSnap, ruleRevert, loadRules, saveRules,
+      prefillRuleFromAdvice, getRuleEffect,
       upFile, uploadFile, pollJobStatus, getUploads, getAllAnalysis, getAllTrades, pendingUpload, clearPendingUpload,
       notifications, refreshNotifications, markNotifRead, markAllNotifRead, unreadNotifCount,
       osNotif, requestNotifPermission, notifPermModalOpen, closeNotifPermModal,
@@ -677,7 +729,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       updateProfileName, changePassword, withdrawAccount,
       signup, verifyEmail, resendVerification, requestPasswordReset, confirmPasswordReset, submitSurvey,
       getLatestSurvey, getSurveyHistory,
-      getNews, getRelatedNews, getAllNews,
+      getNews, getRelatedNews, getAllNews, getAccountBiasScores,
     ]
   );
 

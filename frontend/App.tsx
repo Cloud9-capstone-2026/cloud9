@@ -5,6 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
 import { AppStateProvider, useAppState } from './src/state/AppState';
+import { ModalRootProvider } from './src/state/ModalRootContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
 import { OnboardingNavigator } from './src/navigation/OnboardingNavigator';
@@ -39,11 +40,13 @@ export default function App() {
       <SafeAreaProvider>
         <View style={styles.outer}>
           <View style={styles.phone}>
-            <AppStateProvider>
-              <NavigationContainer ref={navigationRef}>
-                <AppSwitch />
-              </NavigationContainer>
-            </AppStateProvider>
+            <ModalRootProvider>
+              <AppStateProvider>
+                <NavigationContainer ref={navigationRef}>
+                  <AppSwitch />
+                </NavigationContainer>
+              </AppStateProvider>
+            </ModalRootProvider>
           </View>
         </View>
         <StatusBar style="dark" />

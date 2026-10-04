@@ -1,18 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { RuleCardList, rulesAllValid } from '../components/RuleCardList';
 import { C, text } from '../theme/tokens';
 import { useAppState } from '../state/AppState';
+import type { RootStackParamList } from '../navigation/types';
 
 export function RulesSettingsScreen() {
   const navigation = useNavigation();
-  const { ruleOn, ruleVal, ruleMoney, loadRules, ruleRevert, saveRules } = useAppState();
+  const route = useRoute<RouteProp<RootStackParamList, 'RulesSettings'>>();
+  const { ruleOn, ruleVal, ruleMoney, loadRules, ruleRevert, saveRules, prefillRuleFromAdvice } = useAppState();
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    loadRules().catch(() => {});
+    const { recommendedRuleId, recommendedParam } = route.params ?? {};
+    loadRules()
+      .then(() => {
+        if (recommendedRuleId) prefillRuleFromAdvice(recommendedRuleId, recommendedParam ?? 0);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

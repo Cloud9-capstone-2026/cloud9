@@ -2,7 +2,7 @@ import { RISK, biasColorOf, BIAS_KEYS, BIAS_KEY_MAP } from '../theme/tokens';
 import { formatDate } from '../utils/formatDate';
 import { verdictToRisk } from '../utils/matchTradeAnalysis';
 import type { TradeRaw } from '../api/trades';
-import type { AnalysisResult, AnalysisEvidenceFeature } from '../api/analysis';
+import type { AnalysisResult, AnalysisEvidenceFeature, RuleAdviceItem } from '../api/analysis';
 
 const DEV_SEGS = [
   { max: 1, label: '평소와 비슷해요' },
@@ -70,6 +70,8 @@ interface ReportDetailVM {
   biasRows: BiasRow[];
   showEvidence: boolean;
   evidence: EvidenceRow[];
+  ruleAdvice: RuleAdviceItem[];
+  adviceDisclaimer: string | null;
 }
 
 function tradeRows(trade: TradeRaw) {
@@ -111,6 +113,8 @@ export function buildReportDetailVM(trade: TradeRaw, ana: AnalysisResult | null)
       biasRows: [],
       showEvidence: false,
       evidence: [],
+      ruleAdvice: [],
+      adviceDisclaimer: null,
     };
   }
 
@@ -172,5 +176,7 @@ export function buildReportDetailVM(trade: TradeRaw, ana: AnalysisResult | null)
           };
         })
       : [],
+    ruleAdvice: xai.rule_advice ?? [],
+    adviceDisclaimer: xai.advice_disclaimer ?? null,
   };
 }

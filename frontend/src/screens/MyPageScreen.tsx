@@ -4,68 +4,58 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Screen } from '../components/Screen';
 import { Card } from '../components/Card';
 import { GradientCard } from '../components/GradientCard';
-import { DumbbellChart } from '../components/charts/DumbbellChart';
+import { BiasShareCompare } from '../components/BiasShareCompare';
 import { TrendLineChart } from '../components/charts/TrendLineChart';
-import { C, ACCENT, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, text } from '../theme/tokens';
+import { C, shadow, BIAS_LABELS, BIAS_COLORS, BIAS_TREND_KEYS, BIAS_KEYS, text } from '../theme/tokens';
 import { getCharacter } from '../constants/characterAssets';
 import { buildBiasTrend } from '../utils/buildBiasTrend';
-import { buildBiasComparison, computeTopBias } from '../utils/buildBiasComparison';
+import { buildBiasShare, computeTopBias } from '../utils/buildBiasShare';
 import { formatDate } from '../utils/formatDate';
-import { withSubjectParticle } from '../utils/korean';
 import type { SurveyResult } from '../api/survey';
 import type { AnalysisResult } from '../api/analysis';
-import type { BiasComparisonDatum } from '../data/types';
+import type { AccountBiasScoresResponse } from '../api/coach';
 import { goToDiagnosis } from '../navigation/navigationRef';
 import { useAppState } from '../state/AppState';
 
-// 검사도 거래도 없을 때 DumbbellChart의 그리드·라벨만 보여주기 위한 자리표시자(empty=true라 값은 안 쓰임).
-const EMPTY_COMPARISON: BiasComparisonDatum[] = BIAS_TREND_KEYS.map((subject) => ({ subject, self: 0, trading: 0 }));
-
 export function MyPageScreen() {
-  const { openBiasInfo, getLatestSurvey, getSurveyHistory, getAllAnalysis } = useAppState();
+  const { openBiasInfo, getLatestSurvey, getSurveyHistory, getAllAnalysis, getAccountBiasScores } = useAppState();
   // undefined = 아직 조회 안 됨(로딩), null = 조회했지만 결과 없음(검사 이력 없음)
   const [latest, setLatest] = useState<SurveyResult | null | undefined>(undefined);
   const [history, setHistory] = useState<SurveyResult[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult[]>([]);
+  const [accountScores, setAccountScores] = useState<AccountBiasScoresResponse | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
         try {
-          const [latestRes, historyRes, analysisRes] = await Promise.all([
-            getLatestSurvey(), getSurveyHistory(20), getAllAnalysis(),
+          const [latestRes, historyRes, analysisRes, accountScoresRes] = await Promise.all([
+            getLatestSurvey(), getSurveyHistory(20), getAllAnalysis(), getAccountBiasScores(),
           ]);
           if (!cancelled) {
             setLatest(latestRes);
             setHistory(historyRes);
             setAnalysis(analysisRes);
+            setAccountScores(accountScoresRes);
           }
         } catch {
           // 네트워크 실패 시 기존 값 유지 — 화면은 이전 상태(또는 빈 상태)로 남는다.
         }
       })();
       return () => { cancelled = true; };
-    }, [getLatestSurvey, getSurveyHistory, getAllAnalysis])
+    }, [getLatestSurvey, getSurveyHistory, getAllAnalysis, getAccountBiasScores])
   );
 
   const trend = useMemo(() => buildBiasTrend(history), [history]);
   const character = latest ? getCharacter(latest.type_code) : null;
-  const hasAnalysis = analysis.length > 0;
 
   const topBias = useMemo(() => computeTopBias(analysis), [analysis]);
-  const comparison = useMemo(() => buildBiasComparison(latest ?? null, analysis), [latest, analysis]);
-
-  const insight = useMemo(() => {
-    if (comparison.length === 0) return null;
-    let best = comparison[0];
-    let bestDiff = -1;
-    comparison.forEach((d) => {
-      const diff = Math.abs(d.trading - d.self);
-      if (diff > bestDiff) { bestDiff = diff; best = d; }
-    });
-    return { subject: best.subject, diff: bestDiff, bigger: best.trading > best.self };
-  }, [comparison]);
+  const share = useMemo(
+    // latest의 undefined(로딩)/null(검사 이력 없음) 구분을 그대로 넘긴다.
+    () => buildBiasShare(latest, analysis, accountScores),
+    [latest, analysis, accountScores]
+  );
 
   return (
     <Screen contentStyle={styles.content}>
@@ -105,6 +95,15 @@ export function MyPageScreen() {
               <View style={{ width: 100, height: 100 }} />
             )}
             <View style={styles.biasBars}>
+              <View style={styles.biasAxisRow}>
+                <View style={{ width: 56 }} />
+                <View style={styles.biasAxisLabelsWrap}>
+                  {['낮음', '약간 낮음', '약간 높음', '높음'].map((t) => (
+                    <Text key={t} style={styles.biasAxisText} numberOfLines={1}>{t}</Text>
+                  ))}
+                </View>
+                <View style={{ width: 24 }} />
+              </View>
               {BIAS_LABELS.map((label, i) => {
                 const score = latest ? Math.round(latest.scores[BIAS_KEYS[i]].normalized) : null;
                 return (
@@ -112,6 +111,9 @@ export function MyPageScreen() {
                     <Text style={styles.biasLabel}>{label}</Text>
                     <View style={styles.biasTrack}>
                       <View style={[styles.biasFill, { width: `${score ?? 0}%`, backgroundColor: BIAS_COLORS[i] }]} />
+                      <View style={[styles.biasTick, { left: '25%' }]} />
+                      <View style={[styles.biasTick, { left: '50%' }]} />
+                      <View style={[styles.biasTick, { left: '75%' }]} />
                     </View>
                     <Text style={[styles.biasScore, { color: BIAS_COLORS[i] }]}>{score ?? '-'}</Text>
                   </View>
@@ -133,32 +135,7 @@ export function MyPageScreen() {
             </View>
           </Card>
 
-          <Card>
-            <Text style={styles.compareSubtitle}>검사 결과 vs 실제 거래 데이터</Text>
-            <View style={styles.legendRow}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: ACCENT }]} />
-                <Text style={styles.legendText}>검사 결과</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: '#64748b' }]} />
-                <Text style={styles.legendText}>실제 거래 데이터</Text>
-              </View>
-            </View>
-            <View style={{ marginTop: 10 }}>
-              <DumbbellChart data={comparison.length > 0 ? comparison : EMPTY_COMPARISON} empty={!hasAnalysis || !latest} />
-            </View>
-            {hasAnalysis && latest && insight && (
-              <View style={styles.insightBlock}>
-                <View style={styles.insightIconBox}>
-                  <Text style={styles.insightIconText}>!</Text>
-                </View>
-                <Text style={styles.insightText}>
-                  {withSubjectParticle(insight.subject)} 실제 거래에서 <Text style={styles.insightNum}>{insight.diff}%</Text> {insight.bigger ? '더 크게' : '더 작게'} 나타나요.
-                </Text>
-              </View>
-            )}
-          </Card>
+          <BiasShareCompare data={share} />
         </View>
       </View>
 
@@ -207,21 +184,15 @@ const styles = StyleSheet.create({
   biasLabel: { fontSize: 12, color: C.muted, width: 56 },
   biasTrack: { height: 5, backgroundColor: C.mutedBg, borderRadius: 999, overflow: 'hidden', flex: 1 },
   biasFill: { height: '100%', borderRadius: 999 },
+  biasTick: { position: 'absolute', top: 0, bottom: 0, width: 1, backgroundColor: 'rgba(255,255,255,0.5)' },
   biasScore: { fontSize: 12, fontWeight: '500', width: 24, textAlign: 'right' },
+  biasAxisRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  biasAxisLabelsWrap: { flex: 1, flexDirection: 'row' },
+  biasAxisText: { flex: 1, fontSize: 9, color: C.muted, opacity: 0.7, textAlign: 'center' },
   topBiasCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   topBiasLabel: { fontSize: 13, color: '#94a3b8', lineHeight: 18, flex: 1, paddingRight: 10 },
   topBiasTag: { fontSize: 17, fontWeight: '600', color: '#16213b', lineHeight: 18 },
   topBiasCount: { fontSize: 12, color: '#94a3b8', marginTop: 4 },
-  compareSubtitle: { fontSize: 13, color: '#94a3b8' },
-  legendRow: { flexDirection: 'row', gap: 16, marginTop: 8 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 9, height: 9, borderRadius: 5 },
-  legendText: { fontSize: 12, color: C.navy },
-  insightBlock: { flexDirection: 'row', gap: 10, backgroundColor: '#eff6ff', borderRadius: 18, padding: 13, marginTop: 16, alignItems: 'flex-start' },
-  insightIconBox: { width: 19, height: 19, borderRadius: 10, backgroundColor: C.blue, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
-  insightIconText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  insightText: { flex: 1, fontSize: 13, color: C.navy, lineHeight: 19 },
-  insightNum: { color: C.blue, fontWeight: '600' },
   trendGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 13 },
   trendCard: { width: '46%', flexGrow: 1, borderRadius: 26, padding: 10, paddingTop: 14 },
   trendHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, paddingHorizontal: 4 },

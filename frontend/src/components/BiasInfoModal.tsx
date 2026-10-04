@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { AppModal } from './AppModal';
 import { C, shadow, BIAS_LABELS, BIAS_COLORS } from '../theme/tokens';
 import { BIAS_DESCS } from '../data/mock';
 import { useAppState } from '../state/AppState';
@@ -8,7 +9,7 @@ export function BiasInfoModal() {
   const { biasInfo, closeBiasInfo } = useAppState();
 
   return (
-    <Modal visible={biasInfo} transparent animationType="fade" onRequestClose={closeBiasInfo}>
+    <AppModal visible={biasInfo} onRequestClose={closeBiasInfo}>
       <View style={styles.overlay}>
         <View style={[styles.card, shadow.modal]}>
           <Text style={styles.title}>이 4가지 투자 편향이 뭔가요?</Text>
@@ -28,7 +29,7 @@ export function BiasInfoModal() {
           </Pressable>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

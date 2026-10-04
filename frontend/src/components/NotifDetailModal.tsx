@@ -1,5 +1,6 @@
 import React from 'react';
-import { Modal, View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { AppModal } from './AppModal';
 import { C, shadow } from '../theme/tokens';
 
 export function NotifDetailModal({
@@ -14,7 +15,7 @@ export function NotifDetailModal({
   onClose: () => void;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible={visible} onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.card, shadow.modal]}>
           <View style={[styles.iconBox, { backgroundColor: iconBg }]}>{icon}</View>
@@ -26,7 +27,7 @@ export function NotifDetailModal({
           </Pressable>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -20,12 +20,6 @@ export interface DartNews {
   date: string;
 }
 
-export interface BiasComparisonDatum {
-  subject: string;
-  self: number;
-  trading: number;
-}
-
 export interface BiasTrendDatum {
   date: string;
   // tested=true(그 달에 실제 검사) → 채워진 점, false(직전 검사값을 이어옴) → 빈 점,
