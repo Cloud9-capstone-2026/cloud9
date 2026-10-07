@@ -35,13 +35,16 @@ export function buildBiasTrend(history: SurveyResult[], windowSize = 5): BiasTre
     const latestBefore = before[before.length - 1] ?? null;
 
     const source = latestInMonth ?? latestBefore;
+    // normalized는 (raw-5)/20*100이라 부동소수점 오차가 남는다(raw 16 → 55.00000000000001).
+    // 화면에 정수로만 보여주므로 여기서 반올림해 둔다 — 그래프 좌표도 같은 값을 쓴다.
+    const score = (v: number) => Math.round(v);
     rows.push({
       date: `${month + 1}월`,
       tested: !!latestInMonth,
-      처분효과: source ? source.scores.disposition_strength.normalized : null,
-      과잉확신: source ? source.scores.overconfidence.normalized : null,
-      복권형선호: source ? source.scores.lottery_preference.normalized : null,
-      군집거래: source ? source.scores.herd_sensitivity.normalized : null,
+      처분효과: source ? score(source.scores.disposition_strength.normalized) : null,
+      과잉확신: source ? score(source.scores.overconfidence.normalized) : null,
+      복권형선호: source ? score(source.scores.lottery_preference.normalized) : null,
+      군집거래: source ? score(source.scores.herd_sensitivity.normalized) : null,
     });
   }
   return rows;
