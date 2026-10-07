@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import Svg, { Rect, Text as SvgText, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { C } from '../../theme/tokens';
 
@@ -29,6 +29,9 @@ function useGrowProgress(dep: unknown) {
 // 월별 거래내역 — 막대가 아래에서 위로 자라나는 모션. Y축은 이 차트 자신의 최댓값(6개월 중)을
 // 4등분해서 눈금을 매긴다(다른 차트와 스케일을 공유하지 않음).
 export function MonthlyBarChart({ months, values }: { months: string[]; values: number[] }) {
+  // 웹에서는 모든 SVG가 한 문서에 들어가 같은 id가 여러 개 생기면 브라우저가 맨 앞
+  // 것만 참조한다 — 그 차트가 사라지면 막대 색이 빠져 그래프가 통째로 안 보인다.
+  const gradId = `canaryBarGrad-${useId().replace(/:/g, '')}`;
   const progress = useGrowProgress(values.join(','));
   const W = 356, H = MONTHLY_CHART_HEIGHT, padL = 26, padB = 24, padT = 8;
   const plotH = H - padB - padT;
@@ -41,7 +44,7 @@ export function MonthlyBarChart({ months, values }: { months: string[]; values: 
   return (
     <Svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H}>
       <Defs>
-        <LinearGradient id="canaryBarGrad" x1="0" y1="0" x2="0" y2="1">
+        <LinearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
           <Stop offset="0%" stopColor="#1d4ed8" />
           <Stop offset="72%" stopColor="#1d4ed8" />
           <Stop offset="100%" stopColor="#3b82f6" stopOpacity={0.72} />
@@ -57,7 +60,7 @@ export function MonthlyBarChart({ months, values }: { months: string[]; values: 
         const fullH = padT + plotH - fullTop;
         const animH = fullH * progress;
         return (
-          <Rect key={`b${i}`} x={x} y={padT + plotH - animH} width={bw} height={animH} rx={4} fill="url(#canaryBarGrad)" />
+          <Rect key={`b${i}`} x={x} y={padT + plotH - animH} width={bw} height={animH} rx={4} fill={`url(#${gradId})`} />
         );
       })}
       {months.map((m, i) => (
