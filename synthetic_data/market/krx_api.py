@@ -52,7 +52,11 @@ def _cached(kind: str, key: str, fetch) -> pd.DataFrame:
             df = fetch()
             break
         except Exception as e:  # noqa: BLE001
-            if wait is None:
+            # 권한 거절(401·403)은 기다려도 안 풀린다 — 이용 승인이 없거나 만료된 것
+            # (2026-09-25 코스피 지수 API 만료). 바로 던져 호출부가 결측 처리하게 한다.
+            # 재시도를 다 돌면 분석 하나가 5분 가까이 늦었다.
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if wait is None or status in (401, 403):
                 raise
             print(f"  krx {kind}/{key} 실패({type(e).__name__}: {e}) — {wait}초 후 재시도", flush=True)
             time.sleep(wait)
