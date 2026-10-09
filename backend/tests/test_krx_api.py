@@ -11,6 +11,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 import pytest
+import requests
 
 from synthetic_data.market import krx_api
 
@@ -96,3 +97,46 @@ def test_layer3_index_fallback_uses_cached_index(monkeypatch, price_df):
     monkeypatch.setattr(krx_api, "index_close", boom)
     idx2 = layer3._fetch_index_df(price_df)
     assert idx2["종가"].isna().all()  # 실패 시 NaN 지수 (기존 정책)
+
+
+def _http_error(status):
+    r = requests.Response()
+    r.status_code = status
+    return requests.HTTPError(f"{status}", response=r)
+
+
+def test_cached_gives_up_immediately_on_auth_denial(tmp_path, monkeypatch):
+    """401·403은 기다려도 안 풀리는 권한 문제 — sleep 없이 즉시 예외, 캐시 파일 없음.
+    (2026-09-25 코스피 지수 API 승인 만료 뒤 분석마다 재시도 5분이 낭비됐다.)"""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+
+    def no_sleep(s):
+        raise AssertionError(f"sleep({s}) 호출됨 — 권한 거절은 재시도하면 안 된다")
+    monkeypatch.setattr(krx_api.time, "sleep", no_sleep)
+    calls = []
+    for status in (401, 403):
+        def fetch():
+            calls.append(status)
+            raise _http_error(status)
+        with pytest.raises(requests.HTTPError):
+            krx_api._cached("index", f"2026{status}", fetch)
+    assert calls == [401, 403]
+    assert not list(tmp_path.rglob("*.parquet"))
+
+
+def test_cached_still_retries_other_errors(tmp_path, monkeypatch):
+    """500·네트워크 오류는 기존대로 재시도 — 두 번째에 성공하면 캐시한다."""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+    slept = []
+    monkeypatch.setattr(krx_api.time, "sleep", lambda s: slept.append(s))
+    n = {"calls": 0}
+
+    def fetch():
+        n["calls"] += 1
+        if n["calls"] == 1:
+            raise _http_error(500)
+        return pd.DataFrame({"종가": [1.0]})
+    out = krx_api._cached("index", "20260101", fetch)
+    assert n["calls"] == 2 and out["종가"].iloc[0] == 1.0
+    assert slept[0] == 10
+    assert (tmp_path / "index" / "20260101.parquet").exists()
