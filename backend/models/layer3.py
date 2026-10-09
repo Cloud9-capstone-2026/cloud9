@@ -518,6 +518,11 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
                           for j, p in enumerate(params)},
             "n_events": len(per_trade),
             "account_metrics": _account_metrics(out["aggregates"]),
+            # 이 점수를 낸 모델의 생성시각(tagger_meta.created). 모델을 바꾸면 이전
+            # 업로드 점수와 같은 자로 비교할 수 없으므로 결과에 함께 저장한다.
+            # 임계값 상수가 기준 삼는 모델(DEEP_THRESHOLDS_MODEL)이 아니라 실제로
+            # 로드된 모델 — 둘이 어긋나면 _load_artifacts가 경고를 남긴다.
+            "model_version": meta.get("created"),
         }
     except Exception as e:
         logger.warning("layer3 채점 실패 — 2계층 폴백: %r", e)

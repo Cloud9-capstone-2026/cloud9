@@ -26,7 +26,7 @@ BIAS_PARAMS = {"disposition_strength", "overconfidence",
 def _assert_contract(out, n_trades):
     """score_* 공통 계약: 구조·값 범위·행 1:1 매칭·요약 규약."""
     assert out is not None, "픽스처 입력에서 채점 실패하면 안 됨 (경고 로그 확인)"
-    assert set(out) >= {"per_trade", "deep_score", "bias_mean", "n_events"}
+    assert set(out) >= {"per_trade", "deep_score", "bias_mean", "n_events", "model_version"}
     assert out["n_events"] == n_trades  # max_len 안 — 전 거래 채점
     assert 0.0 <= out["deep_score"] <= 1.0
 

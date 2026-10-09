@@ -341,6 +341,11 @@ def run_pipeline_from_db(
                 # 문구를 띄우는 유일한 신호라 행마다 싣는다(계좌 단위 값이지만
                 # GET /analysis/가 행 단위 계약이라 여기에 넣어야 전달된다).
                 "deep_excluded": dist_check["deep_excluded"],
+                # 이 거래를 판정한 3계층 모델의 생성시각. 3계층이 빠진 거래(분포
+                # 이탈·시세 없음·채점 실패)는 null — 모델이 바뀌어도 효과 측정이
+                # 같은 모델끼리만 비교할 수 있게 거래마다 남긴다.
+                "model_version": (layer3_result.get("model_version")
+                                  if layer3_result and e["deep"] else None),
                 # 편향 점수가 기준을 넘은 거래에 권하는 절제 규칙(없으면 빈
                 # 목록). 책임 문구는 조언이 있을 때만 함께 싣는다.
                 "rule_advice": advice,
