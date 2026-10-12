@@ -46,7 +46,13 @@ def _get(path: str, bas_dd: str) -> list[dict]:
 def _cached(kind: str, key: str, fetch) -> pd.DataFrame:
     path = CACHE / kind / f"{key}.parquet"
     if path.exists():
-        return pd.read_parquet(path)
+        cached = pd.read_parquet(path)
+        # 0행 파일은 "모름"으로 본다 — 휴장일과 "당일 자료 미공개"가 둘 다 빈 응답이라
+        # 구분이 안 되고, 거래일의 빈 응답이 저장되면 영구 0행으로 굳었다(2026-09-30
+        # 종목기본정보: 당일 낮에 조회 → 빈 파일 → 순위표 모집단 0). 옛 빈 파일도
+        # 이 분기로 자동 복구된다(다시 물어 내용이 오면 아래서 덮어씀).
+        if len(cached):
+            return cached
     for wait in (10, 30, 60, 180, None):  # 네트워크·한도 초과 등 — 점점 길게 재시도
         try:
             df = fetch()
@@ -61,6 +67,8 @@ def _cached(kind: str, key: str, fetch) -> pd.DataFrame:
             print(f"  krx {kind}/{key} 실패({type(e).__name__}: {e}) — {wait}초 후 재시도", flush=True)
             time.sleep(wait)
     time.sleep(PACE_SEC)
+    if not len(df):  # 빈 결과는 저장하지 않는다 — 휴장일은 다음에 다시 묻는다(호출 몇 번 비용)
+        return df
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path)
     return df
@@ -108,14 +116,7 @@ def base_info(d: date) -> pd.DataFrame:
     def fetch():
         s = ymd(d)
         rows = _get("sto/stk_isu_base_info", s) + _get("sto/ksq_isu_base_info", s)
-        if not rows:
-            # 빈 응답 = 휴장일로 보고 빈 표를 캐시하는데, 거래일에 API가 잠깐 비어
-            # 돌아오면 그 날짜가 영구 0종목으로 굳는다(2026-09-30, 순위표 생성이
-            # 모집단 0으로 중단). 같은 날 시세 캐시가 비어 있지 않으면 거래일이므로
-            # 캐시하지 않고 예외 → _cached가 재시도한다.
-            daily_path = CACHE / "daily" / f"{s}.parquet"
-            if daily_path.exists() and len(pd.read_parquet(daily_path)) > 0:
-                raise RuntimeError(f"{d} 종목기본정보 빈 응답 — 시세는 있는 거래일이라 캐시하지 않음")
+        if not rows:  # 휴장일(또는 아직 미공개) — 빈 결과는 _cached가 저장하지 않는다
             return pd.DataFrame(columns=["종목코드", "종목명", "주식종류", "증권그룹", "소속부", "시장"])
         raw = pd.DataFrame(rows)
         return pd.DataFrame({
