@@ -140,3 +140,44 @@ def test_cached_still_retries_other_errors(tmp_path, monkeypatch):
     assert n["calls"] == 2 and out["종가"].iloc[0] == 1.0
     assert slept[0] == 10
     assert (tmp_path / "index" / "20260101.parquet").exists()
+
+
+def test_cached_never_stores_empty_result(tmp_path, monkeypatch):
+    """빈 응답은 돌려주되 파일로 저장하지 않는다 — 휴장일과 "당일 자료 미공개"가 둘 다
+    빈 응답이라 구분이 안 되고, 거래일의 빈 응답이 저장되면 영구 0행으로 굳었다(2026-09-30)."""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+    monkeypatch.setattr(krx_api.time, "sleep", lambda s: None)
+    out = krx_api._cached("base", "20260930", lambda: pd.DataFrame(columns=["종목코드"]))
+    assert len(out) == 0
+    assert not (tmp_path / "base" / "20260930.parquet").exists()
+
+
+def test_cached_ignores_existing_empty_file_and_refetches(tmp_path, monkeypatch):
+    """예전에 저장된 0행 파일은 "모름"으로 보고 다시 묻는다 — 내용이 오면 덮어쓴다.
+    서버에 남은 빈 캐시도 손대지 않고 복구되는 경로."""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+    monkeypatch.setattr(krx_api.time, "sleep", lambda s: None)
+    (tmp_path / "base").mkdir()
+    pd.DataFrame(columns=["종목코드"]).to_parquet(tmp_path / "base" / "20260930.parquet")
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        return pd.DataFrame({"종목코드": ["000010", "000020"]})
+    out = krx_api._cached("base", "20260930", fetch)
+    assert calls["n"] == 1 and len(out) == 2
+    assert len(pd.read_parquet(tmp_path / "base" / "20260930.parquet")) == 2
+
+
+def test_cached_stores_nonempty_result(tmp_path, monkeypatch):
+    """내용 있는 응답은 저장되고, 두 번째 호출은 API 없이 파일을 읽는다."""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+    monkeypatch.setattr(krx_api.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        return pd.DataFrame({"종가": [1.0]})
+    krx_api._cached("index", "20260101", fetch)
+    krx_api._cached("index", "20260101", fetch)
+    assert calls["n"] == 1
