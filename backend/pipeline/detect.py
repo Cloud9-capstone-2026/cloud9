@@ -346,6 +346,10 @@ def run_pipeline_from_db(
                 # 같은 모델끼리만 비교할 수 있게 거래마다 남긴다.
                 "model_version": (layer3_result.get("model_version")
                                   if layer3_result and e["deep"] else None),
+                # 지수 자료 없이 판정됐는지 — true면 과잉확신 축 입력이 비어 있었다.
+                # 3계층 제외 거래는 null.
+                "index_missing": (layer3_result.get("index_missing")
+                                  if layer3_result and e["deep"] else None),
                 # 편향 점수가 기준을 넘은 거래에 권하는 절제 규칙(없으면 빈
                 # 목록). 책임 문구는 조언이 있을 때만 함께 싣는다.
                 "rule_advice": advice,

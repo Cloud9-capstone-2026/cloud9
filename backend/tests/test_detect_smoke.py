@@ -211,6 +211,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
             } for i in range(len(df))],
             "deep_score": 0.9, "bias_mean": {}, "n_events": len(df),
             "account_metrics": None, "model_version": "2026-10-02T16:53:35",
+            "index_missing": False,
         }
 
     monkeypatch.setattr(detect, "layer3_score", fake_layer3)
@@ -232,6 +233,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert x["evidence"] == EVID
         assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
         assert x["model_version"] == "2026-10-02T16:53:35"  # 판정한 모델 — 효과 측정 비교용
+        assert x["index_missing"] is False  # 지수 자료 있음
         assert r.deep_score == 0.9
         assert r.upload_id == 1
         # 처분효과 0.9 ≥ 기준, 기본 조합엔 최소 보유기간이 꺼져 있음 → 매도에만
@@ -393,6 +395,7 @@ def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
         # 프론트가 주의 문구를 띄울 유일한 신호 — 행마다 저장돼야 한다
         assert r.detail["deep_excluded"] is True
         assert r.detail["model_version"] is None  # 3계층이 빠진 거래엔 모델 버전도 없음
+        assert r.detail["index_missing"] is None
         # 3계층 판정이 없으면 조언도 없다 — 칸은 항상 존재
         assert r.detail["rule_advice"] == []
         assert r.detail["advice_disclaimer"] is None

@@ -425,8 +425,13 @@ def _prepare_features(trades: pd.DataFrame, price_df=None, index_df=None):
     if index_df is None:
         index_df = _fetch_index_df(price_df)
     from lott_table import get_lott_table  # 시장 전체 복권성 순위표 (없으면 None → 옛 경로)
-    return trades, build_features(trades, price_df, index_df, windows=(None,),
-                                  lott_table=get_lott_table())
+    out = build_features(trades, price_df, index_df, windows=(None,),
+                         lott_table=get_lott_table())
+    # 지수 표에 빈 날짜가 하나라도 있으면 전일 지수수익률 피처가 그만큼 결측으로
+    # 들어간 것 — 조회 실패를 경고 로그로만 남기면 열흘 넘게 아무도 모른다
+    # (2026-09-25 지수 API 만료). 결과에 실어 저장·조회에서 보이게 한다.
+    out["index_missing"] = bool(pd.to_numeric(index_df["종가"], errors="coerce").isna().any())
+    return trades, out
 
 
 def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dict | None:
@@ -523,6 +528,8 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             # 임계값 상수가 기준 삼는 모델(DEEP_THRESHOLDS_MODEL)이 아니라 실제로
             # 로드된 모델 — 둘이 어긋나면 _load_artifacts가 경고를 남긴다.
             "model_version": meta.get("created"),
+            # 지수(전일 코스피 수익률) 결측 여부 — true면 이 계좌의 과잉확신 축 입력이 비었다.
+            "index_missing": out["index_missing"],
         }
     except Exception as e:
         logger.warning("layer3 채점 실패 — 2계층 폴백: %r", e)

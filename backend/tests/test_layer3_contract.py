@@ -26,7 +26,8 @@ BIAS_PARAMS = {"disposition_strength", "overconfidence",
 def _assert_contract(out, n_trades):
     """score_* 공통 계약: 구조·값 범위·행 1:1 매칭·요약 규약."""
     assert out is not None, "픽스처 입력에서 채점 실패하면 안 됨 (경고 로그 확인)"
-    assert set(out) >= {"per_trade", "deep_score", "bias_mean", "n_events", "model_version"}
+    assert set(out) >= {"per_trade", "deep_score", "bias_mean", "n_events", "model_version",
+                        "index_missing"}
     assert out["n_events"] == n_trades  # max_len 안 — 전 거래 채점
     assert 0.0 <= out["deep_score"] <= 1.0
 
@@ -54,6 +55,19 @@ def test_score_from_trades_contract(fake_layer3, synthetic_trades, price_df, ind
         synthetic_trades, price_df=price_df, index_df=index_df
     )
     _assert_contract(out, len(synthetic_trades))
+    assert out["index_missing"] is False  # 지수 표가 전부 채워져 있음
+
+
+def test_index_missing_flag_when_index_has_gaps(fake_layer3, synthetic_trades, price_df, index_df):
+    """지수 표에 빈 날짜가 하나라도 있으면 index_missing=True — 지수 조회 실패가 경고
+    로그로만 남아 열흘 넘게 아무도 몰랐던 일(2026-09-25 만료)을 결과에서 보이게."""
+    gappy = index_df.copy()
+    gappy.loc[gappy.index[len(gappy) // 2], "종가"] = float("nan")
+    out = fake_layer3.score_from_trades(synthetic_trades, price_df=price_df, index_df=gappy)
+    assert out["index_missing"] is True
+    all_nan = index_df.assign(종가=float("nan"))  # 조회 전면 실패 모양
+    out2 = fake_layer3.score_from_trades(synthetic_trades, price_df=price_df, index_df=all_nan)
+    assert out2["index_missing"] is True
 
 
 def test_score_account_contract(fake_layer3, no_network_layer3, standard_trades):
