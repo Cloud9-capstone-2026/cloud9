@@ -108,7 +108,14 @@ def base_info(d: date) -> pd.DataFrame:
     def fetch():
         s = ymd(d)
         rows = _get("sto/stk_isu_base_info", s) + _get("sto/ksq_isu_base_info", s)
-        if not rows:  # 휴장일
+        if not rows:
+            # 빈 응답 = 휴장일로 보고 빈 표를 캐시하는데, 거래일에 API가 잠깐 비어
+            # 돌아오면 그 날짜가 영구 0종목으로 굳는다(2026-09-30, 순위표 생성이
+            # 모집단 0으로 중단). 같은 날 시세 캐시가 비어 있지 않으면 거래일이므로
+            # 캐시하지 않고 예외 → _cached가 재시도한다.
+            daily_path = CACHE / "daily" / f"{s}.parquet"
+            if daily_path.exists() and len(pd.read_parquet(daily_path)) > 0:
+                raise RuntimeError(f"{d} 종목기본정보 빈 응답 — 시세는 있는 거래일이라 캐시하지 않음")
             return pd.DataFrame(columns=["종목코드", "종목명", "주식종류", "증권그룹", "소속부", "시장"])
         raw = pd.DataFrame(rows)
         return pd.DataFrame({

@@ -140,3 +140,33 @@ def test_cached_still_retries_other_errors(tmp_path, monkeypatch):
     assert n["calls"] == 2 and out["종가"].iloc[0] == 1.0
     assert slept[0] == 10
     assert (tmp_path / "index" / "20260101.parquet").exists()
+
+
+def test_base_info_empty_on_trading_day_is_not_cached(tmp_path, monkeypatch):
+    """시세가 있는 날(거래일)에 종목기본정보가 빈 응답이면 휴장일이 아니다 — 빈 표를
+    캐시하지 않고 재시도 대상으로 올린다. (2026-09-30 빈 캐시가 굳어 순위표 생성이
+    모집단 0으로 멈춘 결함.)"""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+    monkeypatch.setattr(krx_api.time, "sleep", lambda s: None)
+    d = date(2026, 9, 30)
+    (tmp_path / "daily").mkdir()
+    pd.DataFrame({"종목코드": ["000010"], "종가": [1.0]}).to_parquet(tmp_path / "daily" / "20260930.parquet")
+    calls = {"n": 0}
+
+    def fake_get(path, bas_dd):
+        calls["n"] += 1
+        return []  # 거래일인데 빈 응답
+    monkeypatch.setattr(krx_api, "_get", fake_get)
+    with pytest.raises(RuntimeError):
+        krx_api.base_info(d)
+    assert calls["n"] >= 2  # 재시도는 했다
+    assert not (tmp_path / "base" / "20260930.parquet").exists()
+
+
+def test_base_info_empty_on_holiday_is_cached(tmp_path, monkeypatch):
+    """시세 캐시도 없는 날(진짜 휴장일)의 빈 응답은 기존대로 빈 표로 캐시한다."""
+    monkeypatch.setattr(krx_api, "CACHE", tmp_path)
+    monkeypatch.setattr(krx_api, "_get", lambda path, bas_dd: [])
+    out = krx_api.base_info(date(2026, 10, 3))
+    assert len(out) == 0
+    assert (tmp_path / "base" / "20261003.parquet").exists()
