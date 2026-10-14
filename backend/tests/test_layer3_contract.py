@@ -70,6 +70,30 @@ def test_index_missing_flag_when_index_has_gaps(fake_layer3, synthetic_trades, p
     assert out2["index_missing"] is True
 
 
+def test_index_gap_excludes_overconfidence_per_trade(fake_layer3, synthetic_trades, price_df, index_df):
+    """전일 지수가 없는 거래만 과잉확신 축이 빠진다 — 점수 null, 판정·대표 편향은 남은
+    축으로. 학습 데이터에 지수 결측이 0%라 마스크 채널이 학습된 적 없기 때문(2026-10-14)."""
+    buys = synthetic_trades[synthetic_trades["거래구분"] == "매수"]
+    days = list(index_df["거래일자"])
+    d = next(x for x in buys["거래일자"] if days.index(x) >= 1)
+    gappy = index_df.copy()
+    gappy.loc[days.index(d) - 1, "종가"] = float("nan")  # 그 거래의 전 거래일 지수만 비움
+    out = fake_layer3.score_from_trades(synthetic_trades, price_df=price_df, index_df=gappy)
+    assert out["index_missing"] is True
+    hit = [e for e in out["per_trade"] if e["index_missing"]]
+    rest = [e for e in out["per_trade"] if not e["index_missing"]]
+    assert hit and rest  # 결측은 거래별 — 전부가 아니라 그 날 근처 거래만
+    assert any(e["거래일자"] == str(d) for e in hit)
+    for e in hit:
+        assert e["bias_scores"]["overconfidence"] is None
+        if e["거래구분"] == "매수":
+            left = ("lottery_preference", "herd_sensitivity")
+            assert e["top_bias"] in left
+            assert e["trade_score"] == max(e["bias_scores"][p] for p in left)
+    for e in rest:
+        assert 0.0 <= e["bias_scores"]["overconfidence"] <= 1.0
+
+
 def test_score_account_contract(fake_layer3, no_network_layer3, standard_trades):
     """표준 컬럼 입력 → 종목명 매핑 → 합성 스키마 변환 경로까지 포함한 계약.
 

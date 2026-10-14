@@ -169,7 +169,7 @@ def test_deep_evidence_passthrough():
     assert _one(False, False, HI)["deep"]["evidence"] is None  # 계산 실패 행
 
 
-def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
+def test_db_write_includes_deep_details(monkeypatch, standard_trades):
     """DB 저장(detail)에 딥러닝 상세가 포함된다 — top_bias_명·bias_scores·
     evidence. 조회 라우터(GET /analysis/)는 저장분을 그대로 반환하므로 이
     계약이 곧 프론트가 받는 형태다. sqlite 인메모리 + 가짜 3계층."""
@@ -208,6 +208,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
                 "bias_scores": {"disposition_strength": 0.9, "overconfidence": 0.1,
                                 "lottery_preference": 0.1, "herd_sensitivity": 0.1},
                 "evidence": EVID,
+                "index_missing": i % 2 == 1,  # 거래별 값 — 행마다 그대로 저장돼야 함
             } for i in range(len(df))],
             "deep_score": 0.9, "bias_mean": {}, "n_events": len(df),
             "account_metrics": None, "model_version": "2026-10-02T16:53:35",
@@ -217,7 +218,6 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
     monkeypatch.setattr(detect, "layer3_score", fake_layer3)
     # 지표 계산은 실코드가 시세 조회를 타므로 차단 — 점검 unavailable 경로로
     monkeypatch.setattr(detect, "layer3_metrics", lambda df, user_id="u": None)
-    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)  # 리포트 파일은 임시로
 
     detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
                                 AnalysisResult=orm.AnalysisResult,
@@ -225,6 +225,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
 
     rows = db.query(orm.AnalysisResult).all()
     assert len(rows) == len(standard_trades)
+    assert {r.detail["index_missing"] for r in rows} == {True, False}
     for r in rows:
         x = r.detail
         assert x["top_bias_명"] == "처분효과"
@@ -233,7 +234,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert x["evidence"] == EVID
         assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
         assert x["model_version"] == "2026-10-02T16:53:35"  # 판정한 모델 — 효과 측정 비교용
-        assert x["index_missing"] is False  # 지수 자료 있음
+        assert x["index_missing"] in (True, False)  # 거래별 값(업로드 단위 복사 아님)
         assert r.deep_score == 0.9
         assert r.upload_id == 1
         # 처분효과 0.9 ≥ 기준, 기본 조합엔 최소 보유기간이 꺼져 있음 → 매도에만
@@ -250,7 +251,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
     assert any(db.get(orm.Trade, r.trade_id).거래구분 == "매도" for r in rows)
 
 
-def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
+def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch,
                                                   standard_trades):
     """분석은 upload_id 소속 행 전부를 신규로 취급한다 (2026-09-02 계약).
 
@@ -288,7 +289,6 @@ def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
     add_upload(2, user_id=2)  # 사용자 B — A와 완전히 동일한 거래
 
     monkeypatch.setattr(detect, "layer3_score", None)  # 신규 추출만 검증
-    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
 
     out_b = detect.run_pipeline_from_db(db, upload_id=2, Trade=orm.Trade,
                                         AnalysisResult=orm.AnalysisResult,
@@ -306,7 +306,7 @@ def test_pipeline_baseline_scoped_to_upload_owner(monkeypatch, tmp_path,
     db.close()
 
 
-def _pipeline_env(monkeypatch, tmp_path, standard_trades):
+def _pipeline_env(monkeypatch, standard_trades):
     """sqlite + 단일 사용자 업로드 1건 — 분포 점검 v2 배선 테스트 공용 준비."""
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
@@ -329,15 +329,14 @@ def _pipeline_env(monkeypatch, tmp_path, standard_trades):
             수수료=0, 거래세=0, 정산금액=int(r["총거래금액"]),
         ))
     db.commit()
-    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
     return db, orm, detect
 
 
-def test_results_carry_trade_id_even_for_identical_trades(monkeypatch, tmp_path,
+def test_results_carry_trade_id_even_for_identical_trades(monkeypatch,
                                                           standard_trades):
     """결과 행마다 trade_id가 실제 거래 id와 1:1로 저장된다 — 분할 체결처럼
     내용이 완전히 동일한 거래도 서로 다른 id로 구분된다(거래일지 risk 조인 계약)."""
-    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+    db, orm, detect = _pipeline_env(monkeypatch, standard_trades)
     # 분할 체결 재현: 첫 거래와 내용이 완전히 동일한 행을 하나 더 저장
     first = db.query(orm.Trade).order_by(orm.Trade.id).first()
     db.add(orm.Trade(upload_id=1, user_id=1, 거래일자=first.거래일자,
@@ -365,11 +364,11 @@ def test_results_carry_trade_id_even_for_identical_trades(monkeypatch, tmp_path,
     db.close()
 
 
-def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
+def test_distribution_trigger_skips_deep_scoring(monkeypatch,
                                                  standard_trades):
     """분포 점검 발동(deep_excluded) 계좌 — 3계층 채점(XAI 포함)이 호출조차
     되지 않고, 전 거래가 2계층 판정(deep null), 플래그가 응답·DB에 실린다."""
-    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+    db, orm, detect = _pipeline_env(monkeypatch, standard_trades)
 
     monkeypatch.setattr(detect, "layer3_metrics",
                         lambda df, user_id="u": {"turnover_annual": 99999.0})
@@ -402,9 +401,9 @@ def test_distribution_trigger_skips_deep_scoring(monkeypatch, tmp_path,
     db.close()
 
 
-def test_distribution_ok_proceeds_to_deep(monkeypatch, tmp_path, standard_trades):
+def test_distribution_ok_proceeds_to_deep(monkeypatch, standard_trades):
     """미발동 계좌 — 3계층 채점이 정확히 1회 호출된다 (게이트 통과 회귀)."""
-    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+    db, orm, detect = _pipeline_env(monkeypatch, standard_trades)
 
     monkeypatch.setattr(detect, "layer3_metrics",
                         lambda df, user_id="u": {"n_trades": 8.0})
@@ -426,10 +425,10 @@ def test_distribution_ok_proceeds_to_deep(monkeypatch, tmp_path, standard_trades
     db.close()
 
 
-def test_pipeline_applies_user_ruleset(monkeypatch, tmp_path, standard_trades):
+def test_pipeline_applies_user_ruleset(monkeypatch, standard_trades):
     """사용자 등록 규칙이 파이프라인 끝까지 흐른다 — ensemble의
     triggered_rules와 DB 저장(detail)에 사용자 규칙명이 실린다."""
-    db, orm, detect = _pipeline_env(monkeypatch, tmp_path, standard_trades)
+    db, orm, detect = _pipeline_env(monkeypatch, standard_trades)
     monkeypatch.setattr(detect, "layer3_score", None)  # 3계층 무관
     # 사용자가 "1회 매수금액 상한 1원"을 등록한 상황 — 모든 매수가 걸린다
     monkeypatch.setattr(detect, "load_ruleset",
@@ -496,7 +495,7 @@ def _assert_results_match_trades(db, orm, upload_id):
     return rows
 
 
-def test_newest_first_stored_upload_results_attach_to_right_trades(monkeypatch, tmp_path):
+def test_newest_first_stored_upload_results_attach_to_right_trades(monkeypatch):
     """최신순으로 저장된 업로드(매퍼 순서 정리 이전의 과거 데이터) — 결과가
     id 순서가 아니라 판정한 거래에 붙는다. zip 짝짓기 시절에는 9/1 매수의
     판정이 9/3 매도에 붙었다."""
@@ -508,7 +507,6 @@ def test_newest_first_stored_upload_results_attach_to_right_trades(monkeypatch, 
         ("2020-06-01", "테스트A", "매수", 10, 10000),
     ])
     monkeypatch.setattr(detect, "layer3_score", None)
-    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
     detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
                                 AnalysisResult=orm.AnalysisResult, user_id="user_001")
     rows = _assert_results_match_trades(db, orm, 1)
@@ -516,7 +514,7 @@ def test_newest_first_stored_upload_results_attach_to_right_trades(monkeypatch, 
     db.close()
 
 
-def test_same_day_order_preserved_through_analysis(monkeypatch, tmp_path):
+def test_same_day_order_preserved_through_analysis(monkeypatch):
     """같은 날 30건 — 날짜 안정 정렬로 저장(데이터) 순서가 판정 순서로 유지되고
     결과도 제 거래에 붙는다(기본 정렬은 17건쯤부터 뒤섞었다)."""
     from pipeline import detect
@@ -528,14 +526,13 @@ def test_same_day_order_preserved_through_analysis(monkeypatch, tmp_path):
     assert list(std["종목명"]) == [f"종목{i:02d}" for i in range(30)]
 
     monkeypatch.setattr(detect, "layer3_score", None)
-    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
     detect.run_pipeline_from_db(db, upload_id=1, Trade=orm.Trade,
                                 AnalysisResult=orm.AnalysisResult, user_id="user_001")
     _assert_results_match_trades(db, orm, 1)
     db.close()
 
 
-def test_mixed_history_prev_newest_first_new_chronological(monkeypatch, tmp_path):
+def test_mixed_history_prev_newest_first_new_chronological(monkeypatch):
     """이전 업로드는 최신순(과거 데이터), 이번 업로드는 시간순 — 기준선·문맥을
     합친 분석에서도 이번 업로드 결과가 제 거래에 붙고, 이전 업로드의 같은 날
     매수→매도(최신순이라 저장상 매도가 먼저)와 무관하게 이번 판정이 성립."""
@@ -550,7 +547,6 @@ def test_mixed_history_prev_newest_first_new_chronological(monkeypatch, tmp_path
         ("2020-06-09", "테스트B", "매도", 3, 31000),
     ])
     monkeypatch.setattr(detect, "layer3_score", None)
-    monkeypatch.setattr(detect, "REPORTS_DIR", tmp_path)
     detect.run_pipeline_from_db(db, upload_id=2, Trade=orm.Trade,
                                 AnalysisResult=orm.AnalysisResult, user_id="user_001")
     rows = _assert_results_match_trades(db, orm, 2)
