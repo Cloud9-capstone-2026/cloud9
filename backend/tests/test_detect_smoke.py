@@ -208,6 +208,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
                 "bias_scores": {"disposition_strength": 0.9, "overconfidence": 0.1,
                                 "lottery_preference": 0.1, "herd_sensitivity": 0.1},
                 "evidence": EVID,
+                "index_missing": i % 2 == 1,  # 거래별 값 — 행마다 그대로 저장돼야 함
             } for i in range(len(df))],
             "deep_score": 0.9, "bias_mean": {}, "n_events": len(df),
             "account_metrics": None, "model_version": "2026-10-02T16:53:35",
@@ -225,6 +226,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
 
     rows = db.query(orm.AnalysisResult).all()
     assert len(rows) == len(standard_trades)
+    assert {r.detail["index_missing"] for r in rows} == {True, False}
     for r in rows:
         x = r.detail
         assert x["top_bias_명"] == "처분효과"
@@ -233,7 +235,7 @@ def test_db_write_includes_deep_details(monkeypatch, tmp_path, standard_trades):
         assert x["evidence"] == EVID
         assert x["deep_excluded"] is False  # 미발동 계좌 — 필드는 항상 존재
         assert x["model_version"] == "2026-10-02T16:53:35"  # 판정한 모델 — 효과 측정 비교용
-        assert x["index_missing"] is False  # 지수 자료 있음
+        assert x["index_missing"] in (True, False)  # 거래별 값(업로드 단위 복사 아님)
         assert r.deep_score == 0.9
         assert r.upload_id == 1
         # 처분효과 0.9 ≥ 기준, 기본 조합엔 최소 보유기간이 꺼져 있음 → 매도에만

@@ -155,7 +155,10 @@ def _market_context(price_df, index_df, d_min, d_max, lott_table=None):
     retN_map = retN.stack().to_dict()
 
     idx = index_df.sort_values("거래일자").reset_index(drop=True)
-    idx_ret = idx["종가"].pct_change()
+    # fill_method=None: 빈 지수(조회 실패)를 앞 날 값으로 채우지 않는다 — 채우면 그날
+    # 수익률이 0으로 둔갑해 결측이 아니라 틀린 값이 들어간다. 빈 날과 그 다음 날의
+    # driver는 NaN(마스크)이 되고 layer3가 그 거래의 과잉확신 축을 판정에서 뺀다.
+    idx_ret = idx["종가"].pct_change(fill_method=None)
     driver_map = dict(zip(idx["거래일자"], idx_ret.shift(1)))
 
     tickers = sorted(price_df["종목코드"].unique())

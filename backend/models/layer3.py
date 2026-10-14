@@ -453,6 +453,10 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             feat.loc[feat[["abn", "r1", "r5"]].isna().all(axis=1), "_trade_row"]
             .astype(int)
         )
+        # 전일 지수수익률(drv)이 없는 거래 — 학습 데이터엔 이 결측이 0%라 마스크
+        # 채널이 학습된 적 없고, 그 상태의 과잉확신 점수는 근거가 없다(2026-09-25
+        # 지수 API 만료 때 실제 발생). 거래는 채점하되 과잉확신 축만 판정에서 뺀다.
+        no_index = set(feat.loc[feat["drv"].isna(), "_trade_row"].astype(int))
 
         # 절단 없이 전체 이력을 시퀀스로 — max_len은 "한 번에 보는 창 크기"일
         # 뿐 채점 범위의 한계가 아니다 (창 분할은 _score_windows).
@@ -496,6 +500,10 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             # 복권이 대표로 찍혀 판정과 어긋난다. trade_score는 방향 내 최고점이라
             # 대표 편향의 점수와 다를 수 있다(bias_scores[top_bias]가 그 점수).
             eligible = allowed.get(side) or params
+            index_missing = r in no_index
+            if index_missing:
+                eligible = [p for p in eligible if p != "overconfidence"] or eligible
+                scores["overconfidence"] = None  # 판정·표시·조언 모두 건너뜀
             triggered = [p for p in eligible if scores[p] >= DEEP_THRESHOLDS[p]]
             top = max(triggered or eligible, key=scores.get)
             per_trade.append({
@@ -508,6 +516,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
                 "top_bias_명": BIAS_NAMES.get(top, top),
                 "trade_score": max(scores[p] for p in eligible),
                 "deep_flag": bool(triggered),
+                "index_missing": index_missing,
             })
             positions.append(i)
         if not per_trade:
@@ -528,7 +537,8 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             # 임계값 상수가 기준 삼는 모델(DEEP_THRESHOLDS_MODEL)이 아니라 실제로
             # 로드된 모델 — 둘이 어긋나면 _load_artifacts가 경고를 남긴다.
             "model_version": meta.get("created"),
-            # 지수(전일 코스피 수익률) 결측 여부 — true면 이 계좌의 과잉확신 축 입력이 비었다.
+            # 지수 표에 빈 날이 하나라도 있었는지(업로드 단위). 거래별 영향은
+            # per_trade[*].index_missing — 그 거래는 과잉확신 축이 판정에서 빠졌다.
             "index_missing": out["index_missing"],
         }
     except Exception as e:

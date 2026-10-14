@@ -148,7 +148,8 @@ def _build_ensemble(
                 "score": lr["score"],
                 "top_bias": lr["top_bias"],          # "이 거래는 ~편향일 수도"
                 "top_bias_명": lr.get("top_bias_명"),
-                "bias_scores": lr["bias_scores"],    # 편향축별 거래 점수
+                "bias_scores": lr["bias_scores"],    # 편향축별 거래 점수(지수 결측 거래는 과잉확신 null)
+                "index_missing": lr.get("index_missing", False),
                 # 편향별 판정 근거(IG 분해): 이 거래 자신의 피처별 기여 상위 +
                 # 현재/과거 문맥 기여율. 계산 실패 시 None
                 "evidence": lr.get("evidence"),
@@ -261,6 +262,7 @@ def run_pipeline_from_db(
             lstm_rows.append(None if e is None else {
                 "score": e["trade_score"],
                 "deep_flag": e["deep_flag"],
+                "index_missing": e.get("index_missing", False),
                 "top_bias": e["top_bias"],
                 "top_bias_명": e.get("top_bias_명"),
                 "bias_scores": e["bias_scores"],
@@ -346,10 +348,10 @@ def run_pipeline_from_db(
                 # 같은 모델끼리만 비교할 수 있게 거래마다 남긴다.
                 "model_version": (layer3_result.get("model_version")
                                   if layer3_result and e["deep"] else None),
-                # 지수 자료 없이 판정됐는지 — true면 과잉확신 축 입력이 비어 있었다.
-                # 3계층 제외 거래는 null.
-                "index_missing": (layer3_result.get("index_missing")
-                                  if layer3_result and e["deep"] else None),
+                # 이 거래의 전일 지수가 없어 과잉확신 축이 판정에서 빠졌는지
+                # (거래별, bias_scores.overconfidence도 null). 3계층 제외 거래는 null.
+                "index_missing": (deep.get("index_missing", False)
+                                  if e["deep"] else None),
                 # 편향 점수가 기준을 넘은 거래에 권하는 절제 규칙(없으면 빈
                 # 목록). 책임 문구는 조언이 있을 때만 함께 싣는다.
                 "rule_advice": advice,
