@@ -1,7 +1,8 @@
 """
 detect.py
 DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스) + 3계층 GRU.
-업로드 worker(pipeline.jobs)가 호출해 reports/*.json 저장 + AnalysisResult INSERT.
+업로드 worker(pipeline.jobs)가 호출해 AnalysisResult INSERT(결과 파일은 남기지 않음 —
+2026-10-14 전까지 reports/*.json을 함께 저장했으나 읽는 곳이 없고 탈퇴 시 안 지워져 제거).
 
 판정 방식(계층별 독립 flag + 단계형 등급 — 프론트 합의 구조):
   각 거래에 대해 계층이 각자 판정한다.
@@ -27,10 +28,7 @@ stat flag 없이 나머지 계층만으로 판정하고 layers_available가 줄�
 전부 경고가 되던 문제, 2026-09-18 수리).
 """
 
-import json
 import re
-from pathlib import Path
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -52,9 +50,6 @@ except Exception:  # noqa: BLE001
     layer3_metrics = None
     DEEP_THRESHOLDS = {}  # 3계층 없음 → 거래별 점수도 없어 조언 판정에 쓰이지 않음
 
-# backend/pipeline/detect.py → backend/
-BACKEND_DIR = Path(__file__).resolve().parent.parent
-
 # DB(trades) 컬럼 → 모델이 기대하는 표준 컬럼
 DB_TO_STANDARD = {
     "거래일자": "날짜",
@@ -63,9 +58,6 @@ DB_TO_STANDARD = {
     "거래단가": "체결단가",
     "거래금액": "총거래금액",
 }
-
-REPORTS_DIR = BACKEND_DIR / "reports"
-
 
 def _standardize(df: pd.DataFrame) -> pd.DataFrame:
     """DB/CSV 컬럼명을 모델 표준 컬럼명으로 변환 + 타입 정리."""
@@ -105,15 +97,6 @@ def _parse_user_id(raw) -> int | None:
         return None
     match = re.search(r"(\d+)$", str(raw))
     return int(match.group(1)) if match else None
-
-
-def save_detection_result(user_id: str, result: dict) -> str:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = REPORTS_DIR / f"{user_id}_{timestamp}.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
-    return str(path)
 
 
 def _verdict(n_flags: int) -> str:
@@ -178,7 +161,7 @@ def run_pipeline_from_db(
 ) -> dict:
     """
     업로드된 trades(upload_id 소속)를 DB에서 읽어 2계층 앙상블 분석.
-    결과: reports/*.json 저장 + analysis_results 테이블 INSERT.
+    결과: analysis_results 테이블 INSERT.
 
     패턴 [B]: 읽기 → commit → (트랜잭션 없이) 분석 → 쓰기 → commit.
     분석 중에는 트랜잭션을 잡지 않음.
@@ -213,7 +196,6 @@ def run_pipeline_from_db(
                   "distribution_check": {"status": "unavailable",
                                          "deep_excluded": False},
                   "detection_result": {"rule": {}, "stat": {}, "ensemble": []}}
-        result["saved_path"] = save_detection_result(user_id, result)
         return result
 
     # ─ Phase 2: 분석 (DB 안 건드림)
@@ -294,7 +276,6 @@ def run_pipeline_from_db(
             "ensemble": ensemble,
         },
     }
-    result["saved_path"] = save_detection_result(user_id, result)
 
     # ─ Phase 3: 쓰기 (새 트랜잭션)
     # detail이 프론트(GET /analysis/)가 받는 거래별 상세의 전부다 —
