@@ -176,7 +176,25 @@ def test_mask_pii_hides_identifiers_keeps_structure():
     # 구조는 유지 — 키워드·헤더 줄·데이터 행은 그대로 (컬럼명 "예수금" 포함)
     assert "계좌번호:" in out and "예수금:" in out
     assert "체결일자,종목명,매매구분,체결수량,체결단가,예수금" in out
-    assert "2026/01/05,현대차,현금매수,3,200000,100000" in out
+    # 예수금 열 값은 헤더 아래 열 규칙으로 가려지고 나머지 칸은 원형
+    assert "2026/01/05,현대차,현금매수,3,200000,[가림]" in out
+
+
+def test_mask_pii_hides_values_under_header_keyword():
+    """키워드가 헤더 칸, 값이 아래 줄인 표 형식 — 같은 줄 규칙·10자리 규칙 둘 다 못 잡던 구멍."""
+    head = (
+        "성명,계좌번호\n"
+        "테스트이름,12345678\n"
+        "\n"
+        "체결일자,종목명,매매구분,체결수량,체결단가,계좌번호\n"
+        "2026/01/05,현대차,현금매수,3,200000,12345678\n"
+        "2026/01/06,기아,현금매도,2,100000,12345678\n"
+    )
+    out = csv_mapper._mask_pii(head)
+    assert "테스트이름" not in out and "12345678" not in out
+    assert out.splitlines()[0] == "성명,계좌번호"                       # 헤더 줄 유지
+    assert "체결일자,종목명,매매구분,체결수량,체결단가,계좌번호" in out    # 거래 표 헤더 유지
+    assert "2026/01/05,현대차,현금매수,3,200000,[가림]" in out           # 다른 열은 원형
 
 
 def test_mask_pii_preserves_dates():
@@ -235,6 +253,14 @@ def test_wrong_date_mapping_caught_by_validate():
     value_map = {"2026-01-05": "매수", "2026-01-07": "매도"}
     out, dropped = apply_mapping(df, wrong, value_map)
     with pytest.raises(MappingError, match="날짜 파싱 실패"):
+        validate(out, len(df), dropped)
+
+
+def test_fractional_quantity_rejected_by_validate():
+    """수량 0.5는 양수 검사는 통과하지만 저장 시 int()로 0이 된다 — 검증에서 거부."""
+    df = pd.read_csv(io.BytesIO(CSV_SIMPLE.replace(b",10,60000,", b",0.5,60000,")))
+    out, dropped = apply_mapping(df, MAP_SIMPLE, VALUES_SIMPLE)
+    with pytest.raises(MappingError, match="소수 값"):
         validate(out, len(df), dropped)
 
 
