@@ -392,6 +392,11 @@ def validate(out: pd.DataFrame, n_source_rows: int, n_dropped: int) -> None:
             raise MappingError(f"{col} 숫자 변환 실패 {n_nan}행")
         if positive and int((out[col] <= 0).sum()):
             raise MappingError(f"{col}에 0 이하 값 존재 — 매핑 의심")
+    # 저장은 int()로 자른다(jobs.py) — 0.5주가 조용히 0주가 되지 않게 여기서 거부.
+    # 국내 주식·원화만 지원하므로 소수 수량·단가·금액은 지원 밖 입력.
+    for col in _NUMERIC_FIELDS:
+        if int((out[col] % 1 != 0).sum()):
+            raise MappingError(f"{col}에 소수 값 존재 — 국내 주식 정수 거래만 지원")
     if out["종목명"].isna().any() or (out["종목명"].astype(str).str.strip() == "").any():
         raise MappingError("종목명 빈 값 존재")
     kinds = set(out["거래구분"].unique())

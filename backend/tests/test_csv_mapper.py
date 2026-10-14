@@ -256,6 +256,14 @@ def test_wrong_date_mapping_caught_by_validate():
         validate(out, len(df), dropped)
 
 
+def test_fractional_quantity_rejected_by_validate():
+    """수량 0.5는 양수 검사는 통과하지만 저장 시 int()로 0이 된다 — 검증에서 거부."""
+    df = pd.read_csv(io.BytesIO(CSV_SIMPLE.replace(b",10,60000,", b",0.5,60000,")))
+    out, dropped = apply_mapping(df, MAP_SIMPLE, VALUES_SIMPLE)
+    with pytest.raises(MappingError, match="소수 값"):
+        validate(out, len(df), dropped)
+
+
 def test_unknown_kind_value_rejected():
     df = pd.read_csv(io.BytesIO(CSV_SIMPLE))
     with pytest.raises(MappingError, match="없는 값"):
