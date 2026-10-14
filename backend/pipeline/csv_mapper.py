@@ -23,6 +23,7 @@ LLM 호출은 2패스:
 실패 정책: 호출부(worker)가 MappingError를 받아 job을 실패 처리한다.
 """
 
+import csv
 import io
 import json
 import logging
@@ -227,9 +228,40 @@ _PII_PATTERNS = [
 ]
 # 키워드 바로 뒤의 값(같은 줄, 구분자 :, =, 공백·탭) — 키워드 자체는 남긴다.
 # 값은 콤마 자릿수 구분 숫자("5,000,000")까지 한 덩어리로 취급.
+_PII_WORDS = "성명|고객명|예금주|이름|계좌번호|계좌|예수금|잔고|평가금액"
 _PII_KEYWORD = re.compile(
-    r"(성명|고객명|예금주|이름|계좌번호|계좌|예수금|잔고|평가금액)"
+    rf"({_PII_WORDS})"
     r"([ \t:=]+)([^\s,\"']+(?:,\d{3})*)")
+_PII_CELL = set(_PII_WORDS.split("|"))
+
+
+def _mask_under_keyword(text: str) -> tuple[str, int]:
+    """키워드가 헤더 칸에 있고 값이 그 아래 줄에 오는 표 형식 — "성명,계좌번호" 다음 줄
+    "홍길동,12345678". _PII_KEYWORD는 같은 줄만 보고, 8자리 계좌번호는 10자리 기준
+    미만이라 둘 다 남았다(2026-10-12 검토). 키워드 칸과 같은 열을 아래로 내려가며
+    가리고, 칸 수가 달라지면 다른 표가 시작된 것이라 멈춘다(거래 행마다 계좌번호가
+    붙는 양식도 덮임). 부분 일치("종목이름")는 안 잡는다."""
+    lines = text.splitlines()
+    delim = "\t" if "\t" in text else ","
+    rows = [next(csv.reader([ln], delimiter=delim), []) for ln in lines]
+    n = 0
+    cols: list[int] = []
+    width = -1
+    for i, cells in enumerate(rows):
+        is_header = any(c.strip() in _PII_CELL for c in cells)
+        if cols and len(cells) == width and not is_header:
+            for j in cols:
+                if cells[j].strip() and cells[j] != _MASK:
+                    cells[j] = _MASK
+                    n += 1
+        else:
+            cols = [j for j, c in enumerate(cells) if c.strip() in _PII_CELL]
+            width = len(cells)
+            continue
+        buf = io.StringIO()
+        csv.writer(buf, delimiter=delim, lineterminator="").writerow(cells)
+        lines[i] = buf.getvalue()
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else ""), n
 
 
 def _mask_pii(text: str) -> str:
@@ -243,6 +275,8 @@ def _mask_pii(text: str) -> str:
         n += 1
         return m.group(1) + m.group(2) + _MASK
     text = _PII_KEYWORD.sub(_keep_keyword, text)
+    text, k = _mask_under_keyword(text)
+    n += k
     if n:
         logger.info("LLM 전송 head에서 개인정보 후보 %d건 마스킹", n)
     return text
