@@ -166,6 +166,9 @@ def fake_layer3(monkeypatch):
         },
         "attr_side": {"attr_disposition": "매도", "attr_overconfidence": "매수",
                       "attr_lottery": "매수", "attr_herd": "매수"},
+        # 판정 임계값은 메타에 산다(layer3 계약) — 값은 10/2 보정값, 가짜 태거라 의미는 없음
+        "thresholds": {"params": {"disposition_strength": 0.7345, "overconfidence": 0.649,
+                                  "lottery_preference": 0.703, "herd_sensitivity": 0.705}},
         "norm_stats": {f: {"mean": 0.0, "std": 1.0} for f in seqfeat.NORM_FEATURES},
         "max_len": 64,
         "model": {"n_channels": seqfeat.N_CHANNELS, "hidden": 8, "layers": 1,
