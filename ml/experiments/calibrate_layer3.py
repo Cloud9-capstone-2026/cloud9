@@ -12,15 +12,18 @@
 - 양성(τ): 그 축의 거래별 라벨 ≥ 0.5 (methodology.md "임계값 결정 방식").
 - 축별 평가는 **그 축 자신의 점수**로 한다 — 과잉확신 양성을 복권형 점수로 잡은 것은
   과잉확신 탐지 성공이 아니다(옛 calibrate_ensemble은 전체 플래그로 세어 이 구분이 없었다).
-- 선택 규칙(결과를 보기 전에 고정): 네 축 모두 재현율 ≥ AXIS_FLOOR인 후보 중 가장 높은 θ.
-  조건을 만족하는 후보가 없으면 그대로 보고한다.
+- 선택 규칙(결과를 보기 전에 고정): 축마다 그 축의 재현율 ≥ AXIS_FLOOR인 후보 중 가장
+  높은 θ(축별 임계값, 2026-10-02부터 운영값). 네 축 공통 θ도 같은 규칙으로 구해 기록에만
+  남긴다. 조건을 만족하는 후보가 없으면 그대로 보고한다.
 - 선택 세트(s103)로 고르고 확인 세트(s104)는 고른 값을 고정해 한 번만 평가한다.
 - 범위(0~1) 밖 라벨 거래는 입력 시퀀스에는 두고 집계에서만 제외하며 그 수를 기록한다.
 
 산출: ml/cache/l3scores_{세트}_{지문}.parquet (점수 캐시 — 지문 = 모델 가중치·메타·
       그 세트의 피처 캐시 파일 해시라 셋 중 하나만 바뀌어도 다시 채점),
       ml/cache/calibrate_layer3_{실행시각}.json (보정 기록: 지문·세트·τ·하한·후보 간격·
-      공통/축별 임계값과 두 세트의 결과)
+      공통/축별 임계값과 두 세트의 결과),
+      ml/artifacts/tagger_meta.json의 thresholds 항목(축별 임계값 — 서버 layer3가 판정에
+      읽는 값. 모델과 한 파일에 있어 Release로 같이 배포된다. --theta 단일 평가 때는 안 씀)
 """
 import argparse
 import hashlib
@@ -67,11 +70,18 @@ def _git_head():
         return None
 
 
+def _meta_sha():
+    """메타 지문 — thresholds는 뺀다(이 스크립트가 쓰는 값이라 넣으면 쓸 때마다 자기
+    점수 캐시를 무효화한다. 점수는 가중치·정규화 통계·max_len에만 의존)."""
+    meta = json.load(open(os.path.join(ART_DIR, "tagger_meta.json"), encoding="utf-8"))
+    meta.pop("thresholds", None)
+    return hashlib.sha256(json.dumps(meta, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
 def fingerprint(name):
     """세트별 점수 지문: 모델 가중치 + 메타(정규화 통계·max_len) + 그 세트의 피처 캐시."""
-    return "-".join(_sha(p) for p in (os.path.join(ART_DIR, "tagger.pt"),
-                                      os.path.join(ART_DIR, "tagger_meta.json"),
-                                      os.path.join(CACHE_DIR, f"{name}_events.parquet")))
+    return "-".join([_sha(os.path.join(ART_DIR, "tagger.pt")), _meta_sha(),
+                     _sha(os.path.join(CACHE_DIR, f"{name}_events.parquet"))])
 
 
 def load_model():
@@ -180,7 +190,7 @@ def select_common(tbl, params):
 
 
 def select_per_axis(tbl, params):
-    """참고용: 축마다 따로 재현율 ≥ AXIS_FLOOR를 만족하는 가장 높은 θ."""
+    """운영값: 축마다 따로 그 축의 재현율 ≥ AXIS_FLOOR를 만족하는 가장 높은 θ."""
     out = {}
     for p in params:
         ok = tbl[tbl[f"R:{p}"] >= AXIS_FLOOR]
@@ -230,8 +240,8 @@ def main():
         tbl = sweep(E_sel, meta)
         theta = select_common(tbl, params)
         per_axis = select_per_axis(tbl, params)
-        print(f"\n선택(공통 θ, 규칙: {record['rule']}): {theta}")
-        print(f"참고(축별 θ, 각 축 재현율 ≥ {AXIS_FLOOR}): {per_axis}")
+        print(f"\n선택(축별 θ, 각 축 재현율 ≥ {AXIS_FLOOR}) — 운영값: {per_axis}")
+        print(f"참고(공통 θ, 규칙: {record['rule']}): {theta}")
         if theta is None or any(v is None for v in per_axis.values()):
             tbl.to_csv(os.path.join(CACHE_DIR, f"calibrate_layer3_sweep_{args.select}.csv"), index=False)
             raise SystemExit(f"기준 미달: 네 축 재현율 ≥ {AXIS_FLOOR}를 만족하는 후보가 없다 "
@@ -246,8 +256,8 @@ def main():
             r = tbl.iloc[(tbl["theta"] - th).abs().argmin()]
             print(f"  {nm:<28} θ={r['theta']:.4f} P {r['precision']:.3f} R {r['recall']:.3f} flag {r['flag_rate']*100:.1f}%  "
                   + " ".join(f"{p.split('_')[0][:4]} {r[f'R:{p}']:.2f}" for p in params))
-        record["selected_theta"] = theta
-        record["per_axis_theta_reference"] = per_axis
+        record["common_theta_reference"] = theta
+        record["per_axis_theta"] = per_axis
         tbl_path = os.path.join(CACHE_DIR, f"calibrate_layer3_sweep_{args.select}.csv")
         tbl.to_csv(tbl_path, index=False)
         record["sweep_table"] = tbl_path
@@ -277,6 +287,18 @@ def main():
     out = os.path.join(CACHE_DIR, f"calibrate_layer3_{datetime.now():%Y%m%d_%H%M%S}.json")
     json.dump(record, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=2, default=float)
     print(f"\n보정 기록 → {out}")
+
+    if per_axis:
+        # 운영값을 모델 메타에 — 서버(backend/models/layer3)는 코드 상수가 아니라 이 항목을
+        # 읽는다. 모델과 임계값이 한 파일에 있어야 Release로 모델만 바꿔도 짝이 어긋나지 않는다.
+        meta_path = os.path.join(ART_DIR, "tagger_meta.json")
+        full = json.load(open(meta_path, encoding="utf-8"))
+        full["thresholds"] = {"params": per_axis, "select_set": args.select,
+                              "axis_floor": AXIS_FLOOR, "tau": TAU,
+                              "calibrated_at": datetime.now().isoformat(timespec="seconds"),
+                              "record": os.path.basename(out)}
+        json.dump(full, open(meta_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        print(f"임계값 → {meta_path} (thresholds). 이어서 make_hashes로 지문 갱신 후 Release.")
 
 
 if __name__ == "__main__":

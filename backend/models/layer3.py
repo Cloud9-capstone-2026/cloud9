@@ -12,7 +12,7 @@ ml.seqfeat) — 합성 학습과 실계좌 추론이 같은 변환을 지나는 
               밀며 나눠 채점, _score_windows 참조). 각 항목 =
               {row(입력 행 위치), bias_scores(편향별 점수 0~1 — 모델 sigmoid
                출력 그대로), deep_flag(거래 방향에 맞는 편향 중 하나라도 축별
-               임계값 DEEP_THRESHOLDS 이상), top_bias(임계값을 넘은 편향 중 최고,
+               임계값(tagger_meta.thresholds) 이상), top_bias(임계값을 넘은 편향 중 최고,
                없으면 방향 내 최고 — 매도는 처분효과, 매수는 나머지 셋),
                trade_score(방향 내 최고 점수 — 대표 편향의 점수와 다를 수 있음),
                evidence(편향별 판정 근거 — models.xai IG 분해: 이 거래 자신의
@@ -60,18 +60,11 @@ _RELEASE_ASSETS = ("tagger.pt", "tagger_meta.json", "distribution_ref.json",
                    "hashes.json")  # 복권성 순위표는 별도 Release(lott_table._download 참조)
 logger = logging.getLogger(__name__)
 
-# 3계층 판정 임계값 — 편향별 (2026-10-02 보정, ml.experiments.calibrate_layer3).
-# 선택 세트 s103에서 "양성 = 거래별 라벨 ≥ 0.5"로 두고 각 축의 재현율이 0.30 이상이
-# 되는 가장 높은 값. 거래는 방향에 맞는 축(매도=처분효과, 매수=나머지) 중 하나라도
-# 자기 임계값 이상이면 편향 거래(deep_flag). 모델과 한 쌍이라 다른 모델에 그대로
-# 쓰면 안 된다 — _load_artifacts가 생성시각을 대조해 어긋나면 경고한다.
-DEEP_THRESHOLDS = {
-    "disposition_strength": 0.7345,
-    "overconfidence": 0.649,
-    "lottery_preference": 0.703,
-    "herd_sensitivity": 0.705,
-}
-DEEP_THRESHOLDS_MODEL = "2026-10-02T16:53:35"  # 대상 모델 = tagger_meta.json의 created
+# 3계층 판정 임계값은 코드가 아니라 tagger_meta.json의 thresholds.params에 있다
+# (편향별, ml.experiments.calibrate_layer3가 보정 후 기록). 모델과 한 쌍이라 한 파일에
+# 두고 Release로 같이 배포한다 — 코드 상수로 두면 모델만 바뀔 때 옛 임계값이 새 점수에
+# 적용된다(2026-10-12 검토). 거래는 방향에 맞는 축(매도=처분효과, 매수=나머지) 중
+# 하나라도 자기 임계값 이상이면 편향 거래(deep_flag).
 
 try:
     import torch
@@ -261,9 +254,14 @@ def _load_artifacts():
     art = _ensure_artifacts()
     with open(art / "tagger_meta.json", encoding="utf-8") as fp:
         meta = json.load(fp)
-    if meta.get("created") != DEEP_THRESHOLDS_MODEL:
-        logger.warning("판정 임계값은 모델 %s 기준인데 로드된 모델은 %s — 임계값 재보정 필요",
-                       DEEP_THRESHOLDS_MODEL, meta.get("created"))
+    # 임계값 없는 모델로는 판정하지 않는다 — 예외 → 2계층 폴백. 보정 없이 배포된
+    # 모델에 옛 값을 쓰는 것보다 3계층이 빠지는 쪽이 낫다.
+    params = [meta["attr_param"][a] for a in meta["attrs"]]
+    th = meta.get("thresholds", {}).get("params", {})
+    if any(p not in th for p in params):
+        raise RuntimeError(
+            f"모델 {meta.get('created')}에 판정 임계값(thresholds.params) 없음 — "
+            "calibrate_layer3로 보정 후 메타와 함께 배포할 것")
     m = meta["model"]
     model = GRUTagger(m["n_channels"], m["hidden"], m["layers"], len(meta["attrs"]),
                       dropout=m.get("dropout", 0.0))  # eval 모드라 추론엔 무영향
@@ -473,6 +471,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
         W = int(meta["max_len"])
         P = _score_windows(model, M, W).numpy()  # [N, 4] 거래별 편향 점수
         params = [meta["attr_param"][a] for a in meta["attrs"]]
+        thresholds = {p: float(meta["thresholds"]["params"][p]) for p in params}
         # 대표 편향(top_bias)은 거래 방향에 맞는 편향 중에서 고른다 — 처분효과는
         # 매도, 나머지 셋은 매수에서만 라벨이 정의돼 반대편 점수는 0 근처의 잔향
         # 이다. 네 점수 전체의 최댓값을 고르면 전부 낮은 매도 거래에 복권형이
@@ -504,7 +503,7 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             if index_missing:
                 eligible = [p for p in eligible if p != "overconfidence"] or eligible
                 scores["overconfidence"] = None  # 판정·표시·조언 모두 건너뜀
-            triggered = [p for p in eligible if scores[p] >= DEEP_THRESHOLDS[p]]
+            triggered = [p for p in eligible if scores[p] >= thresholds[p]]
             top = max(triggered or eligible, key=scores.get)
             per_trade.append({
                 "row": int(src[r]),
@@ -534,9 +533,9 @@ def score_from_trades(trades: pd.DataFrame, price_df=None, index_df=None) -> dic
             "account_metrics": _account_metrics(out["aggregates"]),
             # 이 점수를 낸 모델의 생성시각(tagger_meta.created). 모델을 바꾸면 이전
             # 업로드 점수와 같은 자로 비교할 수 없으므로 결과에 함께 저장한다.
-            # 임계값 상수가 기준 삼는 모델(DEEP_THRESHOLDS_MODEL)이 아니라 실제로
-            # 로드된 모델 — 둘이 어긋나면 _load_artifacts가 경고를 남긴다.
             "model_version": meta.get("created"),
+            # 판정에 쓴 편향별 임계값(메타에서) — 조언(coach)이 같은 값을 쓴다.
+            "thresholds": thresholds,
             # 지수 표에 빈 날이 하나라도 있었는지(업로드 단위). 거래별 영향은
             # per_trade[*].index_missing — 그 거래는 과잉확신 축이 판정에서 빠졌다.
             "index_missing": out["index_missing"],

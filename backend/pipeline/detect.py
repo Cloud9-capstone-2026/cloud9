@@ -9,7 +9,7 @@ DB(trades) 기반 계층별 탐지 — Rule-based + Z-score(+마할라노비스)
     rule  = 위반 규칙 존재 여부
     stat  = 마할라노비스 거리 > 임계(2.5, zscore 정의)
     deep  = 거래 방향에 맞는 편향 점수 중 하나라도 축별 임계값 이상
-            (models.layer3.DEEP_THRESHOLDS — 판정은 layer3가 deep_flag로 내려줌)
+            (임계값은 모델 메타 tagger_meta.thresholds — 판정은 layer3가 deep_flag로 내려줌)
   verdict = flag 개수 0 → "정상", 1 → "경고", 2 이상 → "이상".
   가중합 점수는 폐기 — 캘리브레이션에서 3계층 단독이 가중합(0.3/0.3/0.4)보다
   나았고(AP 0.948 vs 0.883), 1·2계층의 가치(명백 위반·비편향 이상치)는 독립
@@ -42,13 +42,11 @@ from pipeline.monitor import check_distribution
 from pipeline.user_rules import load_ruleset
 
 try:  # 3계층 — 의존성(torch)·아티팩트가 없으면 2계층으로 폴백
-    from models.layer3 import DEEP_THRESHOLDS
     from models.layer3 import account_metrics as layer3_metrics
     from models.layer3 import score_account as layer3_score
 except Exception:  # noqa: BLE001
     layer3_score = None
     layer3_metrics = None
-    DEEP_THRESHOLDS = {}  # 3계층 없음 → 거래별 점수도 없어 조언 판정에 쓰이지 않음
 
 # DB(trades) 컬럼 → 모델이 기대하는 표준 컬럼
 DB_TO_STANDARD = {
@@ -292,12 +290,15 @@ def run_pipeline_from_db(
     # 규칙 조언 재료 — 분석 시점에 켜져 있던 규칙, 전체 이력의 하루 매매대금
     enabled_rules = {rule_id for rule_id, _param in ruleset}
     daily_median = daily_amount_median(full_history)
+    # 조언 임계값은 판정에 쓴 값 그대로(layer3 결과, 모델 메타에서) — 3계층이 없으면
+    # 거래별 점수도 없어 조언 판정에 쓰이지 않는다.
+    thresholds = (layer3_result or {}).get("thresholds", {})
     for tid, e in zip(std_tids, ensemble):
         t = trade_by_id[int(tid)]
         deep = e["deep"] or {}
         stat = e["stat"] or {}
         advice = rule_advice(t.거래구분, deep.get("bias_scores"), enabled_rules,
-                             daily_median, DEEP_THRESHOLDS)
+                             daily_median, thresholds)
         db.add(AnalysisResult(
             user_id     = parsed_uid,
             upload_id   = upload_id,

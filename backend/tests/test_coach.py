@@ -8,7 +8,6 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from models.layer3 import DEEP_THRESHOLDS
 from pipeline.coach import (account_bias_scores, daily_amount_median,
                             load_account_bias_scores, rule_advice)
 
@@ -52,7 +51,10 @@ def test_no_rows_all_withheld():
 
 # ─ 규칙 조언 (거래 1건 단위) ─
 
-TH = DEEP_THRESHOLDS   # 3계층 판정과 같은 편향별 임계값을 넘겨 쓴다
+# 3계층 판정과 같은 편향별 임계값을 넘겨 쓴다(운영에선 layer3 결과의 thresholds = 모델 메타).
+# 값은 10/2 보정값 — 여기선 조언 로직만 검사하므로 숫자 자체는 임의여도 된다.
+TH = {"disposition_strength": 0.7345, "overconfidence": 0.649,
+      "lottery_preference": 0.703, "herd_sensitivity": 0.705}
 MEDIAN = 2_600_000.0
 
 

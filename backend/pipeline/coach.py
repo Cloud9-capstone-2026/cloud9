@@ -59,7 +59,7 @@ def rule_advice(side, bias_scores, enabled_rule_ids, daily_median, thresholds) -
     """거래 1건의 (거래구분, 편향 점수) → 규칙 조언 목록(없으면 빈 목록).
 
     편향마다 따로 본다(가장 강한 편향이 아니어도 그 편향의 임계값을 넘으면 조언).
-    thresholds는 편향별 임계값 dict(models.layer3.DEEP_THRESHOLDS) — 판정과 같은
+    thresholds는 편향별 임계값 dict(layer3 결과의 thresholds = 모델 메타) — 판정과 같은
     값. 그 거래 방향의 편향만 본다(매도는 처분효과, 매수는 과잉확신 — 반대편
     점수는 판정에도 쓰지 않는 값). 짝 규칙이 이미 켜져 있으면 권하지 않는다.
     bias_scores가 없는 거래(3계층 제외·판정 불가)는 조언 없음."""

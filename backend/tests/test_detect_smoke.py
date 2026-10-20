@@ -13,7 +13,6 @@ import pytest
 from models.rule_based import run_rule_based
 from models.zscore import MIN_BASELINE_ROWS, run_zscore
 from pipeline.coach import ADVICE_DISCLAIMER
-from models.layer3 import DEEP_THRESHOLDS
 from pipeline.detect import _build_ensemble
 
 # 신규 거래 추출(_extract_new_trades)은 2026-09-02 삭제 — 신규 판정은 저장
@@ -63,7 +62,11 @@ def _stat_row(anomalous, m=None):
             "is_anomaly": anomalous}
 
 
-TH_D = DEEP_THRESHOLDS["disposition_strength"]
+# 가짜 3계층 결과가 내려주는 임계값(운영에선 모델 메타). 판정은 layer3가 deep_flag로
+# 하므로 여기선 flag와 조언이 같은 기준을 쓰는지만 본다.
+TH = {"disposition_strength": 0.7345, "overconfidence": 0.649,
+      "lottery_preference": 0.703, "herd_sensitivity": 0.705}
+TH_D = TH["disposition_strength"]
 
 
 def _deep_row(score):
@@ -212,7 +215,7 @@ def test_db_write_includes_deep_details(monkeypatch, standard_trades):
             } for i in range(len(df))],
             "deep_score": 0.9, "bias_mean": {}, "n_events": len(df),
             "account_metrics": None, "model_version": "2026-10-02T16:53:35",
-            "index_missing": False,
+            "index_missing": False, "thresholds": TH,
         }
 
     monkeypatch.setattr(detect, "layer3_score", fake_layer3)

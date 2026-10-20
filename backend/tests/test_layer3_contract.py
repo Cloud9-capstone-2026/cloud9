@@ -27,7 +27,8 @@ def _assert_contract(out, n_trades):
     """score_* 공통 계약: 구조·값 범위·행 1:1 매칭·요약 규약."""
     assert out is not None, "픽스처 입력에서 채점 실패하면 안 됨 (경고 로그 확인)"
     assert set(out) >= {"per_trade", "deep_score", "bias_mean", "n_events", "model_version",
-                        "index_missing"}
+                        "index_missing", "thresholds"}
+    assert set(out["thresholds"]) == BIAS_PARAMS  # 판정에 쓴 값(메타) — 조언이 같은 값을 쓴다
     assert out["n_events"] == n_trades  # max_len 안 — 전 거래 채점
     assert 0.0 <= out["deep_score"] <= 1.0
 
@@ -56,6 +57,20 @@ def test_score_from_trades_contract(fake_layer3, synthetic_trades, price_df, ind
     )
     _assert_contract(out, len(synthetic_trades))
     assert out["index_missing"] is False  # 지수 표가 전부 채워져 있음
+
+
+def test_model_without_thresholds_is_not_loaded(monkeypatch, tmp_path):
+    """메타에 임계값이 없으면 모델을 올리지 않는다(예외 → score None → 2계층 폴백) — 옛
+    코드 상수로 새 모델을 판정하던 경로를 닫는다. 임계값은 tagger_meta.thresholds에 산다."""
+    import json
+    from models import layer3
+    meta = {"created": "x", "attrs": ["attr_disposition"],
+            "attr_param": {"attr_disposition": "disposition_strength"},
+            "model": {"n_channels": 17, "hidden": 8, "layers": 1}}
+    (tmp_path / "tagger_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    monkeypatch.setattr(layer3, "_ensure_artifacts", lambda: tmp_path)
+    with pytest.raises(RuntimeError, match="임계값"):
+        layer3._load_artifacts.__wrapped__()  # lru_cache 우회
 
 
 def test_index_missing_flag_when_index_has_gaps(fake_layer3, synthetic_trades, price_df, index_df):
