@@ -23,8 +23,14 @@ deep_excluded=True — detect.py가 그 계좌의 3계층 채점을 생략하고
 
 발동 기준을 2개로 시작하는 이유: 기준선(상하위 1%)이 민감해 정상 계좌도 지표
 하나쯤은 걸릴 수 있고, 진짜 분포 밖 계좌는 지표들이 상관돼 있어 여러 개가
-같이 이탈한다(초단타 → 회전율·보유기간·거래수 동시). 실사용 데이터가 쌓이면
+같이 이탈한다(초단타 → 회전율·거래량 이상도 등). 실사용 데이터가 쌓이면
 환경변수로 조정한다.
+
+점검에서 빼는 지표(_SKIP): 기준표에 있어도 건너뛴다. 거래 건수(n_trades)는 누적량이라
+실계좌 이력이 학습 창(1년 남짓, 최대 201건)을 넘는 순간 영구 이탈이 되어 발동 기준이
+사실상 1개로 줄어든다(2026-10-12 검토). 초단타는 연 회전율이 잡는다. 기준표 생성
+(make_distribution_ref)에서도 빼므로 다음 번들부터는 파일에 없다 — 여기서 건너뛰는 건
+기존 Release 번들로 운영 중인 서버에 재배포 없이 적용하기 위해서다.
 """
 
 import json
@@ -47,6 +53,7 @@ if str(_REPO_ROOT) not in sys.path:
 from config.settings import get  # 2026-08-27 CANARY_DIST_TRIGGER settings.yaml 이관
 
 _ART_DIR = Path(os.environ.get("CANARY_MODEL_DIR", _REPO_ROOT / "ml" / "artifacts"))
+_SKIP = {"n_trades"}  # 사유는 모듈 설명 참조
 
 
 def _load_ref() -> dict | None:
@@ -94,7 +101,7 @@ def check_distribution(account_metrics: dict | None) -> dict:
     checked = []
     for name, spec in ref.get("metrics", {}).items():
         value = account_metrics.get(name)
-        if value is None:
+        if value is None or name in _SKIP:
             continue
         q = spec["quantiles"]
         p1, p99 = q[0], q[-1]

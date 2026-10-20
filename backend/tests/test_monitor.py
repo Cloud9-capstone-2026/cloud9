@@ -38,7 +38,7 @@ def test_all_inside_is_ok(fake_ref):
     out = check_distribution(INSIDE)
     assert out["status"] == "ok"
     assert out["out_of_range"] == {}
-    assert sorted(out["checked"]) == sorted(REF["metrics"])
+    assert sorted(out["checked"]) == sorted(set(REF["metrics"]) - monitor._SKIP)
 
 
 @pytest.mark.parametrize("key,value", [
@@ -56,6 +56,16 @@ def test_out_of_range_flags_metric(fake_ref, key, value):
     assert detail["ref_p99"] == REF["metrics"][key]["quantiles"][-1]
     # 나머지 지표는 이탈 아님
     assert set(out["out_of_range"]) == {key}
+
+
+def test_trade_count_is_never_flagged(fake_ref):
+    """거래 건수는 기준표에 있어도 점검하지 않는다 — 누적량이라 학습 창(최대 201건)을
+    넘는 실계좌가 영구 이탈이 되던 문제(2026-10-12 검토). 발동 개수에도 안 들어간다."""
+    out = check_distribution({**INSIDE, "n_trades": 1000})
+    assert out["status"] == "ok"
+    assert "n_trades" not in out["checked"]
+    out = check_distribution({**INSIDE, "n_trades": 1000, "turnover_annual": 2000.0})
+    assert out["deep_excluded"] is False  # 회전율 1개뿐 — 건수는 세지 않음
 
 
 def test_boundary_values_are_inside(fake_ref):
