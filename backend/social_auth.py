@@ -1,27 +1,4 @@
-"""
-소셜로그인 제공자별 토큰 검증.
-
-[2026-08-18] 구글/네이버만 지원(카카오는 팀 결정으로 이번 범위에서 제외 —
-이메일 동의항목을 쓰려면 카카오 "개인 개발자 비즈 앱" 전환 + 별도 심사가
-필요해 일정상 보류. 나중에 추가할 때는 VERIFIERS에 항목만 더하면 됨).
-
-아직 구글/네이버 어느 콘솔에도 앱 등록 전이라, 서버 쪽 비밀키(client
-secret) 없이 동작하도록 설계했다:
-
-- 구글: 클라이언트(React Native)가 구글 SDK로 받은 ID 토큰을 그대로 여기로
-  넘긴다. google-auth 라이브러리가 구글 공개키로 서명·만료를 검증하므로
-  우리 서버는 별도 시크릿이 필요 없다. GOOGLE_CLIENT_ID 환경변수가 설정되면
-  audience(aud claim)까지 검증해 "우리 앱이 발급받은 토큰이 맞는지"까지
-  확인한다 — 미설정 시 서명 검증만 하고 넘어가므로(약한 검증) 앱 등록 후
-  반드시 채워야 한다.
-- 네이버: 클라이언트가 이미 OAuth로 받아온 access_token을 그대로 네이버
-  사용자정보 API에 실어 보내 신원을 확인한다. 이 방식도 서버 쪽 비밀키가
-  필요 없다(단순 프록시 호출).
-
-주의: 실제 앱 등록 전이라 네이버 응답 필드명은 공식 문서 기준으로 작성했지만
-실제 토큰으로 검증된 적은 없음 — 앱 등록 후 반드시 실제 로그인 1회 이상
-테스트 필요.
-"""
+import logging
 import os
 from typing import Optional, TypedDict
 
@@ -32,6 +9,8 @@ from google.oauth2 import id_token as google_id_token
 
 _HTTP_TIMEOUT = 5.0
 
+logger = logging.getLogger("canary.social_auth")
+
 
 class SocialUserInfo(TypedDict):
     provider_id: str
@@ -41,13 +20,19 @@ class SocialUserInfo(TypedDict):
 
 
 def verify_google_id_token(token: str) -> SocialUserInfo:
-    client_id = os.getenv("GOOGLE_CLIENT_ID")  # 미설정 시 audience 검증 생략
+    client_id = os.getenv("GOOGLE_CLIENT_ID")
+    if not client_id:
+        # aud 검증 없이 통과시키면 다른 앱용 토큰도 받아버린다 — 차라리 막는다.
+        logger.error("GOOGLE_CLIENT_ID 미설정 — 구글 로그인 요청을 거부함 (.env 확인)")
+        raise HTTPException(status_code=503, detail="구글 로그인을 일시적으로 사용할 수 없습니다")
     try:
         payload = google_id_token.verify_oauth2_token(
             token, google_requests.Request(), audience=client_id,
         )
     except ValueError:
         raise HTTPException(status_code=401, detail="유효하지 않은 구글 토큰입니다")
+    if not payload.get("email_verified", False):
+        raise HTTPException(status_code=401, detail="이메일 인증이 완료된 구글 계정만 사용할 수 있습니다")
     return {
         "provider_id": payload["sub"],
         "email": payload.get("email"),

@@ -150,6 +150,7 @@ cd backend
 pip install -r requirements.txt
 
 # .env 파일에 필요한 환경변수 설정 (DB 접속 정보 등)
+# 구글 로그인: GOOGLE_CLIENT_ID=<구글 콘솔 "웹" 클라이언트 ID> (없으면 구글 로그인 503)
 uvicorn main:app --reload
 ```
 Swagger UI: http://localhost:8000/docs

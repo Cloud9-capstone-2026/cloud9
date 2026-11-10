@@ -568,6 +568,63 @@ def test_social_login_unknown_provider_rejected(client):
 
 
 # ---------------------------------------------------------------------------
+# 구글 토큰 검증 자체 (2026-11-10) — 위 테스트들은 VERIFIERS를 통째로 갈아끼워서
+# verify_google_id_token 내부 로직을 안 탄다. 여기선 구글 라이브러리 호출만 mock.
+# ---------------------------------------------------------------------------
+
+_GOOGLE_PAYLOAD = {
+    "sub": "google-uid-777", "email": "g@test.com",
+    "name": "구글유저", "email_verified": True,
+}
+
+
+def test_google_login_rejected_when_client_id_missing(client, monkeypatch):
+    """GOOGLE_CLIENT_ID가 없으면 aud 검증을 건너뛰지 말고 아예 거부해야 한다."""
+    import social_auth
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    called = []
+    monkeypatch.setattr(social_auth.google_id_token, "verify_oauth2_token",
+                        lambda *a, **k: called.append(1) or _GOOGLE_PAYLOAD)
+
+    r = client.post("/auth/social/google", json={"token": "t"})
+    assert r.status_code == 503
+    assert called == []  # 구글 검증까지 가지도 않음
+
+
+def test_google_login_passes_client_id_as_audience(client, monkeypatch):
+    import social_auth
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "web-client-id.apps.googleusercontent.com")
+    seen = {}
+
+    def fake_verify(token, request, audience=None):
+        seen["audience"] = audience
+        return _GOOGLE_PAYLOAD
+
+    monkeypatch.setattr(social_auth.google_id_token, "verify_oauth2_token", fake_verify)
+
+    r = client.post("/auth/social/google", json={"token": "t"})
+    assert r.status_code == 200
+    assert seen["audience"] == "web-client-id.apps.googleusercontent.com"
+
+
+def test_google_login_rejects_unverified_email(client, monkeypatch):
+    import social_auth
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "web-client-id.apps.googleusercontent.com")
+    monkeypatch.setattr(social_auth.google_id_token, "verify_oauth2_token",
+                        lambda *a, **k: {**_GOOGLE_PAYLOAD, "email_verified": False})
+
+    r = client.post("/auth/social/google", json={"token": "t"})
+    assert r.status_code == 401
+
+    from orm import User
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    assert db.query(User).filter(User.provider_id == "google-uid-777").count() == 0
+    db.close()
+
+
+# ---------------------------------------------------------------------------
 # 비밀번호 재설정 (2026-08-27)
 # ---------------------------------------------------------------------------
 
