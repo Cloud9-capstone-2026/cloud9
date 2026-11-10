@@ -33,6 +33,12 @@ POST /auth/password-reset/confirm  - 이메일+코드+새 비밀번호로 재설
                       이지만 컬럼은 분리(auth.py 주석 참고).
 GET  /auth/me                      - 본인 프로필 조회.
 PATCH /auth/me                     - 본인 이름 변경.
+POST /auth/me/agree-terms          - [2026-11-10] 소셜 가입자의 닉네임+약관 동의 기록.
+                      소셜로그인은 provider 토큰만으로 계정을 만들어
+                      agreed_terms=False 상태로 생성된다(로컬 가입은 signup에서
+                      동의를 강제). 프론트는 소셜로그인 직후 GET /auth/me의
+                      agreed_terms가 false면 SocialExtra 화면을 띄우고 이걸
+                      호출한다. 최초 동의 시각(agreed_terms_at)은 덮어쓰지 않는다.
 PUT  /auth/me/password              - 로그인 상태에서 비밀번호 변경
                       (현재 비밀번호 확인 필요 — 재설정과 다른 플로우).
                       provider != 'local'인 계정(소셜로그인)은 애초에
@@ -123,6 +129,12 @@ class PasswordResetConfirmRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     name: str = Field(min_length=1, max_length=50)
+
+
+class AgreeTermsRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=50)
+    # signup과 같은 이유로 Optional이 아닌 필수 필드 — false/누락 둘 다 막는다.
+    agreed_terms: bool
 
 
 class ChangePasswordRequest(BaseModel):
@@ -330,6 +342,30 @@ def update_my_profile(
     current_user: User = Depends(get_current_user),
 ):
     current_user.name = payload.name
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/me/agree-terms", response_model=UserProfileResponse)
+def agree_terms(
+    payload: AgreeTermsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """소셜 가입자가 SocialExtra 화면에서 닉네임 입력 + 약관 동의를 마칠 때 호출.
+    재호출해도 안전하다(닉네임만 갱신, 최초 동의 시각은 유지)."""
+    if not payload.agreed_terms:
+        raise HTTPException(status_code=400, detail="이용약관에 동의해야 서비스를 이용할 수 있습니다")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="닉네임을 입력해주세요")
+
+    current_user.name = name
+    if not current_user.agreed_terms:
+        current_user.agreed_terms = True
+        current_user.agreed_terms_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(current_user)
     return current_user

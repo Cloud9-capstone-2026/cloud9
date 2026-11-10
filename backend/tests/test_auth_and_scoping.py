@@ -625,6 +625,93 @@ def test_google_login_rejects_unverified_email(client, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# 소셜 가입자 약관 동의 (2026-11-10) — 소셜로그인은 agreed_terms=False로
+# 계정을 만들므로 SocialExtra 화면에서 POST /auth/me/agree-terms로 기록한다.
+# ---------------------------------------------------------------------------
+
+def _social_token(client, monkeypatch, provider_id="n-terms-1", email="socialterms@test.com"):
+    from social_auth import VERIFIERS
+    monkeypatch.setitem(VERIFIERS, "naver", lambda token: {
+        "provider_id": provider_id, "email": email,
+        "name": "네이버이름", "email_verified": True,
+    })
+    return client.post("/auth/social/naver", json={"token": "t"}).json()["access_token"]
+
+
+def test_social_signup_starts_without_terms_agreement(client, monkeypatch):
+    token = _social_token(client, monkeypatch)
+    me = client.get("/auth/me", headers=_auth_header(token)).json()
+    assert me["agreed_terms"] is False  # 프론트가 이 값으로 SocialExtra 화면 분기
+
+
+def test_agree_terms_records_agreement_and_name(client, monkeypatch):
+    token = _social_token(client, monkeypatch)
+    r = client.post("/auth/me/agree-terms", json={"name": "캐너리", "agreed_terms": True},
+                    headers=_auth_header(token))
+    assert r.status_code == 200
+    assert r.json()["agreed_terms"] is True
+    assert r.json()["name"] == "캐너리"
+
+    from orm import User
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    user = db.query(User).filter(User.provider_id == "n-terms-1").one()
+    assert user.agreed_terms_at is not None
+    db.close()
+
+
+def test_agree_terms_rejects_false(client, monkeypatch):
+    token = _social_token(client, monkeypatch)
+    r = client.post("/auth/me/agree-terms", json={"name": "캐너리", "agreed_terms": False},
+                    headers=_auth_header(token))
+    assert r.status_code == 400
+    me = client.get("/auth/me", headers=_auth_header(token)).json()
+    assert me["agreed_terms"] is False
+
+
+def test_agree_terms_requires_agreed_terms_field(client, monkeypatch):
+    token = _social_token(client, monkeypatch)
+    r = client.post("/auth/me/agree-terms", json={"name": "캐너리"}, headers=_auth_header(token))
+    assert r.status_code == 422
+
+
+def test_agree_terms_rejects_blank_name(client, monkeypatch):
+    token = _social_token(client, monkeypatch)
+    r = client.post("/auth/me/agree-terms", json={"name": "   ", "agreed_terms": True},
+                    headers=_auth_header(token))
+    assert r.status_code == 400
+
+
+def test_agree_terms_requires_auth(client):
+    r = client.post("/auth/me/agree-terms", json={"name": "캐너리", "agreed_terms": True})
+    assert r.status_code == 401
+
+
+def test_agree_terms_keeps_first_agreed_at(client, monkeypatch):
+    """재호출해도 최초 동의 시각은 덮어쓰지 않는다(동의 이력 보존)."""
+    token = _social_token(client, monkeypatch)
+    client.post("/auth/me/agree-terms", json={"name": "처음", "agreed_terms": True},
+                headers=_auth_header(token))
+
+    from orm import User
+    from database import get_db
+    from main import app
+    db = next(app.dependency_overrides[get_db]())
+    first = db.query(User).filter(User.provider_id == "n-terms-1").one().agreed_terms_at
+    db.close()
+
+    r = client.post("/auth/me/agree-terms", json={"name": "바꾼이름", "agreed_terms": True},
+                    headers=_auth_header(token))
+    assert r.json()["name"] == "바꾼이름"
+
+    db = next(app.dependency_overrides[get_db]())
+    again = db.query(User).filter(User.provider_id == "n-terms-1").one().agreed_terms_at
+    assert again == first
+    db.close()
+
+
+# ---------------------------------------------------------------------------
 # 비밀번호 재설정 (2026-08-27)
 # ---------------------------------------------------------------------------
 
