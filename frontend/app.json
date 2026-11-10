@@ -25,7 +25,18 @@
     "plugins": [
       "expo-status-bar",
       "@react-native-google-signin/google-signin",
-      ["@react-native-seoul/naver-login", { "urlScheme": "canarynaverlogin" }]
-    ]
+      [
+        "@react-native-seoul/naver-login",
+        {
+          "urlScheme": "canarynaverlogin"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b78d9b12-fb86-4272-b411-1a51befaf371"
+      }
+    },
+    "owner": "dogyung"
   }
 }
