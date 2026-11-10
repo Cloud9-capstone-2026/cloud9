@@ -10,6 +10,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "kr.co.canaryservice",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -22,7 +23,9 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-status-bar"
+      "expo-status-bar",
+      "@react-native-google-signin/google-signin",
+      ["@react-native-seoul/naver-login", { "urlScheme": "canarynaverlogin" }]
     ]
   }
 }
